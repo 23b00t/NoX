@@ -1,0 +1,10 @@
+[package]
+name = "nox-relay"
+version = "0.1.0"
+description = "Relays Unix sockets between Xen domains over one vchan"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+libc = "0.2"

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["crates/nox-relay"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/23b00t/NoX"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
