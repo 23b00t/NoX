@@ -14,3 +14,7 @@ version = "0.1.0"
 dependencies = [
  "libc",
 ]
+
+[[package]]
+name = "nox-rpc"
+version = "0.1.0"

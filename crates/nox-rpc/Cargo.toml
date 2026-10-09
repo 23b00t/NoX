@@ -1,0 +1,9 @@
+[package]
+name = "nox-rpc"
+version = "0.1.0"
+description = "qrexec-like RPC between Xen domains, mediated by dom0 (over nox-relay)"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

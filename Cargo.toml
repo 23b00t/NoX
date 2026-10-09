@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/nox-relay"]
+members = ["crates/nox-relay", "crates/nox-rpc"]
 
 [workspace.package]
 edition = "2021"

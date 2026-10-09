@@ -12,12 +12,14 @@
     {
       nixosModules = {
         relay = import ./nixos/modules/relay.nix { inherit self; };
+        rpc = import ./nixos/modules/rpc.nix { inherit self; };
         default = self.nixosModules.relay;
       };
 
       overlays.default = final: _prev: {
         nox-vchan-libs = final.callPackage ./nix/vchan-libs.nix { };
         nox-relay = final.callPackage ./nix/nox-relay.nix { vchan-libs = final.nox-vchan-libs; };
+        nox-rpc = final.callPackage ./nix/nox-rpc.nix { };
       };
 
       packages = forAllSystems (
@@ -26,7 +28,7 @@
           nox = pkgs.extend self.overlays.default;
         in
         {
-          inherit (nox) nox-vchan-libs nox-relay;
+          inherit (nox) nox-vchan-libs nox-relay nox-rpc;
           default = nox.nox-relay;
         }
       );
