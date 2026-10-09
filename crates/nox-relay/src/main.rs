@@ -13,6 +13,9 @@ mod vchan;
 use std::process::ExitCode;
 use std::time::Duration;
 
+/// Client: connection attempts, 2 s apart, before giving up.
+const CLIENT_ATTEMPTS: u32 = 15;
+
 const USAGE: &str = "usage: nox-relay --role server|client --peer <domid> --path <xenstore-path> --config <file> [--ring <bytes>]";
 
 struct Args {
@@ -86,15 +89,22 @@ fn main() -> ExitCode {
             }
         }
     } else {
-        // The server may not be up yet (or restarting): keep trying
-        let mut logged = false;
+        // The server may not be up yet (guest booting): keep trying for a
+        // while, then exit. The domain id may also be stale (a guest that was
+        // shutting down when it was looked up); the service manager restarts
+        // us with a fresh one.
+        let mut attempt = 0;
         loop {
             match vchan::Vchan::client(args.peer, &args.path) {
                 Ok(v) => break v,
                 Err(e) => {
-                    if !logged {
+                    if attempt == 0 {
                         eprintln!("waiting for domain {} at {}: {e}", args.peer, args.path);
-                        logged = true;
+                    }
+                    attempt += 1;
+                    if attempt >= CLIENT_ATTEMPTS {
+                        eprintln!("domain {} did not offer the vchan, giving up", args.peer);
+                        return ExitCode::FAILURE;
                     }
                     std::thread::sleep(Duration::from_secs(2));
                 }
