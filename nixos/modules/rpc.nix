@@ -6,7 +6,9 @@
 #   guest user (`guest.handlers.<service>`, stdin/stdout = the stream)
 # - host (dom0): nox-rpcd learns the source from the socket a call arrives
 #   on (one per guest), checks `host.policy` (first match wins, default deny,
-#   `ask` = notification with buttons) and pipes the bytes to the target
+#   `ask` = notification with buttons) and pipes the bytes to the target;
+#   dom0's own calls (`nox-rpc --dom0 <service> <guest>`, e.g. `app`) go
+#   straight to the guest's `rpc-in` with the source `dom0`
 #
 # Needs services.nox-relay on both sides (relay.nix).
 { self }:
@@ -42,6 +44,37 @@ let
         exit 1
         ;;
     esac
+  '';
+
+  # Guest handler `app`: only dom0 may start programs. Transient user units
+  # outlive the call, get the user manager's environment (PATH, HOME as
+  # working directory) and log to the journal.
+  runArgs = lib.escapeShellArgs (
+    lib.mapAttrsToList (n: v: "--setenv=${n}=${v}") cfg.guest.apps.environment
+    ++ map (u: "--property=After=${u}") cfg.guest.apps.after
+  );
+  startApp = ''
+    if [ "$source" != dom0 ]; then
+      echo "error: only dom0 starts apps"
+      exit 1
+    fi
+    args=()
+    while IFS= read -r -d "" arg; do
+      args+=("$arg")
+    done
+    if [ "''${#args[@]}" -eq 0 ]; then
+      echo "error: no command"
+      exit 1
+    fi
+    XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    PATH="/etc/profiles/per-user/$USER/bin:/run/current-system/sw/bin"
+    export XDG_RUNTIME_DIR PATH
+    if out="$(systemd-run --user --collect --quiet ${runArgs} -- "''${args[@]}" 2>&1)"; then
+      echo "ok: started ''${args[0]}"
+    else
+      echo "error: $out"
+      exit 1
+    fi
   '';
 
   vmCopy = pkgs.writeShellScriptBin "vm-copy" ''
@@ -103,16 +136,33 @@ in
       };
       handlers = lib.mkOption {
         type = lib.types.attrsOf lib.types.lines;
-        description = "Shell code per service; `$source` is the calling domain, stdin/stdout the stream.";
-        default.copy = ''
-          dir="$HOME/Incoming/$source"
-          mkdir -p "$dir"
-          if ${pkgs.gnutar}/bin/tar -x --no-same-owner --no-same-permissions -C "$dir" -f -; then
-            echo "ok: in ~/Incoming/$source"
-          else
-            echo "error: extracting failed"
-          fi
+        default = { };
+        description = ''
+          Shell code per service; `$source` is the calling domain (`dom0` for
+          dom0's own calls), stdin/stdout the stream. Built in: `copy`, and
+          `app` with `apps.enable`.
         '';
+      };
+      apps = {
+        enable = lib.mkEnableOption ''
+          the `app` service: dom0 starts programs in the guest
+          (`nox-rpc --dom0 app <guest>`, stdin = argv, each argument
+          NUL-terminated) as transient units of `user`'s systemd instance
+          (needs linger)'';
+        environment = lib.mkOption {
+          type = lib.types.attrsOf lib.types.str;
+          default = { };
+          example = {
+            WAYLAND_DISPLAY = "wprs-0";
+          };
+          description = "Environment for started programs, on top of the user manager's.";
+        };
+        after = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [ ];
+          example = [ "wprsd.service" ];
+          description = "User units started programs wait for (e.g. the display server).";
+        };
       };
     };
 
@@ -198,6 +248,19 @@ in
         };
       };
 
+      services.nox-rpc.guest.handlers = {
+        copy = lib.mkDefault ''
+          dir="$HOME/Incoming/$source"
+          mkdir -p "$dir"
+          if ${pkgs.gnutar}/bin/tar -x --no-same-owner --no-same-permissions -C "$dir" -f -; then
+            echo "ok: in ~/Incoming/$source"
+          else
+            echo "error: extracting failed"
+          fi
+        '';
+        app = lib.mkIf cfg.guest.apps.enable (lib.mkDefault startApp);
+      };
+
       environment.systemPackages = [
         cfg.package
         vmCopy
@@ -212,6 +275,8 @@ in
           inherit (cfg.host) owner;
         };
       });
+
+      environment.systemPackages = [ cfg.package ];
 
       systemd.services.nox-rpcd = {
         description = "nox-rpc broker (policy, pipes between guests)";

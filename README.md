@@ -53,9 +53,41 @@ services.nox-relay.host = {
 };
 ```
 
+## nox-rpc
+
+qrexec-like calls between guests, mediated by dom0 over nox-relay. A guest
+runs `nox-rpc <service> <target>`; `nox-rpcd` in dom0 knows the caller from
+the socket the call arrives on (one per guest, never from the guest's
+words), checks the policy (first match wins, no match = deny, `ask` = a
+notification with buttons) and pipes the bytes to the target, where systemd
+starts the service's handler as the guest user. dom0 calls guests itself
+with `nox-rpc --dom0 <service> <guest>` (source `dom0`, reserved).
+
+Built-in services: `copy` (`vm-copy <target> <files>`, lands in
+`~/Incoming/<source>/`) and `app` (dom0 starts programs in the guest,
+argv NUL-separated on stdin, as transient user units).
+
+```nix
+imports = [ inputs.nox.nixosModules.relay inputs.nox.nixosModules.rpc ];
+
+# guest
+services.nox-rpc.guest = {
+  enable = true;
+  apps = { enable = true; environment.WAYLAND_DISPLAY = "wprs-0"; };
+};
+
+# dom0
+services.nox-rpc.host = {
+  enable = true;
+  guests = [ "coding" "chat" ];
+  policy = [ { service = "copy"; action = "ask"; } ];
+};
+```
+
 ## Development
 
 ```sh
 nix develop -c cargo test
 nix build .#nox-relay
+nix build .#nox-rpc
 ```

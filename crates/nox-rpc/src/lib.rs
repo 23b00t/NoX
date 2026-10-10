@@ -5,6 +5,9 @@
 //! socket the call came in on, checks the policy, answers `ok` or `denied`,
 //! and connects to the target's `rpc-in` socket with the header
 //! `<service> <source>`. From then on it only passes bytes in both directions.
+//!
+//! dom0 itself calls a guest directly on its `rpc-in` socket with the source
+//! `dom0` (no policy, dom0 is trusted).
 
 pub mod config;
 
@@ -12,6 +15,10 @@ use std::io::{self, BufRead, Read, Write};
 
 /// Longest header line accepted (both directions).
 pub const MAX_HEADER: usize = 256;
+
+/// Source name of calls dom0 makes itself (`nox-rpc --dom0`, e.g. app
+/// start); reserved, no guest may use it.
+pub const DOM0: &str = "dom0";
 
 /// Service and domain names: 1..=32 of [a-z0-9-].
 pub fn valid_name(name: &str) -> bool {

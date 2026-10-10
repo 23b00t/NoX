@@ -13,6 +13,10 @@ use std::path::PathBuf;
 
 /// Stop reading local sockets while this much is queued for the vchan.
 const VOUT_HIGH: usize = 1 << 20;
+/// Stop reading the vchan while this much is queued for it: answers to the
+/// peer's frames (OpenErr, Credit, ...) pile up when the peer does not read
+/// its ring. Data is held at VOUT_HIGH, so a well-behaved peer never gets here.
+const VOUT_LIMIT: usize = 4 << 20;
 /// Return credit to the peer in steps of at least this size.
 const CREDIT_STEP: usize = 32 * 1024;
 const MAX_STREAMS: usize = 256;
@@ -115,7 +119,11 @@ impl Relay {
                 if !s.out.is_empty() {
                     ev |= libc::POLLOUT;
                 }
-                fds.push(pollfd(s.sock.as_raw_fd(), ev));
+                // Nothing to do on this socket now: leave it out (fd -1), or
+                // a hang-up would wake us every round. Unread data and EOF
+                // wait in the socket until we may read again.
+                let fd = if ev == 0 { -1 } else { s.sock.as_raw_fd() };
+                fds.push(pollfd(fd, ev));
             }
             // Short timeout while the ring is full: the peer's notification
             // when it frees space is the fast path, this is the fallback
@@ -156,7 +164,7 @@ impl Relay {
     }
 
     fn pump_vchan(&mut self, buf: &mut [u8]) -> io::Result<()> {
-        loop {
+        while self.vout.len() < VOUT_LIMIT {
             let ready = self.vchan.data_ready();
             if ready == 0 {
                 break;
@@ -319,16 +327,16 @@ impl Relay {
         let Some(s) = self.streams.get_mut(&id) else {
             return;
         };
-        let max = if s.state == StreamState::Open {
+        let max = if s.state == StreamState::Open && !s.local_eof {
             s.window.min(MAX_PAYLOAD).min(buf.len())
         } else {
             0
         };
         if max == 0 {
-            // Hang-up while we may not read (opening or no window): give up
-            if rev & (libc::POLLHUP | libc::POLLERR) != 0 {
-                self.close(id);
-            }
+            // Only polled for writing here; a write error closes the stream
+            // in flush(). Reading waits for the window/OpenOk (a hang-up
+            // must not drop data the client sent before it), and after EOF
+            // there is nothing left to read.
             return;
         }
         match s.sock.read(&mut buf[..max]) {

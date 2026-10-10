@@ -11,6 +11,7 @@ use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
 use std::process::{Command, ExitCode};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -45,11 +46,14 @@ fn main() -> ExitCode {
             }
         };
         let (cfg, domain) = (Arc::clone(&cfg), domain.clone());
+        // One open `ask` per source: a guest must not flood the user with
+        // questions
+        let asking = Arc::new(AtomicBool::new(false));
         threads.push(thread::spawn(move || {
             for conn in listener.incoming().flatten() {
-                let (cfg, domain) = (Arc::clone(&cfg), domain.clone());
+                let (cfg, domain, asking) = (Arc::clone(&cfg), domain.clone(), Arc::clone(&asking));
                 thread::spawn(move || {
-                    if let Err(e) = handle(conn, &domain, &cfg) {
+                    if let Err(e) = handle(conn, &domain, &cfg, &asking) {
                         eprintln!("{domain}: {e}");
                     }
                 });
@@ -77,7 +81,7 @@ fn bind(path: &Path) -> io::Result<UnixListener> {
     Ok(l)
 }
 
-fn handle(mut conn: UnixStream, source: &str, cfg: &Config) -> io::Result<()> {
+fn handle(mut conn: UnixStream, source: &str, cfg: &Config, asking: &AtomicBool) -> io::Result<()> {
     conn.set_read_timeout(Some(Duration::from_secs(10)))?;
     let header = read_line(&mut conn)?;
     let Some((service, target)) = parse_pair(&header) else {
@@ -86,7 +90,15 @@ fn handle(mut conn: UnixStream, source: &str, cfg: &Config) -> io::Result<()> {
     };
 
     let action = match cfg.decide(service, source, target) {
-        Action::Ask => ask(cfg, service, source, target),
+        Action::Ask if asking.swap(true, Ordering::SeqCst) => {
+            eprintln!("{service}: {source} -> {target}: a question is already open");
+            Action::Deny
+        }
+        Action::Ask => {
+            let a = ask(cfg, service, source, target);
+            asking.store(false, Ordering::SeqCst);
+            a
+        }
         a => a,
     };
     eprintln!("{service}: {source} -> {target}: {action:?}");

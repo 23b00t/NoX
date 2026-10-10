@@ -9,9 +9,10 @@
 //! ```
 //!
 //! The first matching policy line decides; no match = deny. Calls to a
-//! domain without a `target` line or to the caller itself are denied.
+//! domain without a `target` line or to the caller itself are denied. The name
+//! `dom0` is reserved for dom0's own calls and refused as a domain.
 
-use crate::valid_name;
+use crate::{valid_name, DOM0};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +63,7 @@ impl Config {
 fn domain_or_any(s: &str) -> Result<Option<String>, ()> {
     if s == "*" {
         Ok(None)
-    } else if valid_name(s) {
+    } else if valid_name(s) && s != DOM0 {
         Ok(Some(s.to_string()))
     } else {
         Err(())
@@ -80,8 +81,8 @@ pub fn parse(text: &str) -> Result<Config, String> {
         let w: Vec<&str> = line.split_whitespace().collect();
         match w.as_slice() {
             ["source" | "target", domain, path] => {
-                if !valid_name(domain) {
-                    return Err(err("domain: 1-32 of [a-z0-9-]"));
+                if !valid_name(domain) || *domain == DOM0 {
+                    return Err(err("domain: 1-32 of [a-z0-9-], not dom0"));
                 }
                 if !path.starts_with('/') {
                     return Err(err("socket path must be absolute"));
@@ -156,6 +157,9 @@ mod tests {
         assert!(parse("source Bad /x").is_err());
         assert!(parse("source a relative").is_err());
         assert!(parse("source a /x\nsource a /y").is_err());
+        assert!(parse("source dom0 /x").is_err());
+        assert!(parse("target dom0 /x").is_err());
+        assert!(parse("policy copy dom0 * allow").is_err());
         assert!(parse("policy copy * * maybe").is_err());
         assert!(parse("policy copy ../x * allow").is_err());
         assert!(parse("ask-command relative").is_err());
