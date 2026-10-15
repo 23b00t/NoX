@@ -69,6 +69,12 @@ let
     XDG_RUNTIME_DIR="/run/user/$(id -u)"
     PATH="/etc/profiles/per-user/$USER/bin:/run/current-system/sw/bin"
     export XDG_RUNTIME_DIR PATH
+    # Early in the guest's boot the user manager may not be up yet; wait
+    # for its bus (a file test, no delay once it runs)
+    for _ in $(seq 30); do
+      [ -S "$XDG_RUNTIME_DIR/bus" ] && break
+      sleep 1
+    done
     if out="$(systemd-run --user --collect --quiet ${runArgs} -- "''${args[@]}" 2>&1)"; then
       echo "ok: started ''${args[0]}"
     else
