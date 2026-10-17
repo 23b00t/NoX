@@ -13,8 +13,11 @@ mod vchan;
 use std::process::ExitCode;
 use std::time::Duration;
 
-/// Client: connection attempts, 2 s apart, before giving up.
-const CLIENT_ATTEMPTS: u32 = 15;
+/// Client: connection attempts, `CLIENT_INTERVAL` apart, before giving up
+/// (60 s: a guest booting under load offered its vchan only after ~40 s and
+/// the restart cost seconds; every 0.5 s: connected right after the offer)
+const CLIENT_ATTEMPTS: u32 = 120;
+const CLIENT_INTERVAL: Duration = Duration::from_millis(500);
 
 const USAGE: &str = "usage: nox-relay --role server|client --peer <domid> --path <xenstore-path> --config <file> [--ring <bytes>]";
 
@@ -106,7 +109,7 @@ fn main() -> ExitCode {
                         eprintln!("domain {} did not offer the vchan, giving up", args.peer);
                         return ExitCode::FAILURE;
                     }
-                    std::thread::sleep(Duration::from_secs(2));
+                    std::thread::sleep(CLIENT_INTERVAL);
                 }
             }
         }
