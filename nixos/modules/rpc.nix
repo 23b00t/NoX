@@ -75,7 +75,18 @@ let
       [ -S "$XDG_RUNTIME_DIR/bus" ] && break
       sleep 1
     done
-    if out="$(systemd-run --user --collect --quiet ${runArgs} -- "''${args[@]}" 2>&1)"; then
+    # dom0 retries a call whose answer got lost (early boot) with the same
+    # token (`env NOX_APP_TOKEN=<hex> …`): the app runs as its unit, a
+    # repeated call doesn't start it twice (xmg 2026-10-17: foot came twice)
+    unit=()
+    if [ "''${args[0]}" = env ] && [[ "''${args[1]:-}" =~ ^NOX_APP_TOKEN=([0-9a-f]{8,32})$ ]]; then
+      unit=(--unit="nox-app-''${BASH_REMATCH[1]}")
+      if [ "$(systemctl --user show -p LoadState --value "nox-app-''${BASH_REMATCH[1]}.service")" = loaded ]; then
+        echo "ok: already started"
+        exit 0
+      fi
+    fi
+    if out="$(systemd-run --user --collect --quiet "''${unit[@]}" ${runArgs} -- "''${args[@]}" 2>&1)"; then
       echo "ok: started ''${args[0]}"
     else
       echo "error: $out"
