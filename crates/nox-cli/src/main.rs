@@ -173,6 +173,19 @@ enum Cmd {
         #[arg(short = 'n', long)]
         dry_run: bool,
     },
+    /// The most useful xl/Xen commands: pick one by number, edit it, run it
+    Xen(Pick),
+    /// The most useful nix/NixOS commands: pick one by number, edit it, run it
+    Nix(Pick),
+    /// The most useful admin commands: pick one by number, edit it, run it
+    Root(Pick),
+}
+
+/// A command list from /etc/nox/commands (section `## <group>`)
+#[derive(Args)]
+struct Pick {
+    /// Entry number; without it the list is shown and asks for one
+    n: Option<usize>,
 }
 
 #[derive(Subcommand)]
@@ -224,6 +237,100 @@ fn vm_action(action: &str, sel: Select) -> ExitCode {
     a.extend(sel.filter.args());
     a.extend(sel.vms.into_iter().map(OsString::from));
     exec("manage-vms", a)
+}
+
+/// Where `nox xen|nix|root` read their entries (NixOS module programs.nox)
+const COMMANDS_FILE: &str = "/etc/nox/commands";
+
+/// One entry: the command line and its description (after the last " # ")
+#[derive(Debug, PartialEq)]
+struct Entry {
+    cmd: String,
+    desc: String,
+}
+
+/// Entries of `## <group>` in the commands file. Lines are `cmd # desc`;
+/// blank lines and other `#` lines are skipped; a group may appear in
+/// several sections (extra entries appended by the configuration).
+fn entries(text: &str, group: &str) -> Vec<Entry> {
+    let mut inside = false;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(name) = line.strip_prefix("## ") {
+            inside = name.trim() == group;
+            continue;
+        }
+        if !inside || line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (cmd, desc) = match line.rsplit_once(" # ") {
+            Some((c, d)) => (c.trim(), d.trim()),
+            None => (line, ""),
+        };
+        out.push(Entry {
+            cmd: cmd.into(),
+            desc: desc.into(),
+        });
+    }
+    out
+}
+
+/// `nox xen|nix|root [n]`: list the group, take a number, then let bash
+/// edit the line (readline, prefilled like pcmd; placeholders `<…>` are
+/// replaced by hand), add it to the history and run it
+fn pick(group: &str, p: Pick) -> ExitCode {
+    let path = std::env::var("NOX_COMMANDS").unwrap_or_else(|_| COMMANDS_FILE.into());
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("nox: {path}: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let list = entries(&text, group);
+    if list.is_empty() {
+        eprintln!("nox: no entries under \"## {group}\" in {path}");
+        return ExitCode::from(2);
+    }
+    let n = match p.n {
+        Some(n) => n,
+        None => {
+            let width = list
+                .iter()
+                .map(|e| e.cmd.chars().count())
+                .max()
+                .unwrap_or(0);
+            for (i, e) in list.iter().enumerate() {
+                println!("{:>3}  {:<width$}  {}", i + 1, e.cmd, e.desc);
+            }
+            eprint!("> ");
+            let mut answer = String::new();
+            if std::io::stdin().read_line(&mut answer).is_err() {
+                return ExitCode::from(130);
+            }
+            match answer.trim() {
+                "" => return ExitCode::SUCCESS,
+                a => match a.parse() {
+                    Ok(n) => n,
+                    Err(_) => {
+                        eprintln!("nox: not a number: {a}");
+                        return ExitCode::from(2);
+                    }
+                },
+            }
+        }
+    };
+    let Some(entry) = n.checked_sub(1).and_then(|i| list.get(i)) else {
+        eprintln!("nox: no entry {n} (1-{})", list.len());
+        return ExitCode::from(2);
+    };
+    // Empty line or Ctrl+C: nothing runs
+    let script = r#"read -r -e -i "$1" -p '> ' c || exit 130
+[ -n "$c" ] || exit 0
+printf '%s\n' "$c" >>"${HISTFILE:-$HOME/.bash_history}"
+eval "$c""#;
+    exec("bash", ["-c", script, "nox", entry.cmd.as_str()])
 }
 
 fn main() -> ExitCode {
@@ -335,6 +442,9 @@ fn main() -> ExitCode {
             }
             exec("vm-gc", a)
         }
+        Cmd::Xen(p) => pick("xen", p),
+        Cmd::Nix(p) => pick("nix", p),
+        Cmd::Root(p) => pick("root", p),
     }
 }
 
@@ -366,5 +476,34 @@ mod tests {
         };
         assert_eq!(sel.vms, ["chat", "irc"]);
         assert_eq!(sel.filter.args(), ["--stale"]);
+    }
+
+    #[test]
+    fn entries_by_group() {
+        let text = "## xen\nsudo xl list # Domains\n\n# a comment\nsudo xl console <vm>-vm\n\
+                    ## nix\nnix eval \"nixpkgs#hello.version\" # Version of a package\n\
+                    ## xen\nsudo xl dmesg # appended later\n";
+        let xen = entries(text, "xen");
+        assert_eq!(
+            xen,
+            [
+                Entry {
+                    cmd: "sudo xl list".into(),
+                    desc: "Domains".into()
+                },
+                Entry {
+                    cmd: "sudo xl console <vm>-vm".into(),
+                    desc: "".into()
+                },
+                Entry {
+                    cmd: "sudo xl dmesg".into(),
+                    desc: "appended later".into()
+                },
+            ]
+        );
+        let nix = entries(text, "nix");
+        assert_eq!(nix[0].cmd, "nix eval \"nixpkgs#hello.version\"");
+        assert_eq!(nix[0].desc, "Version of a package");
+        assert!(entries(text, "root").is_empty());
     }
 }

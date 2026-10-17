@@ -1,0 +1,50 @@
+# Command lists for `nox xen`, `nox nix` and `nox root` (programs.nox).
+# One command per line, description after " # ", placeholders in <…> are
+# replaced by hand when the line comes up for editing.
+
+## xen
+sudo xl list # Domains: id, memory, vCPUs, state
+sudo xl info # Host: Xen version, free memory, scheduler
+sudo xl top # Live CPU/memory per domain (xentop)
+sudo xl dmesg | tail -50 # Xen's log
+sudo xl console <vm>-vm # Console of a domain (leave with Ctrl+])
+sudo xl mem-set <vm>-vm <MB> # Set a domain's memory target at runtime
+sudo xl mem-set 0 <MB> # Grow or shrink dom0 at runtime
+sudo xl vcpu-list <vm>-vm # vCPUs of a domain and where they run
+sudo xl vcpu-set <vm>-vm <n> # Online vCPUs of a domain
+sudo xl pci-assignable-list # PCI devices ready for passthrough
+sudo xl pci-list <vm>-vm # PCI devices of a domain
+sudo xl network-list <vm>-vm # vifs of a domain
+sudo xl block-list <vm>-vm # Disks of a domain
+sudo xl destroy <vm>-vm # Kill a domain hard (no shutdown)
+sudo xenstore-ls -f /local/domain/<id> | less # xenstore of a domain
+
+## nix
+nixos-rebuild list-generations # System generations
+nix flake update <input> # Update one flake input
+nix flake metadata # Inputs and their revisions
+nix build .#nixosConfigurations.<host>.config.system.build.toplevel # Build the system
+nix eval .#nixosConfigurations.<name>.config.<option> # Value of an option
+nix why-depends /run/current-system nixpkgs#<pkg> # Why the system pulls in a package
+nix eval nixpkgs#<pkg>.version # Version of a package in nixpkgs
+nix-store --query --deriver <store-path> # Which derivation made a store path
+nix-store --query --referrers <store-path> # What uses a store path
+nix-diff <drv1> <drv2> # Why two derivations differ
+nix-collect-garbage # Delete unreferenced store paths
+sudo nix-collect-garbage --delete-older-than <n>d # Delete generations older than n days, then GC
+nix store diff-closures /run/booted-system /run/current-system # What changed since boot
+
+## root
+journalctl -b -p err # Errors since boot
+journalctl -u <unit> -b -f # Follow a unit's log
+journalctl -k -b # Kernel log since boot
+systemctl --failed # Failed units
+systemctl status <unit> # State of a unit
+systemctl list-timers # Timers and when they fire
+systemd-analyze blame | head -20 # Slowest units at boot
+systemd-analyze critical-chain # Boot critical path
+ss -tulpn # Listening sockets
+sudo nft list ruleset | less # Firewall rules
+ip -br a # Interfaces and addresses
+lsusb # USB devices in dom0
+sudo dmesg -w # Kernel messages, live
