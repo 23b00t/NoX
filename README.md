@@ -84,10 +84,45 @@ services.nox-rpc.host = {
 };
 ```
 
+## nox (CLI)
+
+One command for dom0. For now a thin wrapper: each subcommand runs the
+script that does the work (from the system configuration, on PATH) and
+passes its output and exit code through.
+
+| Command | Runs |
+|---|---|
+| `nox` | `manage-vms status --running` |
+| `nox list\|ls [--running] [--stale] [--group g]` | `manage-vms status …` |
+| `nox start\|stop\|restart [vm…] [--running] [--stale] [--group g]` | `manage-vms <action> …` |
+| `nox run <vm> <program> [args]` | `vm-run <vm> …` (GUI over wprs) |
+| `nox exec <vm> <cmd> [args]` | `vm-run -c <vm> …` |
+| `nox ssh <vm> [ssh args]` | `ssh <vm> …` |
+| `nox clip copy\|paste` | `vm-clip copy\|paste` |
+| `nox copy [-m] [-n] <vm> <paths…>` | `cp-vm …` |
+| `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update …` (`--all`: `update-all …`) |
+| `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
+| `nox doctor` | `vm-doctor` (smoke test of the running system) |
+| `nox rollback <vm> [--gen n\|--reset]` | `vm-rollback …`: runner of an older system generation as the VM's `current` |
+| `nox rollback --data <vm>`, `nox snapshot <vm>` | `vm-rollback --data`, `vm-snapshot` (copy of a stopped VM's images) |
+| `nox gc [--keep n] [-n]` | `vm-gc …` (old system generations, then GC; default keeps 3) |
+
+`nox help <command>` / `nox <command> --help` describe each one. Bash
+completion knows the VM names from `/etc/nox/registry.json`:
+
+```nix
+imports = [ inputs.nox.nixosModules.cli ];
+programs.nox = {
+  enable = true;
+  vms = [ "coding" "chat" ];
+};
+```
+
 ## Development
 
 ```sh
 nix develop -c cargo test
 nix build .#nox-relay
 nix build .#nox-rpc
+nix build .#nox-cli
 ```
