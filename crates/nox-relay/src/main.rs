@@ -19,7 +19,7 @@ use std::time::Duration;
 const CLIENT_ATTEMPTS: u32 = 120;
 const CLIENT_INTERVAL: Duration = Duration::from_millis(500);
 
-const USAGE: &str = "usage: nox-relay --role server|client --peer <domid> --path <xenstore-path> --config <file> [--ring <bytes>]";
+const USAGE: &str = "usage: nox-relay --role server|client --peer <domid> --path <xenstore-path> --config <file> [--ring <bytes>] [--ready-file <path>]";
 
 struct Args {
     server: bool,
@@ -27,11 +27,15 @@ struct Args {
     path: String,
     config: String,
     ring: usize,
+    /// Exists while the peer is connected (after its Hello), so the host can
+    /// wait for a booted guest without SSH (boot order, uplink readiness)
+    ready_file: Option<String>,
 }
 
 fn parse_args() -> Result<Args, String> {
     let mut role = None;
     let (mut peer, mut path, mut config, mut ring) = (None, None, None, 65536);
+    let mut ready_file = None;
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
         let mut value = || it.next().ok_or_else(|| format!("{flag} needs a value"));
@@ -41,6 +45,7 @@ fn parse_args() -> Result<Args, String> {
             "--path" => path = Some(value()?),
             "--config" => config = Some(value()?),
             "--ring" => ring = value()?.parse().map_err(|_| "--ring: bytes")?,
+            "--ready-file" => ready_file = Some(value()?),
             _ => return Err(format!("unknown argument {flag}")),
         }
     }
@@ -55,6 +60,7 @@ fn parse_args() -> Result<Args, String> {
         path: path.ok_or("--path missing")?,
         config: config.ok_or("--config missing")?,
         ring,
+        ready_file,
     })
 }
 
@@ -115,7 +121,15 @@ fn main() -> ExitCode {
         }
     };
 
-    let result = relay::Relay::new(vchan, cfg, args.server).and_then(|mut r| r.run());
+    // A file left by a killed predecessor must not claim a connection
+    if let Some(f) = &args.ready_file {
+        let _ = std::fs::remove_file(f);
+    }
+    let result = relay::Relay::new(vchan, cfg, args.server, args.ready_file.clone())
+        .and_then(|mut r| r.run());
+    if let Some(f) = &args.ready_file {
+        let _ = std::fs::remove_file(f);
+    }
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {

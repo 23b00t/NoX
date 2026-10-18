@@ -68,10 +68,16 @@ pub struct Relay {
     next_id: u32,
     vin: Vec<u8>,
     vout: Vec<u8>,
+    ready_file: Option<String>,
 }
 
 impl Relay {
-    pub fn new(vchan: Vchan, cfg: Config, server: bool) -> io::Result<Self> {
+    pub fn new(
+        vchan: Vchan,
+        cfg: Config,
+        server: bool,
+        ready_file: Option<String>,
+    ) -> io::Result<Self> {
         let mut listeners = Vec::new();
         for rule in &cfg.listen {
             listeners.push((bind(rule)?, rule.service.clone()));
@@ -87,6 +93,7 @@ impl Relay {
             next_id: if server { 2 } else { 1 },
             vin: Vec::new(),
             vout,
+            ready_file,
         })
     }
 
@@ -215,6 +222,11 @@ impl Relay {
                     ));
                 }
                 eprintln!("peer connected");
+                if let Some(f) = &self.ready_file {
+                    if let Err(e) = std::fs::write(f, b"") {
+                        eprintln!("ready file {f}: {e}");
+                    }
+                }
             }
             Kind::Open => self.open_remote(f.stream, &f.payload),
             Kind::OpenOk => {

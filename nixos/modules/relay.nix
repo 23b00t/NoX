@@ -160,11 +160,17 @@ in
               sleep 3
             done
             exec ${exe} --role client --peer "$domid" \
-              --path "/local/domain/$domid/${g.path}" --config ${configFile name g}
+              --path "/local/domain/$domid/${g.path}" --config ${configFile name g} \
+              --ready-file /run/nox-relay/${name}.ready
           '';
           serviceConfig = {
             Restart = "always";
             RestartSec = 2;
+            # /run/nox-relay/<guest>.ready exists while the guest is connected
+            # (boot order, uplink readiness); gone with the relay
+            RuntimeDirectory = "nox-relay";
+            RuntimeDirectoryPreserve = true;
+            ExecStopPost = "${pkgs.coreutils}/bin/rm -f /run/nox-relay/${name}.ready";
           };
           unitConfig.StartLimitIntervalSec = 0;
         }
