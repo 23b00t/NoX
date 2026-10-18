@@ -35,9 +35,14 @@ _nox() {
     clip) [ "$n" -eq 0 ] && words="copy paste" ;;
     copy)
       if [[ $cur == -* ]]; then
-        words="-m --move -n --dry-run"
+        words="-m --move -n --dry-run --max"
       elif [ "$n" -eq 0 ]; then
         words="$(_nox_vms)"
+      elif [ "$n" -eq 1 ]; then
+        # the target VM (after a source VM) or already a file
+        compopt -o default
+        mapfile -t COMPREPLY < <(compgen -W "$(_nox_vms)" -- "$cur")
+        return
       else
         compopt -o default
         COMPREPLY=()

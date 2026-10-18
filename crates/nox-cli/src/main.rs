@@ -1,7 +1,7 @@
 //! nox: one command for the NoX tools in dom0.
 //!
 //! A thin wrapper for now: every subcommand execs the script that does the
-//! work (manage-vms, vm-run, vm-clip, cp-vm, dom0-update, update-all,
+//! work (manage-vms, vm-run, vm-clip, nox-copy, dom0-update, update-all,
 //! vm-usb), found on PATH, so its output and exit code are the script's own.
 
 use std::ffi::OsString;
@@ -105,19 +105,22 @@ enum Cmd {
         #[command(subcommand)]
         action: Clip,
     },
-    /// Copy files from dom0 to a VM (~/Incoming/dom0 there)
+    /// Copy files to a VM (~/Incoming/<source> there), from dom0 or from
+    /// another VM: `nox copy [<from-vm>] <to-vm> <path>…` (from a VM when
+    /// the first two arguments are VMs; its paths are relative to its home)
     Copy {
         /// Remove the sources after the transfer
         #[arg(short, long = "move")]
         move_: bool,
-        /// Only show what would be done
+        /// Only show what would be sent
         #[arg(short = 'n', long)]
         dry_run: bool,
-        /// VM name or short alias
-        vm: String,
-        /// Files and directories
-        #[arg(required = true)]
-        paths: Vec<OsString>,
+        /// Allow more than the copy limit (bytes)
+        #[arg(long, value_name = "BYTES")]
+        max: Option<u64>,
+        /// [FROM-VM] TO-VM PATH…
+        #[arg(required = true, num_args = 2.., value_name = "ARGS")]
+        args: Vec<OsString>,
     },
     /// Update dom0 from the builder VM; --all: then the Whonix domains too
     Update {
@@ -372,8 +375,8 @@ fn main() -> ExitCode {
         Cmd::Copy {
             move_,
             dry_run,
-            vm,
-            paths,
+            max,
+            args,
         } => {
             let mut a: Vec<OsString> = Vec::new();
             if move_ {
@@ -382,9 +385,13 @@ fn main() -> ExitCode {
             if dry_run {
                 a.push("-n".into());
             }
-            a.push(vm.into());
-            a.extend(paths);
-            exec("cp-vm", a)
+            if let Some(m) = max {
+                a.push("--max".into());
+                a.push(m.to_string().into());
+            }
+            a.push("--".into());
+            a.extend(args);
+            exec("nox-copy", a)
         }
         Cmd::Update {
             all,
