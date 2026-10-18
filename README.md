@@ -95,6 +95,8 @@ passes its output and exit code through.
 | `nox` | `manage-vms status --running` |
 | `nox list\|ls [--running] [--stale] [--group g]` | `manage-vms status …` |
 | `nox start\|stop\|restart [vm…] [--running] [--stale] [--group g]` | `manage-vms <action> …` |
+| `nox start\|restart --fresh <vm…>` | `manage-vms <action> --fresh …`: disposable VMs (registry `disposable`) with their volume images set aside (`*.pre-fresh`) |
+| `nox disp [cmd…]` | `vm-disp`: start the ad-hoc disposable `disp`, open `cmd` (default foot) in it |
 | `nox run <vm> <program> [args]` | `vm-run <vm> …` (GUI over wprs) |
 | `nox exec <vm> <cmd> [args]` | `vm-run -c <vm> …` |
 | `nox ssh <vm> [ssh args]` | `ssh <vm> …` |

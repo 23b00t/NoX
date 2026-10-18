@@ -63,6 +63,16 @@ impl Filter {
     }
 }
 
+/// `--fresh` for start/restart: disposable VMs (registry `disposable`) with
+/// their volume images set aside (manage-vms keeps them as `*.pre-fresh`)
+#[derive(Args)]
+struct Fresh {
+    /// Disposable VMs only: start without their data volumes (emergency,
+    /// e.g. a broken NetworkManager profile in sys-net)
+    #[arg(long)]
+    fresh: bool,
+}
+
 #[derive(Subcommand)]
 enum Cmd {
     /// List VMs: state, store group, image (ok/stale)
@@ -72,11 +82,28 @@ enum Cmd {
         filter: Filter,
     },
     /// Start VMs (a started VM gets its tray apps)
-    Start(Select),
+    Start {
+        #[command(flatten)]
+        sel: Select,
+        #[command(flatten)]
+        fresh: Fresh,
+    },
     /// Stop VMs
     Stop(Select),
     /// Restart VMs (a restarted VM gets its tray apps)
-    Restart(Select),
+    Restart {
+        #[command(flatten)]
+        sel: Select,
+        #[command(flatten)]
+        fresh: Fresh,
+    },
+    /// Start the ad-hoc disposable `disp` (empty on every start) and open a
+    /// program in it, foot by default; `nox stop disp` throws it away
+    Disp {
+        /// Program and its arguments (default: foot)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        cmd: Vec<OsString>,
+    },
     /// Start a program in a VM (GUI programs show up in dom0 over wprs)
     Run {
         /// VM name or short alias
@@ -235,8 +262,11 @@ where
     ExitCode::from(127)
 }
 
-fn vm_action(action: &str, sel: Select) -> ExitCode {
+fn vm_action(action: &str, sel: Select, fresh: bool) -> ExitCode {
     let mut a: Vec<OsString> = vec![action.into()];
+    if fresh {
+        a.push("--fresh".into());
+    }
     a.extend(sel.filter.args());
     a.extend(sel.vms.into_iter().map(OsString::from));
     exec("manage-vms", a)
@@ -347,9 +377,10 @@ fn main() -> ExitCode {
             a.extend(filter.args());
             exec("manage-vms", a)
         }
-        Cmd::Start(sel) => vm_action("start", sel),
-        Cmd::Stop(sel) => vm_action("stop", sel),
-        Cmd::Restart(sel) => vm_action("restart", sel),
+        Cmd::Start { sel, fresh } => vm_action("start", sel, fresh.fresh),
+        Cmd::Stop(sel) => vm_action("stop", sel, false),
+        Cmd::Restart { sel, fresh } => vm_action("restart", sel, fresh.fresh),
+        Cmd::Disp { cmd } => exec("vm-disp", cmd),
         Cmd::Run { vm, cmd } => {
             let mut a: Vec<OsString> = vec![vm.into()];
             a.extend(cmd);
@@ -478,11 +509,28 @@ mod tests {
     #[test]
     fn restart_names_and_filters() {
         let cli = Cli::try_parse_from(["nox", "restart", "--stale", "chat", "irc"]).unwrap();
-        let Some(Cmd::Restart(sel)) = cli.command else {
+        let Some(Cmd::Restart { sel, fresh }) = cli.command else {
             panic!("not restart")
         };
         assert_eq!(sel.vms, ["chat", "irc"]);
         assert_eq!(sel.filter.args(), ["--stale"]);
+        assert!(!fresh.fresh);
+    }
+
+    #[test]
+    fn restart_fresh_and_disp() {
+        let cli = Cli::try_parse_from(["nox", "restart", "--fresh", "sys-net"]).unwrap();
+        let Some(Cmd::Restart { sel, fresh }) = cli.command else {
+            panic!("not restart")
+        };
+        assert_eq!(sel.vms, ["sys-net"]);
+        assert!(fresh.fresh);
+        let cli = Cli::try_parse_from(["nox", "disp", "firefox", "--private-window"]).unwrap();
+        let Some(Cmd::Disp { cmd }) = cli.command else {
+            panic!("not disp")
+        };
+        assert_eq!(cmd, ["firefox", "--private-window"]);
+        assert!(Cli::try_parse_from(["nox", "stop", "--fresh", "x"]).is_err());
     }
 
     #[test]
