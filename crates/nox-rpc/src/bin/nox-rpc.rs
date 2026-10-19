@@ -52,8 +52,22 @@ fn main() -> ExitCode {
     let result = match mode {
         Mode::Dom0 => {
             let dir = std::env::var("NOX_RPC_IN_DIR").unwrap_or_else(|_| DEFAULT_RPC_IN_DIR.into());
-            UnixStream::connect(format!("{dir}/{target}-rpc-in.sock"))
-                .and_then(|conn| call(conn, &format!("{service} {DOM0}\n"), false, false))
+            let path = format!("{dir}/{target}-rpc-in.sock");
+            match UnixStream::connect(&path) {
+                // No relay socket (or nobody behind it): the domain is down
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused
+                    ) =>
+                {
+                    eprintln!("nox-rpc: {target} is not running (no {path})");
+                    return ExitCode::FAILURE;
+                }
+                conn => {
+                    conn.and_then(|conn| call(conn, &format!("{service} {DOM0}\n"), false, false))
+                }
+            }
         }
         Mode::Guest => {
             let socket = std::env::var("NOX_RPC_SOCKET").unwrap_or_else(|_| DEFAULT_SOCKET.into());
@@ -91,7 +105,9 @@ fn main() -> ExitCode {
 
 /// Sends the header (and a copy's manifest from stdin), waits for dom0's
 /// `ok` if `status`, then pipes stdin to the call and the call's output to
-/// stdout until both ends are done.
+/// stdout until the call closes its side. Stdin may stay open (a terminal,
+/// a pipe nobody closes): once the answer is complete there is nothing left
+/// to send, so the upload is only waited for if it has already finished.
 fn call(mut conn: UnixStream, header: &str, status: bool, manifest: bool) -> io::Result<bool> {
     conn.write_all(header.as_bytes())?;
     if manifest {
@@ -116,6 +132,8 @@ fn call(mut conn: UnixStream, header: &str, status: bool, manifest: bool) -> io:
         r
     });
     pipe(&mut answer, io::stdout().lock())?;
-    up.join().unwrap_or(Ok(0))?;
+    if up.is_finished() {
+        up.join().unwrap_or(Ok(0))?;
+    }
     Ok(true)
 }

@@ -104,6 +104,21 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<OsString>,
     },
+    /// Back up onto the external LUKS disk (vm-backup): /home of VMs
+    /// (default), --full images, restore, list, prune
+    Backup {
+        /// vm-backup's arguments (`nox backup --help`)
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
+    /// Copy a file once from a VM's ~/outbox into dom0 (~/Incoming/<vm>/,
+    /// vm-pull, asks first); without a file, list the outbox
+    Pull {
+        /// VM name or short alias
+        vm: String,
+        /// File name in the VM's ~/outbox
+        file: Option<String>,
+    },
     /// Start a program in a VM (GUI programs show up in dom0 over wprs)
     Run {
         /// VM name or short alias
@@ -381,6 +396,12 @@ fn main() -> ExitCode {
         Cmd::Stop(sel) => vm_action("stop", sel, false),
         Cmd::Restart { sel, fresh } => vm_action("restart", sel, fresh.fresh),
         Cmd::Disp { cmd } => exec("vm-disp", cmd),
+        Cmd::Backup { args } => exec("vm-backup", args),
+        Cmd::Pull { vm, file } => {
+            let mut a: Vec<OsString> = vec![vm.into()];
+            a.extend(file.map(OsString::from));
+            exec("vm-pull", a)
+        }
         Cmd::Run { vm, cmd } => {
             let mut a: Vec<OsString> = vec![vm.into()];
             a.extend(cmd);
