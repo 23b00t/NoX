@@ -30,6 +30,7 @@ extern "C" {
     fn libxenvchan_fd_for_select(ctrl: *mut RawVchan) -> c_int;
     fn libxenvchan_is_open(ctrl: *mut RawVchan) -> c_int;
     fn libxenvchan_data_ready(ctrl: *mut RawVchan) -> c_int;
+    fn libxenvchan_buffer_space(ctrl: *mut RawVchan) -> c_int;
 }
 
 /// State reported by `libxenvchan_is_open`.
@@ -105,6 +106,12 @@ impl Vchan {
     pub fn data_ready(&self) -> usize {
         // SAFETY: as above
         unsafe { libxenvchan_data_ready(self.0) }.max(0) as usize
+    }
+
+    /// Free space in our ring to the peer.
+    pub fn buffer_space(&self) -> usize {
+        // SAFETY: as above
+        unsafe { libxenvchan_buffer_space(self.0) }.max(0) as usize
     }
 
     pub fn read(&self, buf: &mut [u8]) -> io::Result<usize> {

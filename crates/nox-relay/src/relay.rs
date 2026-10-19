@@ -10,6 +10,13 @@ use std::os::fd::AsRawFd;
 use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
+
+/// Set by SIGUSR1: log the relay state (`systemctl kill -s USR1 nox-relay-<vm>`).
+static DUMP: AtomicBool = AtomicBool::new(false);
+/// Data waits but nothing moved for this long: log the state once.
+const STALL: Duration = Duration::from_secs(10);
 
 /// Stop reading local sockets while this much is queued for the vchan.
 const VOUT_HIGH: usize = 1 << 20;
@@ -69,6 +76,12 @@ pub struct Relay {
     vin: Vec<u8>,
     vout: Vec<u8>,
     ready_file: Option<String>,
+    /// Bytes moved on the vchan and the local sockets (stall detection).
+    moved: u64,
+}
+
+extern "C" fn on_usr1(_: libc::c_int) {
+    DUMP.store(true, Ordering::Relaxed);
 }
 
 impl Relay {
@@ -94,17 +107,31 @@ impl Relay {
             vin: Vec::new(),
             vout,
             ready_file,
+            moved: 0,
         })
     }
 
     /// Runs until the peer closes the vchan (Ok) or breaks the protocol (Err).
     pub fn run(&mut self) -> io::Result<()> {
+        // SAFETY: the handler only stores to an atomic
+        unsafe { libc::signal(libc::SIGUSR1, on_usr1 as *const () as libc::sighandler_t) };
         let mut buf = vec![0u8; 64 * 1024];
+        let (mut last_moved, mut since, mut reported) = (0, Instant::now(), false);
         loop {
             self.pump_vchan(&mut buf)?;
             if self.vchan.state() == State::Closed {
                 eprintln!("peer closed the vchan");
                 return Ok(());
+            }
+
+            if DUMP.swap(false, Ordering::Relaxed) {
+                self.dump("SIGUSR1");
+            }
+            if self.moved != last_moved || !self.waiting() {
+                (last_moved, since, reported) = (self.moved, Instant::now(), false);
+            } else if !reported && since.elapsed() >= STALL {
+                self.dump("stalled: data waits, nothing moved for 10 s");
+                reported = true;
             }
 
             let ids: Vec<u32> = self.streams.keys().copied().collect();
@@ -170,6 +197,42 @@ impl Relay {
         }
     }
 
+    /// Something should move: data for the vchan or a local socket, data in
+    /// the ring we don't read, or a stream that waits for the peer's credit.
+    fn waiting(&self) -> bool {
+        !self.vout.is_empty()
+            || self.vchan.data_ready() > 0
+            || self
+                .streams
+                .values()
+                .any(|s| !s.out.is_empty() || (s.state == StreamState::Open && s.window == 0))
+    }
+
+    fn dump(&self, reason: &str) {
+        eprintln!(
+            "state ({reason}): vout={} vin={} ring ready={} space={} streams={}",
+            self.vout.len(),
+            self.vin.len(),
+            self.vchan.data_ready(),
+            self.vchan.buffer_space(),
+            self.streams.len()
+        );
+        let mut ids: Vec<_> = self.streams.keys().collect();
+        ids.sort();
+        for id in ids {
+            let s = &self.streams[id];
+            eprintln!(
+                "  stream {id}: {:?} window={} out={} unacked={} local_eof={} peer_eof={}",
+                s.state,
+                s.window,
+                s.out.len(),
+                s.unacked,
+                s.local_eof,
+                s.peer_eof
+            );
+        }
+    }
+
     fn pump_vchan(&mut self, buf: &mut [u8]) -> io::Result<()> {
         while self.vout.len() < VOUT_LIMIT {
             let ready = self.vchan.data_ready();
@@ -182,6 +245,7 @@ impl Relay {
                 break;
             }
             self.vin.extend_from_slice(&buf[..n]);
+            self.moved += n as u64;
         }
         loop {
             match proto::decode(&self.vin) {
@@ -204,6 +268,7 @@ impl Relay {
                 break;
             }
             self.vout.drain(..n);
+            self.moved += n as u64;
         }
         Ok(())
     }
@@ -359,6 +424,7 @@ impl Relay {
             }
             Ok(n) => {
                 s.window -= n;
+                self.moved += n as u64;
                 self.send(id, Kind::Data, &buf[..n]);
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted => {}
@@ -378,6 +444,7 @@ impl Relay {
                 Ok(n) => {
                     s.out.drain(..n);
                     s.unacked += n;
+                    self.moved += n as u64;
                 }
                 Err(e)
                     if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::Interrupted =>
