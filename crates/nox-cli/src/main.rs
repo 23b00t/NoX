@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitCode};
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -104,13 +104,10 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<OsString>,
     },
-    /// Back up onto the external LUKS disk (vm-backup): /home of VMs
-    /// (default), --full images, restore, list, prune
-    Backup {
-        /// vm-backup's arguments (`nox backup --help`)
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<OsString>,
-    },
+    /// Back up VMs onto the external LUKS backup disk (vm-backup): home =
+    /// /home/user of NixOS VMs, --full = whole disks; restore, list, prune
+    #[command(long_about = BACKUP_ABOUT)]
+    Backup(Backup),
     /// Copy a file once from a VM's ~/outbox into dom0 (~/Incoming/<vm>/,
     /// vm-pull, asks first); without a file, list the outbox
     Pull {
@@ -135,7 +132,8 @@ enum Cmd {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<OsString>,
     },
-    /// SSH session to a VM (extra arguments go to ssh)
+    /// SSH session to the builder, the only VM with sshd (extra arguments go
+    /// to ssh); the other VMs: nox exec
     Ssh {
         /// VM name or short alias
         vm: String,
@@ -224,6 +222,208 @@ enum Cmd {
     Nix(Pick),
     /// The most useful admin commands: pick one by number, edit it, run it
     Root(Pick),
+}
+
+/// `nox backup --help`: the two kinds and the generations
+const BACKUP_ABOUT: &str =
+    "Back up VMs onto the external LUKS backup disk (vm-backup, README \"Backup\").\n\n\
+    Two kinds:\n  \
+      home  /home/user of NixOS VMs (the default)\n  \
+      full  whole disks: a VM's disks, an image domain's image, dom0's ~/.ssh, the builder's key\n\
+    Every run is a generation named by its start time, e.g. 2026-10-21_201500.";
+
+/// `nox backup`: the arguments are checked here, the work is vm-backup's
+/// (README "Backup" explains every case)
+#[derive(Args)]
+#[command(
+    args_conflicts_with_subcommands = true,
+    subcommand_negates_reqs = true,
+    arg_required_else_help = true,
+    after_long_help = "Examples:\n  \
+      nox backup nvim chat                  home of nvim and chat\n  \
+      nox backup --all                      home of the VMs with registry `backup`\n  \
+      nox backup --full coding nvim         all disks of coding and nvim\n  \
+      nox backup --full coding:home,var     only these disks of coding\n  \
+      nox backup --full whonix-workstation  an image domain (its disk: image)\n  \
+      nox backup --full dom0 builder        dom0's ~/.ssh, the builder's key\n  \
+      nox backup --full --level 9 coding    smaller files, much slower\n  \
+      nox backup --full --all               everything\n  \
+      nox backup restore nvim               see: nox backup restore help\n  \
+      nox backup disks --all                what --full can back up\n  \
+      nox backup list                       all generations, free space\n  \
+      nox backup prune home --keep 5 -n     see: nox backup prune help"
+)]
+struct Backup {
+    #[command(subcommand)]
+    action: Option<BackupCmd>,
+    #[command(flatten)]
+    sel: BackupSel,
+    /// Whole disks instead of /home/user. TARGET: a VM (all its disks),
+    /// VM:DISK,DISK, an image domain, dom0, builder (`nox backup disks --all`)
+    #[arg(long)]
+    full: bool,
+    /// zstd level for --full: 1 (fast, big) .. 19 (slow, small), default 3
+    #[arg(long, value_name = "N", requires = "full", value_parser = clap::value_parser!(u8).range(1..=19))]
+    level: Option<u8>,
+}
+
+/// Names or --all, exactly one of them
+#[derive(Args)]
+#[group(required = true, multiple = false)]
+struct BackupSel {
+    /// VMs (home) or targets (--full)
+    #[arg(value_name = "TARGET")]
+    targets: Vec<String>,
+    /// home: the VMs with registry `backup`; --full: every target
+    #[arg(long)]
+    all: bool,
+}
+
+impl BackupSel {
+    fn args(self) -> Vec<String> {
+        if self.all {
+            vec!["--all".into()]
+        } else {
+            self.targets
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum BackupCmd {
+    /// Put a backup back: home adds files (deletes nothing, newer files in
+    /// the VM stay); --full replaces the disks (asks first, VM stopped)
+    #[command(after_long_help = "Examples:\n  \
+      nox backup restore nvim chat                       home, newest generation\n  \
+      nox backup restore --all                           home of the VMs with registry `backup`\n  \
+      nox backup restore --from 2026-10-21_201500 nvim   a specific generation\n  \
+      nox backup restore --full coding                   all disks of coding\n  \
+      nox backup restore --full coding:home              one disk\n  \
+      nox backup restore --full dom0 builder             only unpacked to ~/nox-restore; prints how to put them back")]
+    Restore {
+        /// Whole disks (a full generation) instead of /home/user
+        #[arg(long)]
+        full: bool,
+        /// Generation to restore (default: the newest; names: nox backup list)
+        #[arg(long, value_name = "GEN", value_parser = generation)]
+        from: Option<String>,
+        #[command(flatten)]
+        sel: BackupSel,
+    },
+    /// The disks --full can back up, with size and used space
+    #[command(after_long_help = "Examples:\n  \
+      nox backup disks coding\n  \
+      nox backup disks --all")]
+    Disks {
+        #[command(flatten)]
+        sel: BackupSel,
+    },
+    /// All generations on the disk (home and full) and the free space
+    List,
+    /// Delete old generations: all but the newest KEEP per VM/target
+    #[command(after_long_help = "Examples:\n  \
+      nox backup prune home --keep 5 -n          only show what would go\n  \
+      nox backup prune home --keep 5             all VMs\n  \
+      nox backup prune full --keep 2 coding      only coding")]
+    Prune {
+        /// home or full
+        #[arg(value_parser = ["home", "full"])]
+        kind: String,
+        /// Generations to keep per VM/target
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+        keep: u32,
+        /// Only show what would be deleted
+        #[arg(short = 'n', long)]
+        dry_run: bool,
+        /// Only these VMs/targets (default: all)
+        #[arg(value_name = "TARGET")]
+        targets: Vec<String>,
+    },
+}
+
+/// `--from`: a generation name like 2026-10-21_201500
+fn generation(s: &str) -> Result<String, String> {
+    let ok = s.len() == 17
+        && s.char_indices().all(|(i, c)| match i {
+            4 | 7 => c == '-',
+            10 => c == '_',
+            _ => c.is_ascii_digit(),
+        });
+    if ok {
+        Ok(s.into())
+    } else {
+        Err("a generation like 2026-10-21_201500 (names: nox backup list)".into())
+    }
+}
+
+/// vm-backup's arguments for `nox backup …`
+fn backup_args(b: Backup) -> Vec<String> {
+    let mut a: Vec<String> = Vec::new();
+    match b.action {
+        None => {
+            if b.full {
+                a.push("--full".into());
+                if let Some(l) = b.level {
+                    a.push("--level".into());
+                    a.push(l.to_string());
+                }
+            }
+            a.extend(b.sel.args());
+        }
+        Some(BackupCmd::Restore { full, from, sel }) => {
+            a.push("restore".into());
+            if full {
+                a.push("--full".into());
+            }
+            if let Some(g) = from {
+                a.push("--from".into());
+                a.push(g);
+            }
+            a.extend(sel.args());
+        }
+        Some(BackupCmd::Disks { sel }) => {
+            a.push("disks".into());
+            a.extend(sel.args());
+        }
+        Some(BackupCmd::List) => a.push("list".into()),
+        Some(BackupCmd::Prune {
+            kind,
+            keep,
+            dry_run,
+            targets,
+        }) => {
+            a.extend(["prune".into(), kind, "--keep".into(), keep.to_string()]);
+            a.extend(targets);
+            if dry_run {
+                a.push("-n".into());
+            }
+        }
+    }
+    a
+}
+
+/// `nox <cmd>… help` = `nox <cmd>… --help`: the word `help` as the last
+/// argument, right after subcommand names (`nox backup restore help`,
+/// `nox usb attach help`). `nox help [cmd]` is clap's own.
+fn help_word(mut args: Vec<OsString>) -> Vec<OsString> {
+    let mut cmd = Cli::command();
+    let mut i = 1;
+    while i < args.len() {
+        let Some(a) = args[i].to_str() else { break };
+        if a == "help" && i > 1 && i + 1 == args.len() {
+            args[i] = "--help".into();
+            break;
+        }
+        match cmd.find_subcommand(a) {
+            Some(sub) => {
+                let sub = sub.clone();
+                cmd = sub;
+                i += 1;
+            }
+            None => break,
+        }
+    }
+    args
 }
 
 /// A command list from /etc/nox/commands (section `## <group>`)
@@ -382,7 +582,7 @@ eval "$c""#;
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = Cli::parse_from(help_word(std::env::args_os().collect()));
     let Some(cmd) = cli.command else {
         return exec("manage-vms", ["status", "--running"]);
     };
@@ -396,7 +596,7 @@ fn main() -> ExitCode {
         Cmd::Stop(sel) => vm_action("stop", sel, false),
         Cmd::Restart { sel, fresh } => vm_action("restart", sel, fresh.fresh),
         Cmd::Disp { cmd } => exec("vm-disp", cmd),
-        Cmd::Backup { args } => exec("vm-backup", args),
+        Cmd::Backup(b) => exec("vm-backup", backup_args(b)),
         Cmd::Pull { vm, file } => {
             let mut a: Vec<OsString> = vec![vm.into()];
             a.extend(file.map(OsString::from));
@@ -510,7 +710,6 @@ fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::CommandFactory;
 
     #[test]
     fn cli_is_consistent() {
@@ -581,5 +780,84 @@ mod tests {
         assert_eq!(nix[0].cmd, "nix eval \"nixpkgs#hello.version\"");
         assert_eq!(nix[0].desc, "Version of a package");
         assert!(entries(text, "root").is_empty());
+    }
+
+    fn backup(args: &[&str]) -> Result<Vec<String>, clap::Error> {
+        let mut v = vec!["nox", "backup"];
+        v.extend(args);
+        let cli = Cli::try_parse_from(v)?;
+        let Some(Cmd::Backup(b)) = cli.command else {
+            panic!("not backup")
+        };
+        Ok(backup_args(b))
+    }
+
+    #[test]
+    fn backup_home_and_full() {
+        assert_eq!(backup(&["nvim", "chat"]).unwrap(), ["nvim", "chat"]);
+        assert_eq!(backup(&["--all"]).unwrap(), ["--all"]);
+        assert_eq!(
+            backup(&["--full", "coding:home,var", "nvim"]).unwrap(),
+            ["--full", "coding:home,var", "nvim"]
+        );
+        // --level goes right after --full, wherever it was written
+        assert_eq!(
+            backup(&["coding", "--level", "9", "--full"]).unwrap(),
+            ["--full", "--level", "9", "coding"]
+        );
+        assert!(backup(&[]).is_err());
+        assert!(backup(&["--all", "nvim"]).is_err());
+        assert!(backup(&["--level", "9", "coding"]).is_err());
+        assert!(backup(&["--full", "--level", "20", "coding"]).is_err());
+    }
+
+    #[test]
+    fn backup_subcommands() {
+        assert_eq!(
+            backup(&["restore", "--from", "2026-10-21_201500", "nvim"]).unwrap(),
+            ["restore", "--from", "2026-10-21_201500", "nvim"]
+        );
+        assert_eq!(
+            backup(&["restore", "coding", "--full"]).unwrap(),
+            ["restore", "--full", "coding"]
+        );
+        assert!(backup(&["restore", "--from", "yesterday", "nvim"]).is_err());
+        assert!(backup(&["restore"]).is_err());
+        assert_eq!(backup(&["disks", "--all"]).unwrap(), ["disks", "--all"]);
+        assert_eq!(backup(&["list"]).unwrap(), ["list"]);
+        assert_eq!(
+            backup(&["prune", "home", "--keep", "5", "-n", "nvim"]).unwrap(),
+            ["prune", "home", "--keep", "5", "nvim", "-n"]
+        );
+        assert!(backup(&["prune", "home", "--keep", "0"]).is_err());
+        assert!(backup(&["prune", "all", "--keep", "2"]).is_err());
+        assert!(backup(&["list", "nvim"]).is_err());
+    }
+
+    #[test]
+    fn help_as_last_word() {
+        let os = |v: &[&str]| v.iter().map(OsString::from).collect::<Vec<_>>();
+        assert_eq!(
+            help_word(os(&["nox", "backup", "restore", "help"])),
+            os(&["nox", "backup", "restore", "--help"])
+        );
+        assert_eq!(
+            help_word(os(&["nox", "backup", "help"])),
+            os(&["nox", "backup", "--help"])
+        );
+        assert_eq!(
+            help_word(os(&["nox", "ls", "help"])),
+            os(&["nox", "ls", "--help"])
+        );
+        // only directly after subcommand names, and only as the last word
+        assert_eq!(help_word(os(&["nox", "help"])), os(&["nox", "help"]));
+        assert_eq!(
+            help_word(os(&["nox", "run", "coding", "help"])),
+            os(&["nox", "run", "coding", "help"])
+        );
+        assert_eq!(
+            help_word(os(&["nox", "backup", "help", "restore"])),
+            os(&["nox", "backup", "help", "restore"])
+        );
     }
 }
