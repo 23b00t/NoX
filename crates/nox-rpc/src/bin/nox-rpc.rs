@@ -10,7 +10,7 @@
 //! For `copy`, stdin starts with the manifest (`nox-pack`); it goes to the
 //! broker before the answer, the tar stream after it.
 
-use nox_rpc::{pipe, read_status, valid_name, Manifest, DOM0};
+use nox_rpc::{pipe, read_status, set_blocking, valid_name, Manifest, DOM0};
 use std::io::{self, BufReader, Write};
 use std::net::Shutdown;
 use std::os::unix::net::UnixStream;
@@ -48,6 +48,11 @@ fn main() -> ExitCode {
     if !valid_name(service) || !valid_name(target) {
         eprintln!("nox-rpc: service and target: 1-32 of [a-z0-9-]");
         return ExitCode::from(2);
+    }
+    // Blocking stdio for the pipes (e.g. as rsync's remote shell); a closed
+    // fd is not an error here, the pipe reports it
+    for fd in [0, 1] {
+        let _ = set_blocking(fd);
     }
     let result = match mode {
         Mode::Dom0 => {

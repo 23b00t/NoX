@@ -60,6 +60,26 @@ pub fn parse_pair(line: &str) -> Option<(&str, &str)> {
     (it.next().is_none() && valid_name(a) && valid_name(b)).then_some((a, b))
 }
 
+/// Clears `O_NONBLOCK` on `fd`. A caller may hand nox-rpc non-blocking
+/// stdio (rsync gives its remote shell a non-blocking socket as stdout);
+/// [`pipe`] expects blocking I/O and would stop with EAGAIN as soon as the
+/// reader falls behind (home backup of 5 MB, hp 2026-10-22).
+pub fn set_blocking(fd: std::os::fd::RawFd) -> io::Result<()> {
+    // SAFETY: fcntl with F_GETFL/F_SETFL only reads and sets the file
+    // status flags of `fd`; an invalid fd is reported as an error.
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if flags & libc::O_NONBLOCK != 0 {
+        // SAFETY: as above
+        if unsafe { libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
 /// Copies until EOF, flushing as it goes (used for the byte pipes).
 pub fn pipe<R: Read, W: Write>(mut from: R, mut to: W) -> io::Result<u64> {
     let mut buf = [0u8; 32 * 1024];
@@ -196,6 +216,21 @@ pub fn read_status<R: BufRead>(r: &mut R) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn set_blocking_clears_nonblock() {
+        use std::os::fd::AsRawFd;
+        let (a, _b) = std::os::unix::net::UnixStream::pair().unwrap();
+        a.set_nonblocking(true).unwrap();
+        let fd = a.as_raw_fd();
+        // SAFETY: F_GETFL on an fd this test owns
+        let nonblock = || unsafe { libc::fcntl(fd, libc::F_GETFL) } & libc::O_NONBLOCK != 0;
+        assert!(nonblock());
+        set_blocking(fd).unwrap();
+        assert!(!nonblock());
+        set_blocking(fd).unwrap();
+        assert!(set_blocking(-1).is_err());
+    }
 
     #[test]
     fn names() {
