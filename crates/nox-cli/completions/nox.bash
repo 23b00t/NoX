@@ -9,7 +9,7 @@ _nox_vms() {
 _nox() {
   local cur=${COMP_WORDS[COMP_CWORD]} cmd=${COMP_WORDS[1]-} words="" i n=0
   if [ "$COMP_CWORD" -eq 1 ]; then
-    words="list ls start stop restart disp run exec ssh clip copy update usb doctor rollback snapshot gc xen nix root help --help --version"
+    words="list ls start stop restart disp backup pull run exec ssh clip copy update usb doctor rollback snapshot gc xen nix root help --help --version"
     mapfile -t COMPREPLY < <(compgen -W "$words" -- "$cur")
     return
   fi
@@ -50,6 +50,22 @@ _nox() {
         return
       fi
       ;;
+    backup)
+      # home: <vm>… | --all; --full [--level N] <vm>[:disk,…] | dom0 | builder | --all
+      if [ "$n" -eq 0 ]; then
+        words="$(_nox_vms) --all --full --level restore disks list prune help"
+        [[ " ${COMP_WORDS[*]} " == *" --full "* ]] && words="$words dom0 builder"
+      else
+        case "${COMP_WORDS[2]}" in
+          restore) words="$(_nox_vms) dom0 builder --all --full --from" ;;
+          disks) words="$(_nox_vms) --all" ;;
+          prune) if [ "$n" -eq 1 ]; then words="home full"; else words="$(_nox_vms) dom0 builder --keep -n"; fi ;;
+          list | help) words="" ;;
+          *) words="$(_nox_vms) dom0 builder --all --full --level" ;;
+        esac
+      fi
+      ;;
+    pull) [ "$n" -eq 0 ] && words="$(_nox_vms)" ;;
     update) words="--all --switch --machine --branch" ;;
     rollback) if [ "$n" -eq 0 ]; then words="$(_nox_vms) --data"; else words="--gen --reset"; fi ;;
     snapshot) [ "$n" -eq 0 ] && words="$(_nox_vms)" ;;
