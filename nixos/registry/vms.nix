@@ -58,6 +58,11 @@ let
       example = "element-desktop";
       description = "Attribute path in the VM's pkgs; null: the VM's own module installs it.";
     };
+    install = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Install `package`; false: the VM's own module installs the app (a wrapped build, `programs.firefox`). Default: true.";
+    };
     name = mkOption {
       type = types.nullOr types.str;
       default = null;

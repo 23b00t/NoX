@@ -66,6 +66,14 @@ in
       categories = browser;
       mimeType = webMime;
     };
+    # Installed by NoX vms/modules/zen-firefox.nix (the zen-browser flake)
+    zen = app {
+      name = "Zen";
+      genericName = "Web Browser";
+      icon = "zen-browser";
+      categories = browser;
+      mimeType = webMime;
+    };
     chromium = app {
       package = "chromium";
       name = "Chromium";

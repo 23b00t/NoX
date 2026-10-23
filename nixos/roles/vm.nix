@@ -21,7 +21,9 @@
   ...
 }:
 let
-  enabledApps = lib.filter (a: a.enable && a.package != null) (lib.attrValues apps);
+  enabledApps = lib.filter (a: a.enable && a.package != null && a.install or null != false) (
+    lib.attrValues apps
+  );
   appPackage = a: lib.getAttrFromPath (lib.splitString "." a.package) pkgs;
   unfree = config.nox.unfree;
   unfreeAllowed = vm.storeGroup == null || groupUnfree;
