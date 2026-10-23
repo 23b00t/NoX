@@ -13,12 +13,20 @@
   apps,
   groupUnfree,
 }:
-{ lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
   enabledApps = lib.filter (a: a.enable && a.package != null) (lib.attrValues apps);
   appPackage = a: lib.getAttrFromPath (lib.splitString "." a.package) pkgs;
+  # Names from the attribute paths, not from the packages: nixpkgs.config
+  # must not depend on pkgs (a package whose pname differs from its attribute
+  # name goes into the VM's `unfree` list)
   unfreeNames =
-    map (a: lib.getName (appPackage a)) (lib.filter (a: a.unfree or false) enabledApps)
+    map (a: lib.last (lib.splitString "." a.package)) (lib.filter (a: a.unfree or false) enabledApps)
     ++ (if vm.unfree == null then [ ] else vm.unfree);
   unfreeAllowed = vm.storeGroup == null || groupUnfree;
   hex = lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString vm.index));
@@ -63,14 +71,18 @@ in
 
   environment.systemPackages = map appPackage enabledApps;
 
-  nixpkgs.config.allowUnfreePredicate = lib.mkIf (unfreeNames != [ ]) (
-    pkg: builtins.elem (lib.getName pkg) unfreeNames
-  );
+  nixpkgs.config = lib.optionalAttrs (unfreeNames != [ ]) {
+    allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) unfreeNames;
+  };
 
   assertions = [
     {
       assertion = unfreeNames == [ ] || unfreeAllowed;
       message = "nox.vms.${name}: unfree packages (${lib.concatStringsSep ", " unfreeNames}) in store group `${toString vm.storeGroup}`, which is not marked `unfree` (nox.storeGroups); use an unfree group (prop) or an own image (storeGroup = null).";
+    }
+    {
+      assertion = !(config.nixpkgs.config.allowUnfree or false) || unfreeAllowed;
+      message = "nox.vms.${name}: nixpkgs.config.allowUnfree in store group `${toString vm.storeGroup}`, which is not marked `unfree`; name the unfree packages instead (apps with `unfree = true`, the VM's `unfree` list).";
     }
   ];
 
