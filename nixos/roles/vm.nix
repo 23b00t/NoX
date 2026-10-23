@@ -18,6 +18,7 @@
   config,
   lib,
   pkgs,
+  vmRegistry,
   ...
 }:
 let
@@ -55,7 +56,8 @@ in
         inherit (vm) index;
         mac = "00:00:00:00:00:${hex}";
       };
-      common-config.enable = true;
+      # Off only for VMs that bring their own base (steam: gamescope session)
+      common-config.enable = lib.mkDefault true;
     };
 
     microvm = {
@@ -74,7 +76,14 @@ in
       balloon = true;
       initialBalloonMem = vm.memory;
     }
-    // lib.optionalAttrs (vm.memoryMax == null && vm.memory != null) { mem = vm.memory; };
+    // lib.optionalAttrs (vm.memoryMax == null && vm.memory != null) { mem = vm.memory; }
+    // lib.optionalAttrs (vm.gpu == true) {
+      # The machine's GPU (hardware config) passed through
+      devices = map (path: {
+        bus = "pci";
+        inherit path;
+      }) (vmRegistry.hardware.pci.devicePaths.gpu or [ ]);
+    };
 
     environment.systemPackages = map appPackage enabledApps;
 

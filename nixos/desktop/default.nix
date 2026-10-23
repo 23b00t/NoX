@@ -96,6 +96,52 @@ in
   ];
 
   options.nox.desktop = {
+    # The user's windows at login (desktop/niri.nix: terminal-tabs,
+    # vm-autostart; manage-vms opens a VM's again after its (re)start)
+    login = {
+      terminalTabs = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [
+          "dom0"
+          "nvim"
+          "coding"
+        ];
+        description = "Terminals as tabs of one column at login, in this order: `dom0` (foot) or a VM (its foot with zellij).";
+      };
+      dom0Command = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [ ];
+        example = [
+          "zellij"
+          "--layout"
+          "tabs"
+        ];
+        description = "Command in dom0's terminal tab (empty: the shell).";
+      };
+      windows = lib.mkOption {
+        type = lib.types.listOf (
+          lib.types.submodule {
+            options = {
+              vm = lib.mkOption {
+                type = lib.types.str;
+                description = "VM the window runs in.";
+              };
+              command = lib.mkOption {
+                type = lib.types.listOf lib.types.str;
+                description = "Command in the VM (vm-run).";
+              };
+              appId = lib.mkOption {
+                type = lib.types.str;
+                description = "Extended regex on the window's app id without the \"[<vm>] \" prefix: an open window that matches is not started again.";
+              };
+            };
+          }
+        );
+        default = [ ];
+        description = "Further windows at login.";
+      };
+    };
     niri.settings = lib.mkOption {
       type = lib.types.attrsOf kdlValue;
       default = { };

@@ -8,6 +8,7 @@
 let
   theme = import ./theme.nix { inherit lib; };
   hostname = config.networking.hostName;
+  login = config.nox.desktop.login;
 
   # Trust label per VM (vms/registry.nix `label`, absent = untrusted): one
   # window rule per label on the "[<vm>] " app id prefix that dom0's wprsc
@@ -137,12 +138,12 @@ let
     ${pkgs.libnotify}/bin/notify-send -a niri -t 3000 "Close terminal?" "Press Mod+Q again within 3 s"
   '';
 
-  # terminal-tabs [dom0|nvim|coding…] (default: all three)
+  # terminal-tabs [tab…] (default: all of nox.desktop.login.terminalTabs)
   terminalTabs = pkgs.writeShellScript "terminal-tabs" ''
     set -u
     jq=${pkgs.jq}/bin/jq
-    [ $# -gt 0 ] || set -- dom0 nvim coding
-    order=(dom0 nvim coding)
+    [ $# -gt 0 ] || set -- ${lib.escapeShellArgs login.terminalTabs}
+    order=(${lib.escapeShellArgs login.terminalTabs})
     app_of() { if [ "$1" = dom0 ]; then echo term-dom0; else echo "[$1] term-$1"; fi; }
     declare -A rank id_of expect
     for i in "''${!order[@]}"; do rank[$(app_of "''${order[$i]}")]=$i; done
@@ -210,7 +211,7 @@ let
             expect[$a]=1
             pending=$((pending + 1))
             if [ "$t" = dom0 ]; then
-              foot -a term-dom0 ${lib.optionalString (hostname == "hp") "zellij --layout tabs"} &
+              foot -a term-dom0 ${lib.escapeShellArgs login.dom0Command} &
             else
               vm-run "$t" foot -a "term-$t" ${lib.escapeShellArgs vmZellij} &
             fi
@@ -631,28 +632,25 @@ in
       esac
     '')
 
-    # vm-autostart [vm…]: opens the autostart windows that are missing
-    # (niri IPC): the terminal tabs (dom0, nvim, coding), zen in net, irc on
-    # the xmg. With VM names only theirs (manage-vms after a (re)start, next
-    # to vm-tray); tray apps have no window to check, that is vm-tray
+    # vm-autostart [vm…]: opens the login windows that are missing (niri IPC,
+    # nox.desktop.login: terminal tabs, further windows). With VM names only
+    # theirs (manage-vms after a (re)start, next to vm-tray); tray apps have
+    # no window to check, that is vm-tray
     (writeShellScriptBin "vm-autostart" ''
       sel=" $* "
       pick() { [ "$sel" = "  " ] || [[ "$sel" == *" $1 "* ]]; }
       open=$(niri msg --json windows | ${pkgs.jq}/bin/jq -r '.[].app_id // empty')
       has() { grep -qxE "$1" <<<"$open"; }
       terms=()
-      for t in dom0 nvim coding; do
+      for t in ${lib.escapeShellArgs login.terminalTabs}; do
         pick "$t" && terms+=("$t")
       done
       [ ''${#terms[@]} -eq 0 ] || setsid -f ${terminalTabs} "''${terms[@]}" >/dev/null 2>&1
-      if pick net && ! has '\[net\] (zen|app\.zen_browser\.zen)'; then
-        setsid -f vm-run net zen >/dev/null 2>&1
-      fi
-      ${lib.optionalString (hostname == "xmg") ''
-        if pick irc && ! has '\[irc\] term-irc'; then
-          setsid -f vm-run irc foot -a term-irc ${lib.escapeShellArgs vmZellij} >/dev/null 2>&1
+      ${lib.concatMapStrings (w: ''
+        if pick ${w.vm} && ! has ${lib.escapeShellArg "\\[${w.vm}\\] (${w.appId})"}; then
+          setsid -f vm-run ${w.vm} ${lib.escapeShellArgs w.command} >/dev/null 2>&1
         fi
-      ''}
+      '') login.windows}
     '')
 
     # Keybinding viewer: every bind from `binds` above, searchable in rofi;
@@ -822,14 +820,7 @@ in
       # modifier sync (our wprs fork, modules/wprs-overlay.nix) releases it
       # (xen-migration.md, Known Issues). The tray apps (`trayApps` above)
       # are appended after this list.
-      { "spawn-at-startup"._args = [ "${terminalTabs}" ]; }
-      {
-        "spawn-at-startup"._args = [
-          "vm-run"
-          "net"
-          "zen"
-        ];
-      }
+      # (login windows: nox.desktop.login, after this list)
       {
         "window-rule"._children = [
           {
@@ -890,17 +881,15 @@ in
         ];
       }
     ]
-    # irc (zellij with tiny) on "remote"; irc starts at boot only on the xmg
-    ++ lib.optional (hostname == "xmg") {
+    # The user's login windows (nox.desktop.login)
+    ++ lib.optional (login.terminalTabs != [ ]) { "spawn-at-startup"._args = [ "${terminalTabs}" ]; }
+    ++ map (w: {
       "spawn-at-startup"._args = [
         "vm-run"
-        "irc"
-        "foot"
-        "-a"
-        "term-irc"
+        w.vm
       ]
-      ++ vmZellij;
-    }
+      ++ w.command;
+    }) login.windows
     ++ map (args: { "spawn-at-startup"._args = args; }) trayCommands
     ++ labelRules;
   };

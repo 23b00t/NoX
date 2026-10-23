@@ -340,6 +340,7 @@ in
   imports = [
     ./roles.nix
     ./apps.nix
+    ./infra.nix
   ];
 
   options.nox = {

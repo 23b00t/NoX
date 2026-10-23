@@ -1,7 +1,8 @@
 # The VMs with a role as VM definitions (name -> { module, specialArgs,
 # packages }, the format of the user's vms/definitions.nix): what every VM
 # has (../roles/vm.nix), its role's module and its own module (`module`).
-# VMs without a role are not in here; their definitions stay the user's.
+# Enabled infrastructure VMs (infra.nix) get their NoX module. Other VMs
+# without a role are not in here; their definitions stay the user's.
 { lib }:
 cfg:
 let
@@ -31,8 +32,17 @@ let
     specialArgs = { };
     packages = _: { };
   };
+
+  mkInfraDefinition = name: _: {
+    module = ../vms + "/${name}";
+    specialArgs = { };
+    packages = _: { };
+  };
+  infra = lib.filterAttrs (name: i: i.enable && cfg.vms.${name}.role == null) cfg.infra;
 in
 {
   inherit appsOf;
-  definitions = lib.mapAttrs mkDefinition (lib.filterAttrs (_: vm: vm.role != null) cfg.vms);
+  definitions =
+    lib.mapAttrs mkInfraDefinition infra
+    // lib.mapAttrs mkDefinition (lib.filterAttrs (_: vm: vm.role != null) cfg.vms);
 }
