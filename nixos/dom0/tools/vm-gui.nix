@@ -212,7 +212,7 @@ let
           ask)
             answer="$(printf 'Nein\nJa\n' | rofi -dmenu -i -no-custom \
               -p "Zwischenablage aus $src kopieren?" \
-              -theme ~/.config/rofi/config.rasi)" || answer=""
+              -theme /etc/xdg/rofi/config.rasi)" || answer=""
             [ "$answer" = Ja ] || fail "Kopieren aus $src abgebrochen"
             ;;
         esac

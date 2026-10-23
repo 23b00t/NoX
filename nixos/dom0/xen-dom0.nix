@@ -82,7 +82,7 @@ let
     fi
     # The launcher theme has no message box: add one above the choices
     rofi() {
-      timeout 30 ${pkgs.rofi}/bin/rofi -dmenu -theme ~/.config/rofi/config.rasi \
+      timeout 30 ${pkgs.rofi}/bin/rofi -dmenu -theme /etc/xdg/rofi/config.rasi \
         -theme-str 'mainbox { children: [ "inputbar", "message", "listview" ]; }
           message { padding: 10px 14px; background-color: @main-bg; }
           textbox { horizontal-align: 0; background-color: @main-bg; text-color: @main-fg; }
