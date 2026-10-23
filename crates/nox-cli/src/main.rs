@@ -124,7 +124,8 @@ enum Cmd {
         #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<OsString>,
     },
-    /// Run a shell command in a VM, output in this terminal
+    /// Run a shell command in a terminal window of the VM (foot over wprs,
+    /// stays open with the output); the builder: over SSH in this terminal
     Exec {
         /// VM name or short alias
         vm: String,
@@ -133,7 +134,7 @@ enum Cmd {
         cmd: Vec<OsString>,
     },
     /// SSH session to the builder, the only VM with sshd (extra arguments go
-    /// to ssh); the other VMs: nox exec
+    /// to ssh); the other VMs: nox exec (a terminal window in the VM)
     Ssh {
         /// VM name or short alias
         vm: String,
@@ -573,10 +574,17 @@ fn pick(group: &str, p: Pick) -> ExitCode {
         eprintln!("nox: no entry {n} (1-{})", list.len());
         return ExitCode::from(2);
     };
-    // Empty line or Ctrl+C: nothing runs
+    // Empty line or Ctrl+C: nothing runs. NOX_HISTORY_OUT (set by the `nox`
+    // shell function in dom0): the line goes there and the calling shell
+    // adds it to its own history (`history -s`); without it, to HISTFILE
+    // (seen by new shells only)
     let script = r#"read -r -e -i "$1" -p '> ' c || exit 130
 [ -n "$c" ] || exit 0
-printf '%s\n' "$c" >>"${HISTFILE:-$HOME/.bash_history}"
+if [ -n "${NOX_HISTORY_OUT:-}" ]; then
+  printf '%s\n' "$c" >"$NOX_HISTORY_OUT"
+else
+  printf '%s\n' "$c" >>"${HISTFILE:-$HOME/.bash_history}"
+fi
 eval "$c""#;
     exec("bash", ["-c", script, "nox", entry.cmd.as_str()])
 }

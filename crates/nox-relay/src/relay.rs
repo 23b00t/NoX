@@ -2,7 +2,7 @@
 
 use crate::config::{Config, Listen};
 use crate::proto::{self, Frame, Kind, MAGIC, MAX_PAYLOAD, WINDOW};
-use crate::vchan::{State, Vchan};
+use crate::vchan::{State, Vchan, Xenstore};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, ErrorKind, Read, Write};
@@ -17,6 +17,8 @@ use std::time::{Duration, Instant};
 static DUMP: AtomicBool = AtomicBool::new(false);
 /// Data waits but nothing moved for this long: log the state once.
 const STALL: Duration = Duration::from_secs(10);
+/// How often to check that the peer domain still exists.
+const PEER_CHECK: Duration = Duration::from_secs(1);
 
 /// Stop reading local sockets while this much is queued for the vchan.
 const VOUT_HIGH: usize = 1 << 20;
@@ -68,6 +70,9 @@ impl Stream {
 
 pub struct Relay {
     vchan: Vchan,
+    peer: u32,
+    /// None if xenstore could not be opened (then only the vchan state counts)
+    xenstore: Option<Xenstore>,
     server: bool,
     listeners: Vec<(UnixListener, String)>,
     serve: HashMap<String, PathBuf>,
@@ -87,6 +92,7 @@ extern "C" fn on_usr1(_: libc::c_int) {
 impl Relay {
     pub fn new(
         vchan: Vchan,
+        peer: u32,
         cfg: Config,
         server: bool,
         ready_file: Option<String>,
@@ -97,8 +103,13 @@ impl Relay {
         }
         let mut vout = Vec::new();
         proto::encode(&mut vout, 0, Kind::Hello, MAGIC);
+        let xenstore = Xenstore::open()
+            .map_err(|e| eprintln!("xenstore: {e}; a destroyed peer goes unnoticed"))
+            .ok();
         Ok(Relay {
             vchan,
+            peer,
+            xenstore,
             server,
             listeners,
             serve: cfg.serve.into_iter().map(|s| (s.service, s.path)).collect(),
@@ -117,11 +128,25 @@ impl Relay {
         unsafe { libc::signal(libc::SIGUSR1, on_usr1 as *const () as libc::sighandler_t) };
         let mut buf = vec![0u8; 64 * 1024];
         let (mut last_moved, mut since, mut reported) = (0, Instant::now(), false);
+        let mut checked = Instant::now();
         loop {
             self.pump_vchan(&mut buf)?;
             if self.vchan.state() == State::Closed {
                 eprintln!("peer closed the vchan");
                 return Ok(());
+            }
+            // A hard-killed peer never closes its end: the ring looks open
+            // and we would stay bound to the dead domain (hp, 2026-10-16)
+            if checked.elapsed() >= PEER_CHECK {
+                checked = Instant::now();
+                if self
+                    .xenstore
+                    .as_ref()
+                    .is_some_and(|x| x.domain_gone(self.peer))
+                {
+                    eprintln!("domain {} is gone", self.peer);
+                    return Ok(());
+                }
             }
 
             if DUMP.swap(false, Ordering::Relaxed) {
