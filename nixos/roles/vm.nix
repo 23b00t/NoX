@@ -60,6 +60,7 @@ in
 
     microvm = {
       hypervisor = "xen";
+      # Further volumes of the VM's module: lib.mkAfter, so home stays in front
       volumes = lib.optional (vm.home.size != null) {
         mountPoint = "/home/user";
         image = "home.img";
