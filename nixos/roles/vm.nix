@@ -3,10 +3,11 @@
 # the unfree rule. The entry is the module argument `noxVm` for the role
 # modules and the VM's own module.
 #
-# Unfree: packages are allowed by name only (apps marked `unfree`, the VM's
-# `unfree` list), never with `allowUnfree`, and only in an own store image or
-# a store group marked unfree, so no proprietary package lands in the store
-# image of, e.g., vault or office.
+# Unfree: packages are allowed by name only (`nox.unfree`, set by the module
+# that adds the package; apps marked `unfree` add theirs), never with
+# `allowUnfree`, and only in an own store image or a store group marked
+# unfree, so no proprietary package lands in the store image of, e.g., vault
+# or office.
 {
   name,
   vm,
@@ -22,12 +23,7 @@
 let
   enabledApps = lib.filter (a: a.enable && a.package != null) (lib.attrValues apps);
   appPackage = a: lib.getAttrFromPath (lib.splitString "." a.package) pkgs;
-  # Names from the attribute paths, not from the packages: nixpkgs.config
-  # must not depend on pkgs (a package whose pname differs from its attribute
-  # name goes into the VM's `unfree` list)
-  unfreeNames =
-    map (a: lib.last (lib.splitString "." a.package)) (lib.filter (a: a.unfree or false) enabledApps)
-    ++ (if vm.unfree == null then [ ] else vm.unfree);
+  unfree = config.nox.unfree;
   unfreeAllowed = vm.storeGroup == null || groupUnfree;
   hex = lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString vm.index));
 in
@@ -37,54 +33,69 @@ in
     ../vms/modules/common-config.nix
   ];
 
-  _module.args.noxVm = vm // {
-    inherit name;
+  options.nox.unfree = lib.mkOption {
+    type = lib.types.listOf lib.types.str;
+    default = [ ];
+    example = [ "claude-code" ];
+    description = "Unfree packages (pname) allowed in this VM. Set it in the module that adds the package; only allowed in an own store image or a store group marked unfree.";
   };
 
-  networking.hostName = "${name}-vm";
-
-  services = {
-    net-config = {
-      enable = true;
-      inherit (vm) index;
-      mac = "00:00:00:00:00:${hex}";
+  config = {
+    _module.args.noxVm = vm // {
+      inherit name;
     };
-    common-config.enable = true;
-  };
 
-  microvm = {
-    hypervisor = "xen";
-    volumes = lib.optional (vm.home.size != null) {
-      mountPoint = "/home/user";
-      image = "home.img";
-      inherit (vm.home) size;
+    networking.hostName = "${name}-vm";
+
+    services = {
+      net-config = {
+        enable = true;
+        inherit (vm) index;
+        mac = "00:00:00:00:00:${hex}";
+      };
+      common-config.enable = true;
     };
-  }
-  // lib.optionalAttrs (vm.vcpu != null) { inherit (vm) vcpu; }
-  // lib.optionalAttrs (vm.memoryMax != null) {
-    # Boots with `memory`, the RAM balancer grows it up to `memoryMax`
-    mem = vm.memoryMax;
-    balloon = true;
-    initialBalloonMem = vm.memory;
-  }
-  // lib.optionalAttrs (vm.memoryMax == null && vm.memory != null) { mem = vm.memory; };
 
-  environment.systemPackages = map appPackage enabledApps;
+    microvm = {
+      hypervisor = "xen";
+      volumes = lib.optional (vm.home.size != null) {
+        mountPoint = "/home/user";
+        image = "home.img";
+        inherit (vm.home) size;
+      };
+    }
+    // lib.optionalAttrs (vm.vcpu != null) { inherit (vm) vcpu; }
+    // lib.optionalAttrs (vm.memoryMax != null) {
+      # Boots with `memory`, the RAM balancer grows it up to `memoryMax`
+      mem = vm.memoryMax;
+      balloon = true;
+      initialBalloonMem = vm.memory;
+    }
+    // lib.optionalAttrs (vm.memoryMax == null && vm.memory != null) { mem = vm.memory; };
 
-  nixpkgs.config = lib.optionalAttrs (unfreeNames != [ ]) {
-    allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) unfreeNames;
+    environment.systemPackages = map appPackage enabledApps;
+
+    # Names from the attribute paths, not from the packages: nixpkgs.config
+    # must not depend on pkgs
+    nox.unfree = map (a: lib.last (lib.splitString "." a.package)) (
+      lib.filter (a: a.unfree or null == true) enabledApps
+    );
+
+    nixpkgs.config = lib.mkIf (unfree != [ ]) {
+      allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) unfree;
+    };
+
+    assertions = [
+      {
+        assertion = unfree == [ ] || unfreeAllowed;
+        message = "nox.vms.${name}: unfree packages (${lib.concatStringsSep ", " unfree}) in store group `${toString vm.storeGroup}`, which is not marked `unfree` (nox.storeGroups); use an unfree group or an own image (storeGroup = null).";
+      }
+      {
+        assertion = !(config.nixpkgs.config.allowUnfree or false) || unfreeAllowed;
+        message = "nox.vms.${name}: nixpkgs.config.allowUnfree in store group `${toString vm.storeGroup}`, which is not marked `unfree`; name the unfree packages in `nox.unfree` instead.";
+      }
+    ];
+
+    system.stateVersion = lib.mkDefault "26.05";
   };
-
-  assertions = [
-    {
-      assertion = unfreeNames == [ ] || unfreeAllowed;
-      message = "nox.vms.${name}: unfree packages (${lib.concatStringsSep ", " unfreeNames}) in store group `${toString vm.storeGroup}`, which is not marked `unfree` (nox.storeGroups); use an unfree group (prop) or an own image (storeGroup = null).";
-    }
-    {
-      assertion = !(config.nixpkgs.config.allowUnfree or false) || unfreeAllowed;
-      message = "nox.vms.${name}: nixpkgs.config.allowUnfree in store group `${toString vm.storeGroup}`, which is not marked `unfree`; name the unfree packages instead (apps with `unfree = true`, the VM's `unfree` list).";
-    }
-  ];
-
-  system.stateVersion = lib.mkDefault "26.05";
 }

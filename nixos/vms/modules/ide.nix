@@ -53,7 +53,6 @@ in
       pinentry-curses
       git
       gh
-      claude-code
       openssl
 
       python3

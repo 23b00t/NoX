@@ -1,10 +1,27 @@
 # App catalog (nox.apps): known apps with the switches they need under NoX.
 # A VM lists an app by its id (`apps.element.tray = true;`) and gets these
-# fields; its own fields win one by one. `unfree` apps are allowed by name
-# only and only in an own store image or a store group marked unfree.
+# fields; its own fields win one by one. Free software only: unfree apps
+# (`unfree = true`) are defined in the user's config (`nox.apps.<id>`), allowed
+# by name only and only in an own store image or a store group marked unfree.
 { lib, ... }:
 let
   app = lib.mapAttrs (_: lib.mkDefault);
+  chat = [
+    "Network"
+    "InstantMessaging"
+    "Chat"
+  ];
+  browser = [
+    "Network"
+    "WebBrowser"
+  ];
+  webMime = [
+    "text/html"
+    "application/xhtml+xml"
+    "application/xml"
+    "application/pdf"
+    "application/x-xpinstall"
+  ];
 in
 {
   nox.apps = {
@@ -14,11 +31,7 @@ in
       name = "Vesktop";
       genericName = "Discord Client";
       icon = "discord";
-      categories = [
-        "Network"
-        "InstantMessaging"
-        "Chat"
-      ];
+      categories = chat;
       trayArgs = [ "-m" ];
     };
     element = app {
@@ -27,12 +40,10 @@ in
       genericName = "Element Matrix Client";
       binary = "element-desktop";
       icon = "element-desktop";
+      # Tray show/hide needs XWayland under wprs
       x11 = true;
-      categories = [
-        "Network"
-        "InstantMessaging"
-        "Chat"
-      ];
+      categories = chat;
+      mimeType = [ "x-scheme-handler/web+msteams" ];
       trayArgs = [ "--hidden" ];
     };
     telegram = app {
@@ -41,25 +52,9 @@ in
       genericName = "Telegram Desktop";
       binary = "Telegram";
       icon = "telegram";
-      categories = [
-        "Network"
-        "InstantMessaging"
-        "Chat"
-      ];
+      categories = chat;
       mimeType = [ "x-scheme-handler/tg" ];
       trayArgs = [ "-startintray" ];
-    };
-    slack = app {
-      package = "slack";
-      name = "Slack";
-      icon = "slack";
-      categories = [
-        "Network"
-        "InstantMessaging"
-        "Chat"
-      ];
-      mimeType = [ "x-scheme-handler/slack" ];
-      unfree = true;
     };
 
     # Browsers
@@ -68,37 +63,15 @@ in
       name = "Firefox";
       genericName = "Web Browser";
       icon = "firefox";
-      categories = [
-        "Network"
-        "WebBrowser"
-      ];
-      mimeType = [
-        "text/html"
-        "x-scheme-handler/http"
-        "x-scheme-handler/https"
-      ];
+      categories = browser;
+      mimeType = webMime;
     };
     chromium = app {
       package = "chromium";
       name = "Chromium";
       genericName = "Web Browser";
       icon = "chromium";
-      categories = [
-        "Network"
-        "WebBrowser"
-      ];
-    };
-    chrome = app {
-      package = "google-chrome";
-      name = "Chrome";
-      genericName = "Web Browser";
-      binary = "google-chrome-stable";
-      icon = "google-chrome";
-      categories = [
-        "Network"
-        "WebBrowser"
-      ];
-      unfree = true;
+      categories = browser;
     };
 
     # Office and media
@@ -107,24 +80,54 @@ in
       name = "LibreOffice";
       genericName = "LibreOffice Suite";
       icon = "libreoffice";
-      categories = [ "Office" ];
+      categories = [
+        "Office"
+        "WordProcessor"
+        "Spreadsheet"
+        "Presentation"
+      ];
+      mimeType = [
+        "application/vnd.oasis.opendocument.text"
+        "application/vnd.oasis.opendocument.spreadsheet"
+        "application/vnd.oasis.opendocument.presentation"
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+      ];
     };
     gimp = app {
       package = "gimp";
       name = "GIMP";
       genericName = "GNU Image Manipulation Program";
       icon = "gimp";
-      categories = [ "Graphics" ];
+      categories = [
+        "Graphics"
+        "2DGraphics"
+        "RasterGraphics"
+      ];
+      mimeType = [
+        "image/jpeg"
+        "image/png"
+        "image/tiff"
+        "image/webp"
+      ];
     };
     inkscape = app {
       package = "inkscape";
       name = "Inkscape";
       genericName = "Vector Graphics Editor";
-      # Its own session bus: without one it hangs at start under wprs
+      # Its own session bus
       binary = "dbus-run-session";
       args = [ "inkscape" ];
       icon = "inkscape";
-      categories = [ "Graphics" ];
+      categories = [
+        "Graphics"
+        "VectorGraphics"
+      ];
+      mimeType = [
+        "image/svg+xml"
+        "application/pdf"
+      ];
     };
     vlc = app {
       package = "vlc";
@@ -134,6 +137,7 @@ in
       categories = [
         "AudioVideo"
         "Player"
+        "Recorder"
       ];
     };
     pinta = app {
@@ -141,11 +145,15 @@ in
       name = "Pinta";
       genericName = "Image Editor";
       icon = "pinta";
-      categories = [ "Graphics" ];
+      categories = [
+        "Graphics"
+        "2DGraphics"
+      ];
     };
     pdfarranger = app {
       package = "pdfarranger";
       name = "PDF Arranger";
+      genericName = "PDF Arranger";
       icon = "pdfarranger";
       categories = [ "Office" ];
       mimeType = [ "application/pdf" ];
@@ -158,24 +166,22 @@ in
       genericName = "Password Manager";
       icon = "keepassxc";
       categories = [ "Utility" ];
-      mimeType = [ "application/x-keepass2" ];
+      mimeType = [
+        "application/x-keepass2"
+        "application/x-keepass"
+      ];
     };
 
     # Development
-    postman = app {
-      package = "postman";
-      name = "Postman";
-      genericName = "API Client";
-      icon = "postman";
-      categories = [ "Development" ];
-      unfree = true;
-    };
     dbeaver = app {
       package = "dbeaver-bin";
       name = "DBeaver";
       genericName = "Database Manager";
       icon = "dbeaver";
-      categories = [ "Development" ];
+      categories = [
+        "Development"
+        "Database"
+      ];
     };
 
     # Windows

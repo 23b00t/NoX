@@ -69,6 +69,26 @@ let
       };
     }
   ) domains;
+
+  # The apps of the VMs (registry `apps`, catalog fields filled in by
+  # registry/legacy.nix): one entry each, like the hand-written ones below
+  appEntries = lib.concatMap (
+    vm:
+    map (
+      a:
+      mkVmEntry (
+        {
+          inherit (a) name binary;
+          vm = vm.name;
+          args = lib.concatStringsSep " " ((a.args or [ ]) ++ lib.optional a.x11 "--ozone-platform=x11");
+        }
+        // lib.optionalAttrs (a ? genericName) { inherit (a) genericName; }
+        // lib.optionalAttrs (a ? icon) { inherit (a) icon; }
+        // lib.optionalAttrs (a ? categories) { inherit (a) categories; }
+        // lib.optionalAttrs (a ? mimeType) { inherit (a) mimeType; }
+      )
+    ) (vm.apps or [ ])
+  ) vmRegistry.vms;
 in
 {
   options.nox.desktopEntries = lib.mkOption {
@@ -100,6 +120,7 @@ in
 
   config.nox.desktopEntries = lib.mkMerge (
     terminalEntries
+    ++ appEntries
     ++ [
       # --- Chat VM ---
       (mkVmEntry {
@@ -171,100 +192,6 @@ in
         mimeType = [ "x-scheme-handler/web+msteams" ];
       })
 
-      # --- Office VM ---
-      (mkVmEntry {
-        name = "GIMP";
-        genericName = "GNU Image Manipulation Program";
-        vm = "office";
-        binary = "gimp";
-        icon = "gimp";
-        categories = [
-          "Graphics"
-          "2DGraphics"
-          "RasterGraphics"
-        ];
-        mimeType = [
-          "image/jpeg"
-          "image/png"
-          "image/tiff"
-          "image/webp"
-        ];
-      })
-
-      (mkVmEntry {
-        name = "LibreOffice";
-        genericName = "LibreOffice Suite";
-        vm = "office";
-        binary = "libreoffice";
-        icon = "libreoffice";
-        categories = [
-          "Office"
-          "WordProcessor"
-          "Spreadsheet"
-          "Presentation"
-        ];
-        mimeType = [
-          "application/vnd.oasis.opendocument.text"
-          "application/vnd.oasis.opendocument.spreadsheet"
-          "application/vnd.oasis.opendocument.presentation"
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-        ];
-      })
-
-      (mkVmEntry {
-        name = "Inkscape";
-        genericName = "Vector Graphics Editor";
-        vm = "office";
-        binary = "dbus-run-session";
-        args = "inkscape";
-        icon = "inkscape";
-        categories = [
-          "Graphics"
-          "VectorGraphics"
-        ];
-        mimeType = [
-          "image/svg+xml"
-          "application/pdf"
-        ];
-      })
-
-      (mkVmEntry {
-        name = "VLC";
-        genericName = "Media Player";
-        vm = "office";
-        binary = "vlc";
-        icon = "vlc";
-        categories = [
-          "AudioVideo"
-          "Player"
-          "Recorder"
-        ];
-      })
-
-      (mkVmEntry {
-        name = "Pinta";
-        genericName = "Image Editor";
-        vm = "office";
-        binary = "pinta";
-        icon = "pinta";
-        categories = [
-          "Graphics"
-          "2DGraphics"
-        ];
-      })
-
-      (mkVmEntry {
-        name = "PDF Arranger";
-        genericName = "PDF Arranger";
-        vm = "office";
-        binary = "pdfarranger";
-        icon = "pdfarranger";
-        categories = [ "Office" ];
-        mimeType = [ "application/pdf" ];
-      })
-
       # --- Net VM ---
       (mkVmEntry {
         name = "Firefox";
@@ -301,22 +228,6 @@ in
           "application/xml"
           "application/pdf"
           "application/x-xpinstall"
-        ];
-      })
-
-      # ---- Vault VM ---
-      (mkVmEntry {
-        name = "KeePassXC";
-        genericName = "Password Manager";
-        vm = "vault";
-        binary = "keepassxc";
-        icon = "keepassxc";
-        categories = [
-          "Utility"
-        ];
-        mimeType = [
-          "application/x-keepass2"
-          "application/x-keepass"
         ];
       })
 

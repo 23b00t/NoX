@@ -170,12 +170,6 @@ let
       example = lib.literalExpression "{ element.tray = true; vesktop.enable = false; }";
       description = "Apps of the VM; an id from the catalog (nox.apps) takes its fields from there.";
     };
-    unfree = mkOption {
-      type = types.nullOr (types.listOf types.str);
-      default = null;
-      example = [ "dbeaver-bin" ];
-      description = "Further unfree package names the VM's module installs (besides apps marked unfree).";
-    };
     memory = mkOption {
       type = types.nullOr types.ints.positive;
       default = null;
