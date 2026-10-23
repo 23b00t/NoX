@@ -3,7 +3,7 @@
 # pkgs with the wprs overlay, desktop session (niri, sddm, portals,
 # pipewire), the VM bridges, microvm.vms from the registry and
 # vmDefinitions, nix settings. The user's part (account, locale, keyboards,
-# home-manager wiring, hardware profile) stays in the user's config.
+# shell and tools, hardware profile) stays in the user's config.
 {
   lib,
   config,
@@ -145,10 +145,13 @@ in
 
   imports = [
     inputs.microvm.nixosModules.host
-    inputs.home-manager.nixosModules.home-manager
+    # Desktop (niri, waybar, …) without home-manager
+    ../desktop
     # ../modules/steam-vm-image.nix
     # inputs.flatpaks.nixosModules.default
     ../modules/dbus-proxy.nix
+    # dom0 tools (vm-run, manage-vms, nox backup, …), out of home-manager
+    ./tools
   ];
 
   # For proper XDG desktop integration
@@ -414,7 +417,7 @@ in
 
   fonts.packages = with pkgs; [
     nerd-fonts.fira-code
-    (import ../home/desktop/symbols-font.nix { inherit pkgs; })
+    (import ../desktop/symbols-font.nix { inherit pkgs; })
     noto-fonts-color-emoji
   ];
 

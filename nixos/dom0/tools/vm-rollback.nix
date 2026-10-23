@@ -8,12 +8,12 @@
 {
   lib,
   pkgs,
-  osConfig ? { },
+  config,
   ...
 }:
 let
-  imageDomains = osConfig.services.xen-image-domains.domains or { };
-  microvms = builtins.attrNames (osConfig.microvm.vms or { });
+  imageDomains = config.services.xen-image-domains.domains or { };
+  microvms = builtins.attrNames (config.microvm.vms or { });
   # Image domains: one disk image, unit xen-image@<name>
   imageCases = lib.concatStrings (
     lib.mapAttrsToList (n: d: "    ${n}) echo ${lib.escapeShellArg d.image} ;;\n") imageDomains
@@ -220,7 +220,7 @@ let
   '';
 in
 {
-  home.packages = [
+  environment.systemPackages = [
     vmRollback
     vmSnapshot
     vmGc

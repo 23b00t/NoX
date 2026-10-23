@@ -11,7 +11,7 @@
   ...
 }:
 let
-  theme = import ../home/desktop/theme.nix { inherit lib; };
+  theme = import ../desktop/theme.nix { inherit lib; };
   nicPciPaths = vmRegistry.hardware.pci.devicePaths.nic or [ ];
   # NIC drivers blacklisted in dom0 (registry hostProfile), loaded again by
   # sys-net-rescue

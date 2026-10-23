@@ -1,12 +1,13 @@
 {
   pkgs,
   lib,
-  hostname,
+  config,
   vmRegistry,
   ...
 }:
 let
   theme = import ./theme.nix { inherit lib; };
+  hostname = config.networking.hostName;
 
   # Trust label per VM (vms/registry.nix `label`, absent = untrusted): one
   # window rule per label on the "[<vm>] " app id prefix that dom0's wprsc
@@ -82,10 +83,17 @@ let
     ];
   };
   trayCommands = lib.concatLists (
-    lib.mapAttrsToList (vm: map (app: [
-      "vm-run"
-      vm
-    ] ++ app)) trayApps
+    lib.mapAttrsToList (
+      vm:
+      map (
+        app:
+        [
+          "vm-run"
+          vm
+        ]
+        ++ app
+      )
+    ) trayApps
   );
 
   # Terminals at login (replaced kitty's startup session): dom0's foot (on
@@ -241,7 +249,7 @@ let
     "Mod+A" = {
       _props."hotkey-overlay-title" = "Run an Application: rofi";
       "spawn-sh" =
-        "pkill rofi || rofi -modi drun,filebrowser,window,run -show drun -theme ~/.config/rofi/config.rasi";
+        "pkill rofi || rofi -modi drun,filebrowser,window,run -show drun -theme /etc/xdg/rofi/config.rasi";
     };
 
     "Mod+B" = {
@@ -251,13 +259,17 @@ let
 
     "Mod+Alt+L" = {
       _props."hotkey-overlay-title" = "Lock the Screen: swaylock";
-      spawn = [ "swaylock" ];
+      spawn = [
+        "swaylock"
+        "-C"
+        "/etc/xdg/swaylock/config"
+      ];
     };
 
     "Mod+Comma" = {
       _props."hotkey-overlay-title" = "Emoji Picker";
       "spawn-sh" =
-        "rofimoji --max-recent 10 --action copy --selector-args='-theme ~/.config/rofi/config.rasi'";
+        "rofimoji --max-recent 10 --action copy --selector-args='-theme /etc/xdg/rofi/config.rasi'";
     };
 
     "Mod+Alt+C" = {
@@ -449,7 +461,7 @@ let
     "Mod+Period" = {
       _props."hotkey-overlay-title" = "Glyph Picker (Nerd Font)";
       "spawn-sh" =
-        "rofimoji --files nerd_font --max-recent 10 --action copy --selector-args='-theme ~/.config/rofi/config.rasi'";
+        "rofimoji --files nerd_font --max-recent 10 --action copy --selector-args='-theme /etc/xdg/rofi/config.rasi'";
     };
 
     "Mod+Shift+Minus"."set-window-height" = "-10%";
@@ -529,7 +541,7 @@ let
     );
 in
 {
-  home.packages = with pkgs; [
+  environment.systemPackages = with pkgs; [
     wl-screenrec
 
     # Screen recording helper scripts
@@ -595,16 +607,27 @@ in
     # gone); detached, vm-run waits for the VM itself
     (writeShellScriptBin "vm-tray" ''
       case "''${1:-}" in
-      ${lib.concatStrings (
-        lib.mapAttrsToList (
-          vm: apps:
-          "  ${vm})\n"
-          + lib.concatMapStrings (
-            app: "    setsid -f ${lib.escapeShellArgs ([ "vm-run" vm ] ++ app)} >/dev/null 2>&1\n"
-          ) apps
-          + "    ;;\n"
-        ) trayApps
-      )}  *) exit 0 ;;
+      ${
+        lib.concatStrings (
+          lib.mapAttrsToList (
+            vm: apps:
+            "  ${vm})\n"
+            + lib.concatMapStrings (
+              app:
+              "    setsid -f ${
+                    lib.escapeShellArgs (
+                      [
+                        "vm-run"
+                        vm
+                      ]
+                      ++ app
+                    )
+                  } >/dev/null 2>&1\n"
+            ) apps
+            + "    ;;\n"
+          ) trayApps
+        )
+      }  *) exit 0 ;;
       esac
     '')
 
@@ -637,7 +660,7 @@ in
     (writeShellScriptBin "niri-binds" ''
       cmds=(${lib.escapeShellArgs (map (e: e.command) bindEntries)})
       i=$(rofi -dmenu -i -no-custom -p " " -format i \
-        -theme ~/.config/rofi/config.rasi \
+        -theme /etc/xdg/rofi/config.rasi \
         -theme-str 'window { width: 60em; } listview { lines: 14; }' \
         < ${
           pkgs.writeText "niri-binds.txt" (lib.concatMapStrings (e: e.line + "\n") bindEntries)
@@ -646,234 +669,243 @@ in
     '')
   ];
 
-  wayland.windowManager.niri = {
-    enable = true;
+  nox.desktop.niri.settings = {
+    "prefer-no-csd" = { };
+    "screenshot-path" = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png";
+    "hotkey-overlay"."skip-at-startup" = { };
 
-    settings = {
-      "prefer-no-csd" = { };
-      "screenshot-path" = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png";
-      "hotkey-overlay"."skip-at-startup" = { };
+    # No hot corner (top left of each monitor opened the overview)
+    gestures."hot-corners".off = { };
 
-      # No hot corner (top left of each monitor opened the overview)
-      gestures."hot-corners".off = { };
+    input = {
+      "mod-key" = "Super";
 
-      input = {
-        "mod-key" = "Super";
-
-        keyboard = {
-          xkb = {
-            layout = "us";
-            variant = "altgr-intl";
-            options = "grp:alt_shift_toggle";
-          };
-
-          numlock = { };
+      keyboard = {
+        xkb = {
+          layout = "us";
+          variant = "altgr-intl";
+          options = "grp:alt_shift_toggle";
         };
 
-        "focus-follows-mouse" = { };
-
-        touchpad = {
-          tap = { };
-          "natural-scroll" = { };
-        };
+        numlock = { };
       };
 
-      layout = {
-        gaps = theme.gap;
-        "center-focused-column" = "on-overflow";
-        "always-center-single-column" = { };
+      "focus-follows-mouse" = { };
 
-        "preset-column-widths"._children = [
-          { proportion = 0.33333; }
-          { proportion = 0.5; }
-          { proportion = 0.66667; }
-        ];
+      touchpad = {
+        tap = { };
+        "natural-scroll" = { };
+      };
+    };
 
-        # New windows open full width (as after Mod+M); Mod+Alt+R cycles the
-        # presets above
-        "default-column-width".proportion = 1.0;
+    layout = {
+      gaps = theme.gap;
+      "center-focused-column" = "on-overflow";
+      "always-center-single-column" = { };
 
-        # Tabbed columns (VM terminals): one segment per tab; inactive tabs
-        # in the accent color, the focused one stronger (muted was too faint)
-        "tab-indicator" = {
-          "hide-when-single-tab" = { };
-          "gaps-between-tabs" = 4;
-          width = 6;
-          "corner-radius" = 3;
-          "active-color" = theme.color.accentStrong;
-          "inactive-color" = theme.color.accent;
+      "preset-column-widths"._children = [
+        { proportion = 0.33333; }
+        { proportion = 0.5; }
+        { proportion = 0.66667; }
+      ];
+
+      # New windows open full width (as after Mod+M); Mod+Alt+R cycles the
+      # presets above
+      "default-column-width".proportion = 1.0;
+
+      # Tabbed columns (VM terminals): one segment per tab; inactive tabs
+      # in the accent color, the focused one stronger (muted was too faint)
+      "tab-indicator" = {
+        "hide-when-single-tab" = { };
+        "gaps-between-tabs" = 4;
+        width = 6;
+        "corner-radius" = 3;
+        "active-color" = theme.color.accentStrong;
+        "inactive-color" = theme.color.accent;
+      };
+
+      # Border in the trust label color (default `unknown` here; dom0 and the
+      # VMs in `labelRules`): dimmed when unfocused, full plus a focus ring of
+      # the same color when focused
+      "focus-ring" = {
+        width = 2;
+        "active-color" = theme.label.unknown;
+        "inactive-color" = theme.labelWithAlpha "unknown" theme.opacity.inactiveRing;
+        "urgent-color" = theme.color.urgent;
+      };
+
+      border = {
+        on = { };
+        width = 3;
+        "active-color" = theme.label.unknown;
+        "inactive-color" = theme.labelWithAlpha "unknown" theme.opacity.inactiveBorder;
+        "urgent-color" = theme.color.urgent;
+      };
+
+      shadow = {
+        on = { };
+        softness = 30;
+        spread = 5;
+        offset._props = {
+          x = 0;
+          y = 5;
         };
+        color = theme.withAlpha "shadow" theme.opacity.shadow;
+      };
+    };
 
-        # Border in the trust label color (default `unknown` here; dom0 and the
-        # VMs in `labelRules`): dimmed when unfocused, full plus a focus ring of
-        # the same color when focused
-        "focus-ring" = {
-          width = 2;
-          "active-color" = theme.label.unknown;
-          "inactive-color" = theme.labelWithAlpha "unknown" theme.opacity.inactiveRing;
-          "urgent-color" = theme.color.urgent;
+    inherit binds;
+
+    _children = [
+      {
+        workspace = {
+          _args = [ "terminal" ];
+          "open-on-output" = "DP-2";
         };
-
-        border = {
-          on = { };
-          width = 3;
-          "active-color" = theme.label.unknown;
-          "inactive-color" = theme.labelWithAlpha "unknown" theme.opacity.inactiveBorder;
-          "urgent-color" = theme.color.urgent;
+      }
+      {
+        workspace = {
+          _args = [ "browser" ];
+          "open-on-output" = "DP-2";
         };
-
-        shadow = {
-          on = { };
-          softness = 30;
-          spread = 5;
-          offset._props = {
+      }
+      {
+        workspace = {
+          _args = [ "remote" ];
+          "open-on-output" = "DP-1";
+        };
+      }
+      {
+        output = {
+          _args = [ "eDP-1" ];
+          inherit (edp) mode;
+          scale = 1.0;
+          position._props = {
             x = 0;
-            y = 5;
+            y = 0;
           };
-          color = theme.withAlpha "shadow" theme.opacity.shadow;
         };
-      };
-
-      inherit binds;
-
-      _children = [
-        {
-          workspace = {
-            _args = [ "terminal" ];
-            "open-on-output" = "DP-2";
+      }
+      {
+        output = {
+          _args = [ "DP-2" ];
+          mode = "1920x1080@60.00";
+          scale = 1.0;
+          position._props = {
+            x = edp.width;
+            y = 0;
           };
-        }
-        {
-          workspace = {
-            _args = [ "browser" ];
-            "open-on-output" = "DP-2";
+        };
+      }
+      {
+        output = {
+          _args = [ "DP-1" ];
+          mode = "1920x1080@60.00";
+          scale = 1.0;
+          position._props = {
+            x = edp.width + 1920;
+            y = 0;
           };
-        }
-        {
-          workspace = {
-            _args = [ "remote" ];
-            "open-on-output" = "DP-1";
-          };
-        }
-        {
-          output = {
-            _args = [ "eDP-1" ];
-            inherit (edp) mode;
-            scale = 1.0;
-            position._props = {
-              x = 0;
-              y = 0;
-            };
-          };
-        }
-        {
-          output = {
-            _args = [ "DP-2" ];
-            mode = "1920x1080@60.00";
-            scale = 1.0;
-            position._props = {
-              x = edp.width;
-              y = 0;
-            };
-          };
-        }
-        {
-          output = {
-            _args = [ "DP-1" ];
-            mode = "1920x1080@60.00";
-            scale = 1.0;
-            position._props = {
-              x = edp.width + 1920;
-              y = 0;
-            };
-          };
-        }
-        { "spawn-at-startup"._args = [ "waybar" ]; }
-        { "spawn-at-startup"._args = [ "systemctl" "--user" "restart" "wpaperd.service" ]; }
-        # Chat apps and zen at startup again: started with the session, wprsd
-        # kept Super as pressed (apps got every key as Super+key); the wprs
-        # modifier sync (our wprs fork, modules/wprs-overlay.nix) releases it
-        # (xen-migration.md, Known Issues). The tray apps (`trayApps` above)
-        # are appended after this list.
-        { "spawn-at-startup"._args = [ "${terminalTabs}" ]; }
-        { "spawn-at-startup"._args = [ "vm-run" "net" "zen" ]; }
-        {
-          "window-rule"._children = [
-            {
-              match._props = {
-                "app-id" = "^(term-dom0|\\[(nvim|coding)\\] term-(nvim|coding))$";
-              };
-            }
-            { "open-on-workspace" = "terminal"; }
-            { "default-column-display" = "tabbed"; }
-            { "default-column-width".proportion = 1.0; }
-          ];
-        }
-        {
-          "window-rule"._children = [
-            {
-              match._props = {
-                "app-id" = "^\\[irc\\] term-irc$";
-              };
-            }
-            { "open-on-workspace" = "remote"; }
-            { "default-column-width".proportion = 1.0; }
-          ];
-        }
-        {
-          "window-rule"._children = [
-            {
-              match._props = {
-                "app-id" = "^\\[[a-z0-9-]+\\] (zen|app\\.zen_browser\\.zen)$";
-              };
-            }
-            { "open-on-workspace" = "browser"; }
-            { "default-column-width".proportion = 1.0; }
-          ];
-        }
-        {
-          "window-rule"._children = [
-            { "geometry-corner-radius" = theme.radius; }
-            { "clip-to-geometry" = true; }
-            { "draw-border-with-background" = false; }
-            { opacity = 0.85; }
-            {
-              "background-effect" = {
-                blur = true;
-                saturation = 2.0;
-                noise = 0.03;
-              };
-            }
-          ];
-        }
-        {
-          "window-rule"._children = [
-            {
-              match._props = {
-                "is-focused" = true;
-              };
-            }
-            { opacity = 0.9; }
-          ];
-        }
-      ]
-      # irc (zellij with tiny) on "remote"; irc starts at boot only on the xmg
-      ++ lib.optional (hostname == "xmg") {
+        };
+      }
+      { "spawn-at-startup"._args = [ "waybar" ]; }
+      {
+        "spawn-at-startup"._args = [
+          "systemctl"
+          "--user"
+          "restart"
+          "wpaperd.service"
+        ];
+      }
+      # Chat apps and zen at startup again: started with the session, wprsd
+      # kept Super as pressed (apps got every key as Super+key); the wprs
+      # modifier sync (our wprs fork, modules/wprs-overlay.nix) releases it
+      # (xen-migration.md, Known Issues). The tray apps (`trayApps` above)
+      # are appended after this list.
+      { "spawn-at-startup"._args = [ "${terminalTabs}" ]; }
+      {
         "spawn-at-startup"._args = [
           "vm-run"
-          "irc"
-          "foot"
-          "-a"
-          "term-irc"
-        ]
-        ++ vmZellij;
+          "net"
+          "zen"
+        ];
       }
-      ++ map (args: { "spawn-at-startup"._args = args; }) trayCommands
-      ++ labelRules;
-    };
+      {
+        "window-rule"._children = [
+          {
+            match._props = {
+              "app-id" = "^(term-dom0|\\[(nvim|coding)\\] term-(nvim|coding))$";
+            };
+          }
+          { "open-on-workspace" = "terminal"; }
+          { "default-column-display" = "tabbed"; }
+          { "default-column-width".proportion = 1.0; }
+        ];
+      }
+      {
+        "window-rule"._children = [
+          {
+            match._props = {
+              "app-id" = "^\\[irc\\] term-irc$";
+            };
+          }
+          { "open-on-workspace" = "remote"; }
+          { "default-column-width".proportion = 1.0; }
+        ];
+      }
+      {
+        "window-rule"._children = [
+          {
+            match._props = {
+              "app-id" = "^\\[[a-z0-9-]+\\] (zen|app\\.zen_browser\\.zen)$";
+            };
+          }
+          { "open-on-workspace" = "browser"; }
+          { "default-column-width".proportion = 1.0; }
+        ];
+      }
+      {
+        "window-rule"._children = [
+          { "geometry-corner-radius" = theme.radius; }
+          { "clip-to-geometry" = true; }
+          { "draw-border-with-background" = false; }
+          { opacity = 0.85; }
+          {
+            "background-effect" = {
+              blur = true;
+              saturation = 2.0;
+              noise = 0.03;
+            };
+          }
+        ];
+      }
+      {
+        "window-rule"._children = [
+          {
+            match._props = {
+              "is-focused" = true;
+            };
+          }
+          { opacity = 0.9; }
+        ];
+      }
+    ]
+    # irc (zellij with tiny) on "remote"; irc starts at boot only on the xmg
+    ++ lib.optional (hostname == "xmg") {
+      "spawn-at-startup"._args = [
+        "vm-run"
+        "irc"
+        "foot"
+        "-a"
+        "term-irc"
+      ]
+      ++ vmZellij;
+    }
+    ++ map (args: { "spawn-at-startup"._args = args; }) trayCommands
+    ++ labelRules;
   };
 
-  services = {
+  nox.desktop = {
     wpaperd = {
       enable = true;
       settings = {
@@ -1009,7 +1041,7 @@ in
   };
 
   # Lock screen; PAM comes from security.pam.services.swaylock (system side)
-  programs.swaylock = {
+  nox.desktop.swaylock = {
     enable = true;
     settings = with theme; {
       image = "${wallpaper.lock}";

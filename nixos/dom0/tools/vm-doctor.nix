@@ -6,14 +6,14 @@
 {
   lib,
   pkgs,
-  osConfig ? { },
+  config,
   vmRegistry,
   ...
 }:
 let
-  relayed = osConfig.services.nox-relay.host.guests or { };
-  imageDomains = osConfig.services.xen-image-domains.domains or { };
-  microvms = osConfig.microvm.vms or { };
+  relayed = config.services.nox-relay.host.guests or { };
+  imageDomains = config.services.xen-image-domains.domains or { };
+  microvms = config.microvm.vms or { };
 
   # Registry entries this machine runs
   hosts = builtins.filter (h: microvms ? ${h.name} || imageDomains ? ${h.name}) (
@@ -21,7 +21,7 @@ let
   );
   unitOf = name: if imageDomains ? ${name} then "xen-image@${name}" else "microvm@${name}";
   autostart =
-    map (n: "microvm@${n}") (osConfig.microvm.autostart or [ ])
+    map (n: "microvm@${n}") (config.microvm.autostart or [ ])
     ++ map (n: "xen-image@${n}") (
       builtins.attrNames (lib.filterAttrs (_: d: d.autostart) imageDomains)
     );
@@ -290,5 +290,5 @@ let
   '';
 in
 {
-  home.packages = [ vmDoctor ];
+  environment.systemPackages = [ vmDoctor ];
 }

@@ -7,18 +7,14 @@ let
 in
 {
   systemd.user.services.github-agent = {
-    Unit = {
-      Description = "Ensure dedicated GitHub SSH agent is running";
-      After = [ "default.target" ];
-      Wants = [ "default.target" ];
-    };
-    Service = {
+    description = "Ensure dedicated GitHub SSH agent is running";
+    after = [ "default.target" ];
+    wants = [ "default.target" ];
+    wantedBy = [ "default.target" ];
+    serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
       ExecStart = "${githubAgentBin}/bin/github-agent";
-    };
-    Install = {
-      WantedBy = [ "default.target" ];
     };
   };
 }

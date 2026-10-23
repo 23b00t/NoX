@@ -1,7 +1,7 @@
 {
   lib,
   pkgs,
-  osConfig ? { },
+  config,
   vmRegistry,
   ...
 }:
@@ -12,7 +12,7 @@ let
   # Image domains whose terminal is foot from the store disk (Whonix-Gateway)
   footImageNames = builtins.concatStringsSep " " (
     builtins.attrNames (
-      lib.filterAttrs (_: d: d.foot or false) (osConfig.services.xen-image-domains.domains or { })
+      lib.filterAttrs (_: d: d.foot or false) (config.services.xen-image-domains.domains or { })
     )
   );
 
@@ -37,7 +37,7 @@ let
   vmList = vmScriptLib.vmList (vmRegistry.vms ++ vmRegistry.imageDomains);
   # Xen guests with wprsd (nox-relay serves it): GUI apps and terminals over
   # vm-gui (wprs + app start by RPC)
-  relayListen = vm: (osConfig.services.nox-relay.host.guests or { }).${vm.name}.listen or { };
+  relayListen = vm: (config.services.nox-relay.host.guests or { }).${vm.name}.listen or { };
 
   vmRunner = pkgs.writeShellScriptBin "vm-run" ''
     #!/usr/bin/env bash
@@ -156,5 +156,5 @@ ${vmCases}
   '';
 in
 {
-  home.packages = [ vmRunner ];
+  environment.systemPackages = [ vmRunner ];
 }

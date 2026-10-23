@@ -10,7 +10,7 @@ let
   # Taskbar icons for VM windows: their app ids carry "[<vm>] " (wprsc
   # --app-id-prefix), which the taskbar can't resolve. Map the known apps
   # back, from the desktop entries `vm-run <vm> <binary>`
-  # (home/vm-management/desktop-entries.nix): "[<vm>] <binary>" → its icon,
+  # (NoX dom0/tools/desktop-entries.nix): "[<vm>] <binary>" → its icon,
   # plus the VM terminals "[<vm>] term-<vm>". Other apps get the default icon
   appIdMapping = lib.listToAttrs (
     lib.concatLists (
@@ -31,7 +31,7 @@ let
           )
           ++ [ (lib.nameValuePair "[${vm}] term-${vm}" "foot") ]
         )
-      ) config.xdg.desktopEntries
+      ) config.nox.desktopEntries
     )
     # Xwayland windows: the X11 class is the app id (our wprs fork); Burp
     # in kali (Java: main class, StartupWMClass of Kali's desktop entry)
@@ -39,12 +39,12 @@ let
   );
 in
 {
-  home.packages = with pkgs; [
+  environment.systemPackages = with pkgs; [
     waybar # system bar
   ];
 
-  home.file = {
-    ".config/waybar/style.css" = {
+  environment.etc = {
+    "xdg/waybar/style.css" = {
       text = ''
         /* Colors from home/desktop/theme.nix */
         @define-color bar-bg alpha(${theme.color.shadow}, ${toString theme.opacity.bar});
@@ -155,11 +155,10 @@ in
           padding: 4px 8px;
         }
       '';
-      force = true;
     };
 
     # CPU-Temp-Script
-    ".config/waybar/scripts/cputemp.sh" = {
+    "xdg/waybar/scripts/cputemp.sh" = {
       text = ''
         #!/usr/bin/env bash
         # CPU sensor from sysfs: coretemp (Intel, temp1 = package) or k10temp
@@ -187,12 +186,11 @@ in
         fi
         echo "<span color=\"$color\">$temp°C</span>"
       '';
-      executable = true;
-      force = true;
+      mode = "0755";
     };
 
     # Battery notification script
-    ".config/waybar/scripts/battery-notify.sh" = {
+    "xdg/waybar/scripts/battery-notify.sh" = {
       text = ''
         #!/usr/bin/env bash
 
@@ -220,11 +218,10 @@ in
           notify-send -u normal "Battery low" "Battery level is $capacity%."
         fi
       '';
-      executable = true;
-      force = true;
+      mode = "0755";
     };
 
-    ".config/waybar/config.jsonc" = {
+    "xdg/waybar/config.jsonc" = {
       text = ''
         {
           // Global bar options
@@ -346,8 +343,8 @@ in
             "tooltip": true,
             "format-icons": ["", "", "", "", ""],
             "events": {
-              "on-discharging-warning": "~/.config/waybar/scripts/battery-notify.sh",
-              "on-discharging-critical": "~/.config/waybar/scripts/battery-notify.sh"
+              "on-discharging-warning": "/etc/xdg/waybar/scripts/battery-notify.sh",
+              "on-discharging-critical": "/etc/xdg/waybar/scripts/battery-notify.sh"
             }
           },
 
@@ -374,12 +371,11 @@ in
           "custom/cputemp": {
             "format": " {}",
             "tooltip": true,
-            "exec": "~/.config/waybar/scripts/cputemp.sh",
+            "exec": "/etc/xdg/waybar/scripts/cputemp.sh",
             "interval": 5,
           },
         }
       '';
-      force = true;
     };
   };
 }

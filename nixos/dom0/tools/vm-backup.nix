@@ -13,13 +13,13 @@
 {
   lib,
   pkgs,
-  osConfig ? { },
+  config,
   vmRegistry,
   ...
 }:
 let
-  vms = osConfig.microvm.vms or { };
-  imageDomains = osConfig.services.xen-image-domains.domains or { };
+  vms = config.microvm.vms or { };
+  imageDomains = config.services.xen-image-domains.domains or { };
   # home: every NixOS VM of this machine; `--all` = those with registry `backup`
   homeVms = builtins.filter (n: n != "disp-backup") (lib.attrNames vms);
   homeDefault = map (vm: vm.name) (
@@ -647,23 +647,23 @@ let
   '';
 in
 {
-  home.packages = [ vmBackup ];
+  environment.systemPackages = [ vmBackup ];
 
   systemd.user = {
     services.vm-backup-reminder = {
-      Unit.Description = "Remind of the backup after 7 days";
-      Service = {
+      description = "Remind of the backup after 7 days";
+      serviceConfig = {
         Type = "oneshot";
         ExecStart = "${reminder}";
       };
     };
     timers.vm-backup-reminder = {
-      Unit.Description = "Daily backup reminder";
-      Timer = {
+      description = "Daily backup reminder";
+      timerConfig = {
         OnStartupSec = "10min";
         OnUnitActiveSec = "1d";
       };
-      Install.WantedBy = [ "timers.target" ];
+      wantedBy = [ "timers.target" ];
     };
   };
 }

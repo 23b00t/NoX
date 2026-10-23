@@ -324,7 +324,7 @@ let
   '';
 in
 {
-  home.packages = [
+  environment.systemPackages = [
     vmGui
     vmClip
     vmPull

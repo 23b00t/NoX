@@ -3,12 +3,12 @@ let
   theme = import ./theme.nix { inherit lib; };
 in
 {
-  home.packages = with pkgs; [
+  environment.systemPackages = with pkgs; [
     rofi # application launcher
   ];
 
-  home.file = {
-    ".config/rofi/config.rasi" = {
+  environment.etc = {
+    "xdg/rofi/config.rasi" = {
       text = ''
         // Config //
         configuration {
@@ -24,7 +24,7 @@ in
             icon-theme:                  "${theme.icons.name}";
         }
 
-        @theme "~/.config/rofi/theme.rasi"
+        @theme "/etc/xdg/rofi/theme.rasi"
 
 
         // Main //
@@ -139,10 +139,9 @@ in
             horizontal-align:            0.5;
         }
       '';
-      force = true;
     };
     # Colors from home/desktop/theme.nix
-    ".config/rofi/theme.rasi" = {
+    "xdg/rofi/theme.rasi" = {
       text = ''
         * {
             main-bg:            ${theme.withAlpha "bg" theme.opacity.launcher};
@@ -157,7 +156,6 @@ in
             border-color:       transparent;
         }
       '';
-      force = true;
     };
   };
 }

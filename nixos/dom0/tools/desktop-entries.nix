@@ -1,6 +1,7 @@
 {
   lib,
-  osConfig ? { },
+  pkgs,
+  config,
   vmRegistry,
   ...
 }:
@@ -43,11 +44,11 @@ let
   # image has none (`foot = true`, Whonix-Gateway)
   terminalOf =
     vm:
-    if (osConfig.microvm.vms.${vm.name}.config.config.systemd.user.services or { }) ? wprsd then
+    if (config.microvm.vms.${vm.name}.config.config.systemd.user.services or { }) ? wprsd then
       "foot"
-    else if osConfig.services.xen-image-domains.domains.${vm.name}.foot or false then
+    else if config.services.xen-image-domains.domains.${vm.name}.foot or false then
       "/nix/store/nox/bin/foot"
-    else if osConfig.services.xen-image-domains.domains.${vm.name}.wprs or false then
+    else if config.services.xen-image-domains.domains.${vm.name}.wprs or false then
       "x-terminal-emulator"
     else
       null;
@@ -68,22 +69,38 @@ let
       };
     }
   ) domains;
-
-  # dom0 runs no foot server: hide foot's client and server entries
-  hidden = name: {
-    inherit name;
-    exec = "false";
-    noDisplay = true;
-  };
 in
 {
-  xdg.desktopEntries = lib.mkMerge (
+  options.nox.desktopEntries = lib.mkOption {
+    type = lib.types.attrsOf (lib.types.attrsOf lib.types.anything);
+    default = { };
+    description = "Desktop entries in dom0: file id → fields as in home-manager's xdg.desktopEntries (name, genericName, exec, icon, categories, mimeType, terminal, type, noDisplay). Also the source of waybar's app id → icon mapping.";
+  };
+
+  # Hidden entries (noDisplay) replace a package's own entry of the same name
+  config.environment.systemPackages = lib.mapAttrsToList (
+    id: e:
+    (if e.noDisplay or false then lib.hiPrio else lib.id) (
+      pkgs.makeDesktopItem (
+        {
+          name = id;
+          desktopName = e.name;
+          inherit (e) exec;
+          terminal = e.terminal or false;
+          type = e.type or "Application";
+          noDisplay = e.noDisplay or false;
+        }
+        // lib.optionalAttrs (e ? genericName) { inherit (e) genericName; }
+        // lib.optionalAttrs ((e.icon or null) != null) { icon = toString e.icon; }
+        // lib.optionalAttrs ((e.categories or [ ]) != [ ]) { inherit (e) categories; }
+        // lib.optionalAttrs ((e.mimeType or [ ]) != [ ]) { mimeTypes = e.mimeType; }
+      )
+    )
+  ) config.nox.desktopEntries;
+
+  config.nox.desktopEntries = lib.mkMerge (
     terminalEntries
     ++ [
-      {
-        footclient = hidden "Foot Client";
-        foot-server = hidden "Foot Server";
-      }
       # --- Chat VM ---
       (mkVmEntry {
         name = "Vesktop";

@@ -26,11 +26,10 @@
       # The rest of the former config tree, as paths (step 1): `vms` holds
       # the infrastructure VMs (vms/<name>), the VM building blocks
       # (vms/modules/<module>.nix), store-groups.nix and usb-links.nix;
-      # `home` the home-manager modules (desktop, vm-management); `tests`
+      # `tests`
       # the NixOS tests
       lib = {
         vms = ./nixos/vms;
-        home = ./nixos/home;
         tests = ./nixos/tests;
       };
 
