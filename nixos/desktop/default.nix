@@ -73,19 +73,16 @@ let
 
   # Once after leaving home-manager: its links in ~/.config shadow /etc
   # (niri, waybar, rofi, foot, …). Removes only links into a
-  # home-manager-files store path; anything else stays
+  # home-manager-files store path; anything else stays. find matches the
+  # link target itself (no readlink per link: icon themes hold many links)
   hmCleanup = pkgs.writeShellScriptBin "nox-hm-cleanup" ''
     set -eu
     n=0
     while IFS= read -r -d "" l; do
-      case "$(readlink "$l")" in
-        /nix/store/*-home-manager-files/*)
-          echo "rm $l"
-          [ "''${1:-}" = -n ] || rm -f "$l"
-          n=$((n + 1))
-          ;;
-      esac
-    done < <(find "$HOME" -xdev -type l -print0 2>/dev/null)
+      echo "rm $l"
+      [ "''${1:-}" = -n ] || rm -f "$l"
+      n=$((n + 1))
+    done < <(find "$HOME" -xdev -lname '/nix/store/*-home-manager-files/*' -print0 2>/dev/null)
     echo "$n home-manager links''${1:+ (dry run)}"
   '';
 in
