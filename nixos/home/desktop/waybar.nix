@@ -33,9 +33,9 @@ let
         )
       ) config.xdg.desktopEntries
     )
-    # Xwayland windows carry only the VM prefix for now (wprs passes no X11
-    # class, xen-migration.md Known Issues): in kali that is Burp
-    ++ [ (lib.nameValuePair "[kali]" "kali-burpsuite") ]
+    # Xwayland windows: the X11 class is the app id (our wprs fork); Burp
+    # in kali (Java: main class, StartupWMClass of Kali's desktop entry)
+    ++ [ (lib.nameValuePair "[kali] burp-StartBurp" "kali-burpsuite") ]
   );
 in
 {

@@ -53,6 +53,16 @@ in
   };
 
   config = mkIf cfg.enable {
+    # Man pages (microvm.nix turns all documentation off); no info, doc or
+    # NixOS manual (coding: +17 MiB, 2026-10-22)
+    documentation = {
+      enable = true;
+      man.enable = true;
+      info.enable = false;
+      doc.enable = false;
+      nixos.enable = false;
+    };
+
     # Driver domains (sys-net, sys-vpn, …): tell dom0 the backend is up once
     # xl devd runs (data/backend-ready, guest-writable); clients' preStart
     # waits for it (vms/modules/net-config.nix)

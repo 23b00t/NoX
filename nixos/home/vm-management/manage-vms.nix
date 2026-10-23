@@ -46,7 +46,8 @@ Usage:
                    start with empty ones. Back: stop the VM, move the
                    .pre-fresh files back, start it
 
-A VM that gets started or restarted gets its tray apps again (vm-tray).
+A VM that gets started or restarted gets its tray apps again (vm-tray)
+and its missing windows from the session start (vm-autostart).
 
 Examples:
   manage-vms status
@@ -181,6 +182,8 @@ EOF
       if command -v vm-tray >/dev/null &&
         { [ "$action" = restart ] || { [ "$action" = start ] && [ "$was" != active ]; }; }; then
         vm-tray "$vm"
+        # and its windows from the session start (terminal tab, zen, …)
+        if command -v vm-autostart >/dev/null; then vm-autostart "$vm"; fi
       fi
     done
     return "$rc"

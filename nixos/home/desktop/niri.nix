@@ -90,12 +90,14 @@ let
 
   # Terminals at login (replaced kitty's startup session): dom0's foot (on
   # the hp with zellij, which stays there) and foot from nvim and coding
-  # over wprs, zellij in the VM, as tabs of one column (Mod+1…3). Started
-  # one after the other: each window (VMs may still boot, up to 3 min) is
-  # consumed into the column on its left; a VM that doesn't come is skipped.
-  # A VM's foot could come twice at boot (xmg 2026-10-17, vm-run retried an
-  # app start whose answer got lost): the oldest window stays, the others
-  # (more zellij clients of the same session) are closed
+  # over wprs, zellij in the VM, as tabs of one column (Mod+1…3). All start
+  # at once; niri's event stream reports each window as it opens (VMs may
+  # still boot), it goes into the column right away, at its place in the
+  # order dom0, nvim, coding; after 5 min the rest is given up. A VM's foot
+  # could come twice at boot (xmg 2026-10-17, vm-run retried an app start
+  # whose answer got lost): the first window stays, later ones (more zellij
+  # clients of the same session) are closed when they appear. Terminals
+  # that are already open are not started again (vm-autostart)
   vmZellij = [
     "zellij"
     "--layout"
@@ -127,39 +129,101 @@ let
     ${pkgs.libnotify}/bin/notify-send -a niri -t 3000 "Close terminal?" "Press Mod+Q again within 3 s"
   '';
 
+  # terminal-tabs [dom0|nvim|coding…] (default: all three)
   terminalTabs = pkgs.writeShellScript "terminal-tabs" ''
-    # ids of the windows with app id $1, oldest first
-    windows() {
-      niri msg --json windows \
-        | ${pkgs.jq}/bin/jq -r --arg a "$1" 'map(select(.app_id == $a) | .id) | sort | .[]'
-    }
-    # id of the oldest window with app id $1, once it is there; duplicates
-    # that show up within 3 s are closed
-    wait_window() {
-      local id dup
-      for _ in $(seq 360); do
-        id=$(windows "$1" | head -1)
-        if [ -n "$id" ]; then
-          sleep 3
-          for dup in $(windows "$1" | tail -n +2); do
-            niri msg action close-window --id "$dup"
-          done
-          echo "$id"
-          return 0
-        fi
-        sleep 0.5
+    set -u
+    jq=${pkgs.jq}/bin/jq
+    [ $# -gt 0 ] || set -- dom0 nvim coding
+    order=(dom0 nvim coding)
+    app_of() { if [ "$1" = dom0 ]; then echo term-dom0; else echo "[$1] term-$1"; fi; }
+    declare -A rank id_of expect
+    for i in "''${!order[@]}"; do rank[$(app_of "''${order[$i]}")]=$i; done
+    col=() # app ids of the column, in tab order
+
+    # A new terminal: into the column on its left, then up past the tabs
+    # that come after it in the order (move-window-up needs the focus, it
+    # goes back afterwards)
+    place() {
+      local id=$1 app=$2 k=0 a prev n
+      id_of[$app]=$id
+      if [ ''${#col[@]} -eq 0 ]; then
+        col=("$app")
+        return
+      fi
+      niri msg action consume-or-expel-window-left --id "$id"
+      for a in "''${col[@]}"; do
+        [ "''${rank[$a]}" -le "''${rank[$app]}" ] || k=$((k + 1))
       done
-      return 1
+      if [ "$k" -gt 0 ]; then
+        prev=$(niri msg --json focused-window | $jq -r '.id // empty')
+        niri msg action focus-window --id "$id"
+        for _ in $(seq "$k"); do niri msg action move-window-up; done
+        [ -z "$prev" ] || [ "$prev" = "$id" ] || niri msg action focus-window --id "$prev"
+      fi
+      n=$((''${#col[@]} - k))
+      col=("''${col[@]:0:n}" "$app" "''${col[@]:n}")
     }
 
-    foot -a term-dom0 ${lib.optionalString (hostname == "hp") "zellij --layout tabs"} &
-    first=$(wait_window term-dom0) || exit 1
-    for vm in nvim coding; do
-      vm-run "$vm" foot -a "term-$vm" ${lib.escapeShellArgs vmZellij} &
-      id=$(wait_window "[$vm] term-$vm") || continue
-      niri msg action consume-or-expel-window-left --id "$id"
+    # "init <id> <app id>" per open window (column order), "ready", then
+    # "open <id> <app id>" per new or changed window
+    coproc events {
+      timeout 300 niri msg --json event-stream | $jq --unbuffered -r '
+        if .WindowsChanged then
+          (.WindowsChanged.windows
+            | sort_by(.layout.pos_in_scrolling_layout[1] // 0)
+            | .[] | "init \(.id) \(.app_id // "")"), "ready"
+        elif .WindowOpenedOrChanged then
+          .WindowOpenedOrChanged.window | "open \(.id) \(.app_id // "")"
+        else empty end'
+    }
+    started=0 pending=0 done_at=""
+    while :; do
+      read -r -t 1 kind id app <&"''${events[0]}"
+      rc=$?
+      # All there: 5 s more for duplicates, then stop
+      if [ -n "$done_at" ] && [ "$SECONDS" -ge "$done_at" ]; then break; fi
+      [ "$rc" -le 128 ] || continue # no event within 1 s
+      [ "$rc" -eq 0 ] || break # stream ended: time limit
+      # (an empty app id is no array key)
+      [ -n "$app" ] || [ "$kind" = ready ] || continue
+      case "$kind" in
+        init)
+          # Already open (a second run): they are the column
+          [ -n "''${rank[$app]+x}" ] && [ -z "''${id_of[$app]+x}" ] || continue
+          id_of[$app]=$id
+          col+=("$app")
+          ;;
+        ready)
+          [ "$started" -eq 0 ] || continue
+          started=1
+          for t in "$@"; do
+            a=$(app_of "$t")
+            [ -z "''${id_of[$a]+x}" ] || continue
+            expect[$a]=1
+            pending=$((pending + 1))
+            if [ "$t" = dom0 ]; then
+              foot -a term-dom0 ${lib.optionalString (hostname == "hp") "zellij --layout tabs"} &
+            else
+              vm-run "$t" foot -a "term-$t" ${lib.escapeShellArgs vmZellij} &
+            fi
+          done
+          [ "$pending" -gt 0 ] || break
+          ;;
+        open)
+          [ -n "''${expect[$app]+x}" ] || continue
+          if [ -n "''${id_of[$app]+x}" ]; then
+            [ "''${id_of[$app]}" = "$id" ] || niri msg action close-window --id "$id"
+            continue
+          fi
+          place "$id" "$app"
+          [ "$app" != term-dom0 ] || niri msg action focus-window --id "$id"
+          pending=$((pending - 1))
+          [ "$pending" -gt 0 ] || done_at=$((SECONDS + 5))
+          ;;
+      esac
     done
-    niri msg action focus-window --id "$first"
+    kill "''${events_PID:-}" 2>/dev/null
+    exit 0
   '';
 
   binds = {
@@ -542,6 +606,30 @@ in
         ) trayApps
       )}  *) exit 0 ;;
       esac
+    '')
+
+    # vm-autostart [vm…]: opens the autostart windows that are missing
+    # (niri IPC): the terminal tabs (dom0, nvim, coding), zen in net, irc on
+    # the xmg. With VM names only theirs (manage-vms after a (re)start, next
+    # to vm-tray); tray apps have no window to check, that is vm-tray
+    (writeShellScriptBin "vm-autostart" ''
+      sel=" $* "
+      pick() { [ "$sel" = "  " ] || [[ "$sel" == *" $1 "* ]]; }
+      open=$(niri msg --json windows | ${pkgs.jq}/bin/jq -r '.[].app_id // empty')
+      has() { grep -qxE "$1" <<<"$open"; }
+      terms=()
+      for t in dom0 nvim coding; do
+        pick "$t" && terms+=("$t")
+      done
+      [ ''${#terms[@]} -eq 0 ] || setsid -f ${terminalTabs} "''${terms[@]}" >/dev/null 2>&1
+      if pick net && ! has '\[net\] (zen|app\.zen_browser\.zen)'; then
+        setsid -f vm-run net zen >/dev/null 2>&1
+      fi
+      ${lib.optionalString (hostname == "xmg") ''
+        if pick irc && ! has '\[irc\] term-irc'; then
+          setsid -f vm-run irc foot -a term-irc ${lib.escapeShellArgs vmZellij} >/dev/null 2>&1
+        fi
+      ''}
     '')
 
     # Keybinding viewer: every bind from `binds` above, searchable in rofi;
