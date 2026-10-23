@@ -155,8 +155,11 @@ in
         pkgs.swaynotificationcenter
         pkgs.at-spi2-core
       ];
-      environment.etc."xdg/swaync/config.json".source = swayncConfig;
-      environment.etc."xdg/swaync/style.css".source = swayncStyle;
+      # Not under /etc/xdg/swaync: swaync takes its base style.css from
+      # XDG_CONFIG_DIRS (/etc/xdg first) and the user one (-s) on top; ours
+      # there would replace the base and leave only the overrides
+      environment.etc."nox/swaync/config.json".source = swayncConfig;
+      environment.etc."nox/swaync/style.css".source = swayncStyle;
       systemd.user.services.swaync = sessionService // {
         description = "Swaync notification daemon";
         documentation = [ "https://github.com/ErikReider/SwayNotificationCenter" ];
@@ -167,7 +170,7 @@ in
         serviceConfig = {
           Type = "dbus";
           BusName = "org.freedesktop.Notifications";
-          ExecStart = "${lib.getExe pkgs.swaynotificationcenter} -c /etc/xdg/swaync/config.json -s /etc/xdg/swaync/style.css";
+          ExecStart = "${lib.getExe pkgs.swaynotificationcenter} -c /etc/nox/swaync/config.json -s /etc/nox/swaync/style.css";
           Restart = "on-failure";
         };
       };

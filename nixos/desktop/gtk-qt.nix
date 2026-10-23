@@ -73,7 +73,6 @@ in
   environment.sessionVariables = {
     GTK2_RC_FILES = "/etc/gtk-2.0/gtkrc";
     QT_QPA_PLATFORMTHEME = "gtk3";
-    GTK_THEME = "Adwaita:dark";
     LESSHISTFILE = "/tmp/less-hist";
     PARALLEL_HOME = "$HOME/.config/parallel";
 
@@ -86,4 +85,11 @@ in
     XDG_TEMPLATES_DIR = "$HOME/Templates";
     XDG_VIDEOS_DIR = "$HOME/Videos";
   };
+
+  # GTK apps started from a shell: dark Adwaita. Login shells only, as under
+  # home-manager: in the session (systemd user units) GTK_THEME overrides
+  # swaync's style.css with Adwaita's opaque background
+  environment.loginShellInit = ''
+    export GTK_THEME=Adwaita:dark
+  '';
 }
