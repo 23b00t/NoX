@@ -1,0 +1,95 @@
+diff -ru a/dbus-proxy.c b/dbus-proxy.c
+--- a/dbus-proxy.c
++++ b/dbus-proxy.c
+@@ -267,6 +267,7 @@
+           FlatpakPolicy policy = FLATPAK_POLICY_SEE;
+           g_autofree char *name = g_strdup (strchr (arg, '=') + 1);
+           gboolean wildcard = FALSE;
++          gboolean prefix = FALSE;
+ 
+           if (arg[2] == 't')
+             policy = FLATPAK_POLICY_TALK;
+@@ -278,6 +279,11 @@
+               name[strlen (name) - 2] = 0;
+               wildcard = TRUE;
+             }
++          else if (g_str_has_suffix (name, "-*"))
++            {
++              name[strlen (name) - 1] = 0;
++              prefix = TRUE;
++            }
+ 
+           if (name[0] == ':' || !g_dbus_is_name (name))
+             {
+@@ -285,7 +291,11 @@
+               return FALSE;
+             }
+ 
+-          flatpak_proxy_add_policy (proxy, name, wildcard, policy);
++          /* "org.foo.Bar-*": every name starting with "org.foo.Bar-" */
++          if (prefix)
++            flatpak_proxy_add_prefix_policy (proxy, name, policy);
++          else
++            flatpak_proxy_add_policy (proxy, name, wildcard, policy);
+ 
+           *args_i += 1;
+         }
+diff -ru a/flatpak-proxy.c b/flatpak-proxy.c
+--- a/flatpak-proxy.c
++++ b/flatpak-proxy.c
+@@ -344,6 +344,7 @@
+   gboolean       sloppy_names;
+ 
+   GHashTable    *filters;
++  GList         *prefix_filters; /* "foo-*" names: plain string prefix */
+ };
+ 
+ typedef struct
+@@ -683,6 +684,15 @@
+ }
+ 
+ void
++flatpak_proxy_add_prefix_policy (FlatpakProxy *proxy,
++                                 const char   *prefix,
++                                 FlatpakPolicy policy)
++{
++  proxy->prefix_filters = g_list_append (proxy->prefix_filters,
++                                         filter_new (prefix, FALSE, policy));
++}
++
++void
+ flatpak_proxy_add_call_rule (FlatpakProxy *proxy,
+                              const char   *name,
+                              gboolean      name_is_subtree,
+@@ -1766,6 +1776,18 @@
+       return max_policy;
+     }
+ 
++  for (l = client->proxy->prefix_filters; l != NULL; l = l->next)
++    {
++      Filter *filter = l->data;
++
++      if (g_str_has_prefix (source, filter->name))
++        {
++          max_policy = MAX (max_policy, filter->policy);
++          if (matched_filters)
++            *matched_filters = g_list_append (*matched_filters, filter);
++        }
++    }
++
+   name = g_strdup (source);
+   exact_name_match = TRUE;
+   do
+diff -ru a/flatpak-proxy.h b/flatpak-proxy.h
+--- a/flatpak-proxy.h
++++ b/flatpak-proxy.h
+@@ -53,6 +53,9 @@
+                                        const char   *name,
+                                        gboolean      name_is_subtree,
+                                        FlatpakPolicy policy);
++void         flatpak_proxy_add_prefix_policy (FlatpakProxy *proxy,
++                                              const char   *prefix,
++                                              FlatpakPolicy policy);
+ void         flatpak_proxy_add_call_rule (FlatpakProxy *proxy,
+                                           const char   *name,
+                                           gboolean      name_is_subtree,

@@ -14,7 +14,24 @@
         relay = import ./nixos/modules/relay.nix { inherit self; };
         rpc = import ./nixos/modules/rpc.nix { inherit self; };
         cli = import ./nixos/modules/cli.nix { inherit self; };
+        # dom0 (step 1 of the NoX modules: moved unchanged from the user's
+        # config, still fed by its `vmRegistry`/`vmDefinitions`/`inputs`
+        # specialArgs): base (machines/common-configuration.nix) and the Xen
+        # part (machines/xen-dom0.nix)
+        dom0-base = ./nixos/dom0/base.nix;
+        xen-dom0 = ./nixos/dom0/xen-dom0.nix;
         default = self.nixosModules.relay;
+      };
+
+      # The rest of the former config tree, as paths (step 1): `vms` holds
+      # the infrastructure VMs (vms/<name>), the VM building blocks
+      # (vms/modules/<module>.nix), store-groups.nix and usb-links.nix;
+      # `home` the home-manager modules (desktop, vm-management); `tests`
+      # the NixOS tests
+      lib = {
+        vms = ./nixos/vms;
+        home = ./nixos/home;
+        tests = ./nixos/tests;
       };
 
       overlays.default = final: _prev: {
