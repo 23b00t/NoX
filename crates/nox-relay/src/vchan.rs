@@ -1,4 +1,5 @@
-//! Minimal binding to libxenvchan (from the Xen tools), non-blocking mode.
+//! Minimal binding to libxenvchan (from the Xen tools), non-blocking mode,
+//! and the one xenstore read the relay needs (is the peer domain still there).
 
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::io;
@@ -31,6 +32,13 @@ extern "C" {
     fn libxenvchan_is_open(ctrl: *mut RawVchan) -> c_int;
     fn libxenvchan_data_ready(ctrl: *mut RawVchan) -> c_int;
     fn libxenvchan_buffer_space(ctrl: *mut RawVchan) -> c_int;
+}
+
+#[link(name = "xenstore")]
+extern "C" {
+    fn xs_open(flags: std::ffi::c_ulong) -> *mut c_void;
+    fn xs_close(h: *mut c_void);
+    fn xs_read(h: *mut c_void, t: u32, path: *const c_char, len: *mut u32) -> *mut c_void;
 }
 
 /// State reported by `libxenvchan_is_open`.
@@ -138,6 +146,46 @@ impl Drop for Vchan {
     fn drop(&mut self) {
         // SAFETY: handle is live and not used afterwards
         unsafe { libxenvchan_close(self.0) }
+    }
+}
+
+/// A xenstore connection, to notice a peer domain that was destroyed without
+/// closing the vchan (hard kill): its ring still looks open, but Xen removes
+/// `/local/domain/<id>` with the domain.
+pub struct Xenstore(*mut c_void);
+
+impl Xenstore {
+    pub fn open() -> io::Result<Self> {
+        // SAFETY: plain library call, flags 0 = read/write connection
+        let h = unsafe { xs_open(0) };
+        if h.is_null() {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(Xenstore(h))
+        }
+    }
+
+    /// True only when xenstore says the domain's directory does not exist
+    /// (ENOENT); other errors (a guest may not read dom0's directory) count
+    /// as "still there".
+    pub fn domain_gone(&self, domid: u32) -> bool {
+        let path = CString::new(format!("/local/domain/{domid}")).expect("no NUL");
+        let mut len = 0u32;
+        // SAFETY: live handle, valid C string, len is a valid out pointer
+        let v = unsafe { xs_read(self.0, 0, path.as_ptr(), &mut len) };
+        if v.is_null() {
+            return io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT);
+        }
+        // SAFETY: xs_read returns a malloc'd buffer owned by the caller
+        unsafe { libc::free(v) };
+        false
+    }
+}
+
+impl Drop for Xenstore {
+    fn drop(&mut self) {
+        // SAFETY: handle is live and not used afterwards
+        unsafe { xs_close(self.0) }
     }
 }
 

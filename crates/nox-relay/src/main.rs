@@ -125,7 +125,7 @@ fn main() -> ExitCode {
     if let Some(f) = &args.ready_file {
         let _ = std::fs::remove_file(f);
     }
-    let result = relay::Relay::new(vchan, cfg, args.server, args.ready_file.clone())
+    let result = relay::Relay::new(vchan, args.peer, cfg, args.server, args.ready_file.clone())
         .and_then(|mut r| r.run());
     if let Some(f) = &args.ready_file {
         let _ = std::fs::remove_file(f);
