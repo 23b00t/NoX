@@ -30,6 +30,8 @@
       # the NixOS tests
       lib = {
         vms = ./nixos/vms;
+        # The VM schema (nox.vms, nox.images) and its adapter to the registry
+        registry = ./nixos/registry;
         tests = ./nixos/tests;
       };
 
