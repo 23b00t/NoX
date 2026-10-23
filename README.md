@@ -99,7 +99,7 @@ passes its output and exit code through.
 | `nox disp [cmd…]` | `vm-disp`: start the ad-hoc disposable `disp`, open `cmd` (default foot) in it |
 | `nox backup <vm…>\|--all`, `--full [--level n] <target…>\|--all`, `restore [--full] [--from gen] …`, `disks`, `list`, `prune home\|full --keep n [-n] [vm…]` | `vm-backup …` (arguments checked by nox; external LUKS disk on `disp-backup`, `nox backup help`) |
 | `nox run <vm> <program> [args]` | `vm-run <vm> …` (GUI over wprs) |
-| `nox exec <vm> <cmd> [args]` | `vm-run -c <vm> …` |
+| `nox exec <vm> <cmd> [args]` | `vm-run -c <vm> …` (a terminal window in the VM runs the command and stays open; the builder: SSH in this terminal) |
 | `nox ssh builder [ssh args]` | `ssh builder …` (only the builder has sshd; the other VMs: `nox exec`) |
 | `nox clip copy\|paste` | `vm-clip copy\|paste` |
 | `nox copy [-m] [-n] <vm> <paths…>` | `cp-vm …` |
