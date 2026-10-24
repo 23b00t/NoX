@@ -9,6 +9,8 @@ let
   theme = import ./theme.nix { inherit lib; };
   hostname = config.networking.hostName;
   login = config.nox.desktop.login;
+  # Default wallpaper (desktop and lock screen), from nixos-artwork
+  dracula = pkgs.nixos-artwork.wallpapers.dracula.gnomeFilePath;
 
   # Trust label per VM (vms/registry.nix `label`, absent = untrusted): one
   # window rule per label on the "[<vm>] " app id prefix that dom0's wprsc
@@ -935,19 +937,8 @@ in
   nox.desktop = {
     wpaperd = {
       enable = true;
-      settings = {
-        "DP-1" = {
-          path = "${./wallpapers/ntc.jpg}";
-        };
-
-        "DP-2" = {
-          path = "${./wallpapers/edger_lucy_neon.jpg}";
-        };
-
-        "eDP-1" = {
-          path = "${./wallpapers/cat_lofi_cafe.jpg}";
-        };
-      };
+      # Every output (the user's config adds per-output sections)
+      settings.any.path = lib.mkDefault dracula;
     };
 
     # Notifications; colors, sizes and fonts from theme.nix. The control
@@ -1071,7 +1062,7 @@ in
   nox.desktop.swaylock = {
     enable = true;
     settings = with theme; {
-      image = "${wallpaper.lock}";
+      image = lib.mkDefault dracula;
       scaling = "fill";
       color = raw.bg;
       font = font.family;

@@ -183,6 +183,11 @@ enum Cmd {
         #[command(subcommand)]
         action: Usb,
     },
+    /// Keyboard and mouse (optionally the Bluetooth adapter) to a VM and back
+    Input {
+        #[command(subcommand)]
+        action: Input,
+    },
     /// Smoke test of the running system (starts nothing, exit 1 on a failure)
     Doctor,
     /// Run a VM from an older system generation, or its images from the snapshot
@@ -466,6 +471,23 @@ enum Usb {
     },
 }
 
+#[derive(Subcommand)]
+enum Input {
+    /// Give dom0's keyboard and mouse to a VM (the registry's allowedOwners)
+    To {
+        /// VM name
+        vm: String,
+        /// Also the Bluetooth adapter (controllers)
+        #[arg(long)]
+        bt: bool,
+    },
+    /// Take them back to dom0 (from VM, default: wherever they are)
+    Back {
+        /// VM name
+        vm: Option<String>,
+    },
+}
+
 /// Replaces this process with `prog args…`; returns only if that fails.
 fn exec<I, S>(prog: &str, args: I) -> ExitCode
 where
@@ -679,6 +701,16 @@ fn main() -> ExitCode {
             Usb::Detach { device } => exec("vm-usb", ["detach".to_string(), device]),
             Usb::AllowInput { busid } => exec("vm-usb", ["allow-input".to_string(), busid]),
         },
+        Cmd::Input { action } => match action {
+            Input::To { vm, bt } => {
+                let mut args = vec![vm];
+                if bt {
+                    args.push("--bt".to_string());
+                }
+                exec("input-to", args)
+            }
+            Input::Back { vm } => exec("input-back", vm),
+        },
         Cmd::Doctor => exec("vm-doctor", Vec::<OsString>::new()),
         Cmd::Rollback {
             vm,
@@ -722,6 +754,27 @@ mod tests {
     #[test]
     fn cli_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn input_to_and_back() {
+        let cli = Cli::try_parse_from(["nox", "input", "to", "steam", "--bt"]).unwrap();
+        let Some(Cmd::Input {
+            action: Input::To { vm, bt },
+        }) = cli.command
+        else {
+            panic!("not input to")
+        };
+        assert_eq!(vm, "steam");
+        assert!(bt);
+        let cli = Cli::try_parse_from(["nox", "input", "back"]).unwrap();
+        let Some(Cmd::Input {
+            action: Input::Back { vm },
+        }) = cli.command
+        else {
+            panic!("not input back")
+        };
+        assert_eq!(vm, None);
     }
 
     #[test]

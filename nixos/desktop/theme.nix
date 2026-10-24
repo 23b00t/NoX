@@ -108,10 +108,6 @@ rec {
     variant = "dracula";
   };
 
-  wallpaper = {
-    lock = ./wallpapers/cat_lofi_cafe.jpg;
-  };
-
   # foot (foot.ini sections), font and colors as kitty had them; dom0
   # (home/home.nix) and the VMs over wprs (vms/modules/wprs.nix)
   foot = {

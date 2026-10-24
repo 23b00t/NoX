@@ -9,7 +9,7 @@ _nox_vms() {
 _nox() {
   local cur=${COMP_WORDS[COMP_CWORD]} cmd=${COMP_WORDS[1]-} words="" i n=0
   if [ "$COMP_CWORD" -eq 1 ]; then
-    words="list ls start stop restart disp backup pull run exec ssh clip copy update usb doctor rollback snapshot gc xen nix root help --help --version"
+    words="list ls start stop restart disp backup pull run exec ssh clip copy update usb input doctor rollback snapshot gc xen nix root help --help --version"
     mapfile -t COMPREPLY < <(compgen -W "$words" -- "$cur")
     return
   fi
@@ -75,6 +75,14 @@ _nox() {
         words="list ls attach detach allow-input"
       elif [ "${COMP_WORDS[2]}" = attach ] && [ "$n" -eq 2 ]; then
         words="$(_nox_vms)"
+      fi
+      ;;
+    input)
+      if [ "$n" -eq 0 ]; then
+        words="to back"
+      elif [ "$n" -eq 1 ]; then
+        words="$(_nox_vms)"
+        [ "${COMP_WORDS[2]}" = to ] && words="$words --bt"
       fi
       ;;
   esac

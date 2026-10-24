@@ -1,3 +1,4 @@
+| `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
 # NoX – NixOS on Xen
 
 Tools, NixOS modules and roles for a Qubes-like NixOS on Xen: dom0 without
@@ -146,6 +147,7 @@ passes its output and exit code through.
 | `nox copy [-m] [-n] <vm> <paths…>` | `cp-vm …` |
 | `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update …` (`--all`: `update-all …`) |
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
+| `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
 | `nox doctor` | `vm-doctor` (smoke test of the running system) |
 | `nox rollback <vm> [--gen n\|--reset]` | `vm-rollback …`: runner of an older system generation as the VM's `current` |
 | `nox rollback --data <vm>`, `nox snapshot <vm>` | `vm-rollback --data`, `vm-snapshot` (copy of a stopped VM's images) |

@@ -70,7 +70,6 @@ in
           color: @main-bg;
         }
 
-        #window,
         #clock,
         #battery,
         #pulseaudio,
@@ -208,7 +207,6 @@ in
             "niri/workspaces"
           ],
           "modules-center": [
-            "niri/window",
             "custom/xen-mem",
             "custom/xen-cpu",
             "custom/cputemp",
@@ -227,12 +225,6 @@ in
           // Workspaces instead of one icon per window; empty ones stay hidden
           "niri/workspaces": {
             "format": "{value}"
-          },
-
-          // Title of the focused window, VM windows with their "[vm] " prefix
-          "niri/window": {
-            "max-length": 60,
-            "separate-outputs": true
           },
 
           "clock": {

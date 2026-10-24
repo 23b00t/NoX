@@ -73,6 +73,12 @@ let
         domid="$(xl domid "$dom" 2>/dev/null)" || domid=""
 
         [ -n "$domid" ] || continue
+        # Only domains that run: one being shut down or destroyed (state s,
+        # c or d; `xl domid` still finds it) loses its vifs on the way, and
+        # attaching new ones to it took the whole xmg down (steam with the
+        # passed-through GPU, 2026-10-24)
+        domstate="$(xl list "$dom" 2>/dev/null </dev/null | awk 'NR == 2 { print $5 }')"
+        case "$domstate" in *s* | *c* | *d* | "") continue ;; esac
         bedomid="$(xl domid "$backend" 2>/dev/null)" || continue
 
         # Idx BE Mac handle state ...; state 4 = connected
