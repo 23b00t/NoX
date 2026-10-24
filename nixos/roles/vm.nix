@@ -22,7 +22,7 @@
   ...
 }:
 let
-  enabledApps = lib.filter (a: a.enable && a.package != null && a.install or null != false) (
+  enabledApps = lib.filter (a: a.enable && a.package or null != null && a.install or null != false) (
     lib.attrValues apps
   );
   appPackage = a: lib.getAttrFromPath (lib.splitString "." a.package) pkgs;
