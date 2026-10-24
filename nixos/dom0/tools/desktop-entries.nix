@@ -70,8 +70,9 @@ let
     }
   ) domains;
 
-  # The apps of the VMs (registry `apps`, catalog fields filled in by
-  # registry/legacy.nix): one entry each, like the hand-written ones below
+  # The apps of the VMs and image domains (registry `apps`, catalog fields
+  # filled in by registry/legacy.nix): one entry each, except apps that only
+  # run in the tray (`menu = false`)
   appEntries = lib.concatMap (
     vm:
     map (
@@ -87,8 +88,8 @@ let
         // lib.optionalAttrs (a ? categories) { inherit (a) categories; }
         // lib.optionalAttrs (a ? mimeType) { inherit (a) mimeType; }
       )
-    ) (vm.apps or [ ])
-  ) vmRegistry.vms;
+    ) (lib.filter (a: a.menu or true) (vm.apps or [ ]))
+  ) domains;
 in
 {
   options.nox.desktopEntries = lib.mkOption {
@@ -118,47 +119,5 @@ in
     )
   ) config.nox.desktopEntries;
 
-  config.nox.desktopEntries = lib.mkMerge (
-    terminalEntries
-    ++ appEntries
-    ++ [
-      # --- Kali (image domain, wprs over vchan) ---
-      (mkVmEntry {
-        name = "Burp Suite";
-        genericName = "Web Security Testing";
-        vm = "kali";
-        binary = "burpsuite";
-        icon = "kali-burpsuite";
-        categories = [
-          "Network"
-          "Security"
-        ];
-      })
-
-      (mkVmEntry {
-        name = "Firefox";
-        genericName = "Web Browser";
-        vm = "kali";
-        binary = "firefox-esr";
-        icon = "firefox";
-        categories = [
-          "Network"
-          "WebBrowser"
-        ];
-      })
-
-      # --- Whonix-Workstation (image domain, wprs over vchan) ---
-      (mkVmEntry {
-        name = "Tor Browser";
-        genericName = "Web Browser";
-        vm = "whonix-workstation";
-        binary = "torbrowser";
-        icon = "web-browser";
-        categories = [
-          "Network"
-          "WebBrowser"
-        ];
-      })
-    ]
-  );
+  config.nox.desktopEntries = lib.mkMerge (terminalEntries ++ appEntries);
 }

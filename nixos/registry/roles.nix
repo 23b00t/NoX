@@ -34,6 +34,7 @@ in
       home.size = 20000;
       storeGroup = "dev";
       githubAgent = true;
+      explorer = true;
     };
     desktop = role "GUI apps over wprs with a file manager." ../roles/desktop.nix {
       memory = 2048;
@@ -41,6 +42,7 @@ in
       vcpu = 2;
       home.size = 10000;
       storeGroup = "desktop";
+      explorer = true;
     };
     browser = role "Browsing." ../roles/browser.nix {
       memory = 2048;
@@ -48,6 +50,7 @@ in
       vcpu = 4;
       home.size = 10000;
       storeGroup = "desktop";
+      explorer = true;
     };
     windows = role "Windows programs under wine (Bottles)." ../roles/windows.nix {
       memory = 2048;

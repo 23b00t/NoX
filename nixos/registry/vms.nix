@@ -88,6 +88,11 @@ let
       default = null;
       description = "Electron app over XWayland (`--ozone-platform=x11`): a Wayland Electron window hidden to the tray can't come back under wprs. Default: false.";
     };
+    menu = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Desktop entry in dom0's app menu; false for apps that only run in the tray (nm-applet). Default: true.";
+    };
     tray = mkOption {
       type = types.nullOr types.bool;
       default = null;
@@ -287,12 +292,10 @@ let
       default = null;
       description = "kali may test this VM's apps over the lab bridge (vm-lab attach). Default: false.";
     };
-    # Transitional (step 3): replaced by the VM's modules/apps
-    features = mkOption {
-      type = types.nullOr (types.listOf types.str);
+    explorer = mkOption {
+      type = types.nullOr types.bool;
       default = null;
-      internal = true;
-      description = "Tags for the tools (\"yazi\": nox explorer); goes away with `apps`.";
+      description = "The VM has yazi (roles dev, desktop, browser): `explorer` in dom0 offers it. Default: false.";
     };
     hostSSHKey = mkOption {
       type = types.nullOr types.str;
@@ -350,9 +353,15 @@ in
       description = "NixOS guests (microvm.nix on Xen).";
     };
     images = mkOption {
-      type = types.attrsOf (types.submodule { options = common; });
+      type = types.attrsOf (
+        types.submodule {
+          options = common // {
+            inherit (vmOptions) apps;
+          };
+        }
+      );
       default = { };
-      description = "Image domains (upstream disk images: Whonix, Kali); manual steps in the docs.";
+      description = "Image domains (upstream disk images: Whonix, Kali); manual steps in the docs. Their `apps` only give dom0's desktop entries (`package` and `install` are not used, the image brings the software).";
     };
     roles = mkOption {
       type = types.attrsOf (

@@ -58,20 +58,11 @@ let
 
   # Tray apps per VM, started with the session (spawn-at-startup) and again
   # by `vm-tray <vm>` after that VM is (re)started (manage-vms): the VMs'
-  # apps with `tray = true` (registry `apps`), plus sys-net's applet (an
-  # infrastructure VM, no apps)
+  # apps with `tray = true` (registry `apps`; sys-net's nm-applet, too)
   trayOf =
     a:
     [ a.binary ] ++ (a.args or [ ]) ++ (a.trayArgs or [ ]) ++ lib.optional a.x11 "--ozone-platform=x11";
-  trayApps = {
-    sys-net = [
-      [
-        "nm-applet"
-        "--indicator"
-      ]
-    ];
-  }
-  // lib.listToAttrs (
+  trayApps = lib.listToAttrs (
     lib.concatMap (
       vm:
       let

@@ -20,6 +20,8 @@ let
       autostart = true;
       uplink = null;
       disposable = true;
+      # network applet in the tray (catalog: no menu entry)
+      apps.nm-applet.tray = true;
     };
     sys-usb = {
       index = 23;
@@ -28,7 +30,7 @@ let
       storeGroup = "sys";
       uplink = null;
       disposable = true;
-      features = [ "yazi" ];
+      explorer = true;
     };
     # Firewall between the VMs and sys-net (Qubes model, driver domain):
     # serves `vm-fw` for every VM with the default uplink; routed to sys-net

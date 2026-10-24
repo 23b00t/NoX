@@ -16,7 +16,8 @@ let
   system = "x86_64-linux";
   pkgs = import inputs.nixpkgs {
     inherit system;
-    config.allowUnfree = true;
+    # Unfree only by name (dom0/unfree.nix), never allowUnfree
+    config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) config.nox.unfree;
     overlays = [
       (_final: prev: {
         inherit (prev.lixPackageSets.latest)
@@ -145,6 +146,7 @@ in
 
   imports = [
     inputs.microvm.nixosModules.host
+    ./unfree.nix
     # Desktop (niri, waybar, …) without home-manager
     ../desktop
     # ../modules/steam-vm-image.nix

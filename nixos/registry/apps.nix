@@ -205,6 +205,7 @@ in
       package = "networkmanagerapplet";
       name = "Network";
       trayArgs = [ "--indicator" ];
+      menu = false;
     };
   };
 }

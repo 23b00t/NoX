@@ -20,6 +20,8 @@ let
     binary = if a.binary or null != null then a.binary else id;
     args = a.args or null;
     x11 = a.x11 or null == true;
+    # only `false` is written (the default stays absent)
+    menu = if a.menu or null == false then false else null;
     tray = a.tray or null == true;
     trayArgs = a.trayArgs or null;
     genericName = a.genericName or null;
@@ -48,7 +50,6 @@ let
         memPriority
         backup
         labTarget
-        features
         hostSSHKey
         egress
         role
@@ -59,6 +60,8 @@ let
         bluetooth
         ;
       homeSize = v.home.size;
+      # explorer (dom0) lists the VMs with the "yazi" feature
+      features = if v.explorer == true then [ "yazi" ] else null;
       apps = appsEntry v;
       ip = ip v.index;
       nat = v.uplink != null;
@@ -80,6 +83,7 @@ let
     clean {
       inherit name;
       inherit (v) short label;
+      apps = appsEntry v;
       ip = ip v.index;
     };
 
