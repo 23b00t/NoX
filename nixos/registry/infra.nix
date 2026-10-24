@@ -20,7 +20,7 @@ let
       autostart = true;
       uplink = null;
       disposable = true;
-      # network applet in the tray (catalog: no menu entry)
+      # network applet in the tray (and in the app menu)
       apps.nm-applet.tray = true;
     };
     sys-usb = {

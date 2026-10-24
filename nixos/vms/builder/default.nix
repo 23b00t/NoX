@@ -3,6 +3,7 @@
 # own key. dom0 pulls the result with `dom0-update` (modules/dom0-update.nix);
 # the builder never pushes into dom0.
 {
+  lib,
   pkgs,
   config,
   vmRegistry,
@@ -10,7 +11,7 @@
 }:
 let
   stateDir = "/var/lib/builder";
-  repoUrl = "https://github.com/23b00t/nixos";
+  inherit (config.nox.builder) repoUrl;
 
   # builder-build <machine> [branch]: fetch, build, sign; prints the toplevel
   builderBuild = pkgs.writeShellScriptBin "builder-build" ''
@@ -63,6 +64,13 @@ in
     ../modules/net-config.nix
     ../modules/common-config.nix
     ../modules/persistent-store-overlay.nix
+    {
+      options.nox.builder.repoUrl = lib.mkOption {
+        type = lib.types.str;
+        example = "https://github.com/<you>/<your-nox-config>";
+        description = "Git URL of the config the builder builds (`nox.vms.builder.module` in the user's vms.nix).";
+      };
+    }
   ];
 
   networking.hostName = "builder-vm";

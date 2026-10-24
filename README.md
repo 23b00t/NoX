@@ -22,6 +22,34 @@ domains: `nox.vms.<name>` with role, label, apps, resources) and
 the roles, the app catalog and the infrastructure VMs:
 [docs/options.md](docs/options.md) (generated: `nix build .#options-doc`).
 
+Settings that are yours, not NoX's, go into your config, e.g. in
+`vms.nix`:
+
+```nix
+nox = {
+  # every dev VM: git identity and SSH commit signing
+  roles.dev.module = {
+    programs.git.config = {
+      user = {
+        name = "Your Name";
+        email = "you@example.org";
+        signingkey = "ssh-ed25519 AAAA… you@example.org";
+      };
+      gpg.format = "ssh";
+      commit.gpgsign = true;
+    };
+    # your LazyVim config instead of the upstream starter
+    services.ide.lazyvimRepo = "https://github.com/<you>/lazyvim.git";
+  };
+  # every VM: time zone and locale (NoX: UTC, en_US.UTF-8)
+  vmModule.time.timeZone = "Europe/Berlin";
+  # the builder (nox.infra.builder.enable): the repo it builds
+  vms.builder.module.nox.builder.repoUrl = "https://github.com/<you>/<config>";
+};
+# dom0: niri's keyboard (NoX: us)
+# nox.desktop.keyboard = { layout = "us"; variant = "altgr-intl"; };
+```
+
 ## nox-relay
 
 Carries Unix socket connections between two Xen domains over a single vchan

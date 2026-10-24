@@ -441,6 +441,78 @@ null
 
 
 
+### nox\.desktop\.keyboard\.layout
+
+
+
+xkb layout of niri’s keyboard (empty: not set)\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"us"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.keyboard\.options
+
+
+
+xkb options of niri’s keyboard (empty: not set)\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+""
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.keyboard\.variant
+
+
+
+xkb variant of niri’s keyboard (empty: not set)\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+""
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
 ### nox\.desktop\.login\.dom0Command
 
 
@@ -1786,6 +1858,38 @@ list of string
 
 
 
+### nox\.vmModule
+
+
+
+NixOS module of every NoX VM (role and infrastructure VMs, not image domains): settings for the whole fleet such as time zone and locale\.
+
+
+
+*Type:*
+module
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{ time.timeZone = "Europe/Berlin"; }
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.vms
 
 
@@ -2486,8 +2590,6 @@ null
 
 ### nox\.vms\.\<name>\.egress\.\*\.ports
 
-
-
 Ports; empty: all ports to that net\.
 
 
@@ -2549,6 +2651,8 @@ null
 
 
 ### nox\.vms\.\<name>\.githubAgent
+
+
 
 dom0’s GitHub-only SSH agent in the VM\. Default: false\.
 

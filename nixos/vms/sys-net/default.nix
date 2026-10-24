@@ -17,8 +17,14 @@ let
   };
   dom0 = "10.0.0.254";
   dom0TestAccess = vmRegistry.hostProfile.dom0TestAccess or null;
-  # sys-print (C2) on the uplink: 10.1.0.<last octet of its registry IP>
+  # sys-print (C2, optional) on the uplink: 10.1.0.<last octet of its
+  # registry IP>; printers in the local network (IPP), nothing else
   sysPrint = "10.1.0.${lib.last (lib.splitString "." vmRegistry.byName.sys-print.ip)}";
+  printRules = lib.optionalString (vmRegistry.byName ? sys-print) ''
+    # sys-print (C2): printers in the local network (IPP), nothing else
+    iifname "vm-uplink" ip saddr ${sysPrint} oifname != { "vm-uplink", "vm-lan", "vm-tails" } ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } tcp dport 631 accept
+    iifname "vm-uplink" ip saddr ${sysPrint} reject with icmpx type admin-prohibited
+  '';
   # sys-firewall on the uplink: its client nets are routed there (no NAT)
   sysFirewall = "10.1.0.${lib.last (lib.splitString "." vmRegistry.byName.sys-firewall.ip)}";
 in
@@ -168,10 +174,7 @@ in
       interfaces.vm-tails.allowedUDPPorts = [ 67 ];
       filterForward = true;
       extraForwardRules = ''
-        # sys-print (C2): printers in the local network (IPP), nothing else
-        iifname "vm-uplink" ip saddr ${sysPrint} oifname != { "vm-uplink", "vm-lan", "vm-tails" } ip daddr { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 } tcp dport 631 accept
-        iifname "vm-uplink" ip saddr ${sysPrint} reject with icmpx type admin-prohibited
-        # VMs and sys-firewall (its clients routed: 10.6.0.0/24, Whonix-Gateway
+        ${printRules}# VMs and sys-firewall (its clients routed: 10.6.0.0/24, Whonix-Gateway
         # 10.0.2.0/24) -> outside only (not into the admin network, not to Tails)
         iifname "vm-uplink" oifname != { "vm-uplink", "vm-lan", "vm-tails" } accept
         # Tails -> outside only (it only speaks Tor itself)

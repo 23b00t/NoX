@@ -1,42 +1,10 @@
 {
   pkgs,
   lib,
-  config,
   ...
 }:
 let
   theme = import ./theme.nix { inherit lib; };
-
-  # Taskbar icons for VM windows: their app ids carry "[<vm>] " (wprsc
-  # --app-id-prefix), which the taskbar can't resolve. Map the known apps
-  # back, from the desktop entries `vm-run <vm> <binary>`
-  # (NoX dom0/tools/desktop-entries.nix): "[<vm>] <binary>" → its icon,
-  # plus the VM terminals "[<vm>] term-<vm>". Other apps get the default icon
-  appIdMapping = lib.listToAttrs (
-    lib.concatLists (
-      lib.mapAttrsToList (
-        _: entry:
-        let
-          words = lib.splitString " " (entry.exec or "");
-          vm = builtins.elemAt words 1;
-          binary = baseNameOf (builtins.elemAt words 2);
-          icon = if entry.icon or null != null then toString entry.icon else binary;
-        in
-        lib.optionals (builtins.length words >= 3 && builtins.head words == "vm-run") (
-          map (id: lib.nameValuePair "[${vm}] ${id}" icon) (
-            lib.unique [
-              binary
-              (lib.toLower binary)
-            ]
-          )
-          ++ [ (lib.nameValuePair "[${vm}] term-${vm}" "foot") ]
-        )
-      ) config.nox.desktopEntries
-    )
-    # Xwayland windows: the X11 class is the app id (our wprs fork); Burp
-    # in kali (Java: main class, StartupWMClass of Kali's desktop entry)
-    ++ [ (lib.nameValuePair "[kali] burp-StartBurp" "kali-burpsuite") ]
-  );
 in
 {
   environment.systemPackages = with pkgs; [
@@ -102,6 +70,7 @@ in
           color: @main-bg;
         }
 
+        #window,
         #clock,
         #battery,
         #pulseaudio,
@@ -236,9 +205,10 @@ in
 
           // Layout without external JSONC modules/includes
           "modules-left": [
-            "wlr/taskbar"
+            "niri/workspaces"
           ],
           "modules-center": [
+            "niri/window",
             "custom/xen-mem",
             "custom/xen-cpu",
             "custom/cputemp",
@@ -254,14 +224,15 @@ in
             "custom/swaync",
           ],
 
-          "wlr/taskbar": {
-            "format": "{icon}",
-            "icon-size": 16,
-            "markup": false,
-            "on-click": "activate",
-            "on-click-middle": "close",
-            "ignore-list": [],
-            "app_ids-mapping": ${builtins.toJSON appIdMapping}
+          // Workspaces instead of one icon per window; empty ones stay hidden
+          "niri/workspaces": {
+            "format": "{value}"
+          },
+
+          // Title of the focused window, VM windows with their "[vm] " prefix
+          "niri/window": {
+            "max-length": 60,
+            "separate-outputs": true
           },
 
           "clock": {

@@ -10,8 +10,6 @@ _: {
   nox = {
     infra = {
       disp.enable = true;
-      # sys-net's firewall expects sys-print for now
-      sys-print.enable = true;
     };
 
     vms = {

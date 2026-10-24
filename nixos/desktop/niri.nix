@@ -353,6 +353,47 @@ let
       "spawn-sh" = "brightnessctl -d intel_backlight -e4 -n2 set 5%-";
     };
 
+    # The same without Fn: Mod+PgUp/PgDn/Backspace volume, with Shift brightness
+    "Mod+Page_Up" = {
+      _props = {
+        "hotkey-overlay-title" = "Volume Up";
+        "allow-when-locked" = true;
+      };
+      "spawn-sh" = "wpctl set-volume -l 1 @DEFAULT_AUDIO_SINK@ 5%+";
+    };
+
+    "Mod+Page_Down" = {
+      _props = {
+        "hotkey-overlay-title" = "Volume Down";
+        "allow-when-locked" = true;
+      };
+      "spawn-sh" = "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-";
+    };
+
+    "Mod+BackSpace" = {
+      _props = {
+        "hotkey-overlay-title" = "Mute Audio";
+        "allow-when-locked" = true;
+      };
+      "spawn-sh" = "wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle";
+    };
+
+    "Mod+Shift+Page_Up" = {
+      _props = {
+        "hotkey-overlay-title" = "Brightness Up";
+        "allow-when-locked" = true;
+      };
+      "spawn-sh" = "brightnessctl -d intel_backlight -e4 -n2 set 5%+";
+    };
+
+    "Mod+Shift+Page_Down" = {
+      _props = {
+        "hotkey-overlay-title" = "Brightness Down";
+        "allow-when-locked" = true;
+      };
+      "spawn-sh" = "brightnessctl -d intel_backlight -e4 -n2 set 5%-";
+    };
+
     "XF86AudioPlay" = {
       _props = {
         "hotkey-overlay-title" = "Play/Pause";
@@ -414,10 +455,14 @@ let
     "Mod+Shift+K"."move-column-to-monitor-up" = { };
     "Mod+Shift+L"."move-column-to-monitor-right" = { };
 
-    "Mod+Alt+Left"."move-column-left" = { };
+    # Mod+Alt moves the window (left/right: into the neighbour column or out
+    # of it as its own column), Mod+Ctrl the whole column
+    "Mod+Alt+Left"."consume-or-expel-window-left" = { };
     "Mod+Alt+Down"."move-window-down" = { };
     "Mod+Alt+Up"."move-window-up" = { };
-    "Mod+Alt+Right"."move-column-right" = { };
+    "Mod+Alt+Right"."consume-or-expel-window-right" = { };
+    "Mod+Ctrl+Left"."move-column-left" = { };
+    "Mod+Ctrl+Right"."move-column-right" = { };
 
     "Mod+U"."focus-workspace-down" = { };
     "Mod+I"."focus-workspace-up" = { };
@@ -670,11 +715,8 @@ in
       "mod-key" = "Super";
 
       keyboard = {
-        xkb = {
-          layout = "us";
-          variant = "altgr-intl";
-          options = "grp:alt_shift_toggle";
-        };
+        # nox.desktop.keyboard, unset fields left out
+        xkb = lib.filterAttrs (_: v: v != "") config.nox.desktop.keyboard;
 
         numlock = { };
       };
@@ -816,18 +858,6 @@ in
         "window-rule"._children = [
           {
             match._props = {
-              "app-id" = "^(term-dom0|\\[(nvim|coding)\\] term-(nvim|coding))$";
-            };
-          }
-          { "open-on-workspace" = "terminal"; }
-          { "default-column-display" = "tabbed"; }
-          { "default-column-width".proportion = 1.0; }
-        ];
-      }
-      {
-        "window-rule"._children = [
-          {
-            match._props = {
               "app-id" = "^\\[irc\\] term-irc$";
             };
           }
@@ -872,8 +902,25 @@ in
         ];
       }
     ]
-    # The user's login windows (nox.desktop.login)
-    ++ lib.optional (login.terminalTabs != [ ]) { "spawn-at-startup"._args = [ "${terminalTabs}" ]; }
+    # The user's login windows (nox.desktop.login): the terminal tabs open as
+    # tabs of one full-width column on the workspace "terminal"
+    ++ lib.optionals (login.terminalTabs != [ ]) [
+      {
+        "window-rule"._children = [
+          {
+            match._props."app-id" = "^(${
+              lib.concatMapStringsSep "|" (
+                t: if t == "dom0" then "term-dom0" else "\\[${t}\\] term-${t}"
+              ) login.terminalTabs
+            })$";
+          }
+          { "open-on-workspace" = "terminal"; }
+          { "default-column-display" = "tabbed"; }
+          { "default-column-width".proportion = 1.0; }
+        ];
+      }
+      { "spawn-at-startup"._args = [ "${terminalTabs}" ]; }
+    ]
     ++ map (w: {
       "spawn-at-startup"._args = [
         "vm-run"

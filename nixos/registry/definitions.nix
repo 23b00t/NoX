@@ -26,6 +26,7 @@ let
           groupUnfree = vm.storeGroup != null && (cfg.storeGroups.${vm.storeGroup}.unfree or false);
         })
         cfg.roles.${vm.role}.module
+        cfg.vmModule
       ]
       ++ lib.optional (vm.module != null) vm.module;
     };
@@ -33,8 +34,15 @@ let
     packages = _: { };
   };
 
+  # NoX's module plus the user's own (`module`, e.g. the builder's repoUrl)
   mkInfraDefinition = name: _: {
-    module = ../vms + "/${name}";
+    module = {
+      imports = [
+        (../vms + "/${name}")
+        cfg.vmModule
+      ]
+      ++ lib.optional (cfg.vms.${name}.module != null) cfg.vms.${name}.module;
+    };
     specialArgs = { };
     packages = _: { };
   };

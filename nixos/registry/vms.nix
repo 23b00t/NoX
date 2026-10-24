@@ -363,6 +363,12 @@ in
       default = { };
       description = "Image domains (upstream disk images: Whonix, Kali); manual steps in the docs. Their `apps` only give dom0's desktop entries (`package` and `install` are not used, the image brings the software).";
     };
+    vmModule = mkOption {
+      type = types.deferredModule;
+      default = { };
+      example = lib.literalExpression "{ time.timeZone = \"Europe/Berlin\"; }";
+      description = "NixOS module of every NoX VM (role and infrastructure VMs, not image domains): settings for the whole fleet such as time zone and locale.";
+    };
     roles = mkOption {
       type = types.attrsOf (
         types.submodule {

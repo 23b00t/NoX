@@ -142,6 +142,21 @@ in
         description = "Further windows at login.";
       };
     };
+    keyboard =
+      lib.mapAttrs
+        (
+          name: default:
+          lib.mkOption {
+            type = lib.types.str;
+            inherit default;
+            description = "xkb ${name} of niri's keyboard (empty: not set).";
+          }
+        )
+        {
+          layout = "us";
+          variant = "";
+          options = "";
+        };
     niri.settings = lib.mkOption {
       type = lib.types.attrsOf kdlValue;
       default = { };

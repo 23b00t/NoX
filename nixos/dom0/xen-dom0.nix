@@ -448,12 +448,13 @@ in
             "backup-recv"
           ]
       ) (builtins.filter (vm: vm.name != "disp-backup") vmRegistry.vms)
+      # sys-print is optional (nox.infra.sys-print.enable)
+      ++ lib.optional (vmRegistry.byName ? sys-print) {
+        service = "print";
+        target = "sys-print";
+        action = "ask";
+      }
       ++ [
-        {
-          service = "print";
-          target = "sys-print";
-          action = "ask";
-        }
         {
           service = "copy";
           action = "ask";

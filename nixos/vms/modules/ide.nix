@@ -42,8 +42,8 @@ in
 
     lazyvimRepo = lib.mkOption {
       type = lib.types.str;
-      default = "https://github.com/23b00t/lazyvim.git";
-      description = "Git URL of the LazyVim config repository";
+      default = "https://github.com/LazyVim/starter";
+      description = "Git URL of the LazyVim config repository (default: the upstream starter)";
     };
   };
 
@@ -100,23 +100,13 @@ in
     programs.git = {
       enable = true;
       config = {
-        user = {
-          name = "Daniel Kipp";
-          email = "daniel.kipp@gmail.com";
-        };
         help.autocorrect = 1;
         push.default = "simple";
         pull.rebase = false;
         "branch \"main\"".mergeoptions = "--no-edit";
         init.defaultBranch = "main";
-        # --- SSH Commit Signing ---
-        gpg.format = "ssh";
-        user.signingkey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIIiMX73JzJQ1gk9fUyiiOgQYeH40DTkcD0NKtzpySORN daniel.kipp@gmail.com";
-        commit.gpgsign = true;
-
-        # gpg.program = "gpg";
-        # commit.gpgsign = true;
-        # user.signingkey = "937A32679620DC68";
+        # Identity and signing (user.name, user.email, signing key) come
+        # from the user's config (NoX docs/options.md, "git identity")
       };
     };
 

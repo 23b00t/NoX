@@ -107,19 +107,9 @@ in
 
     nix.package = pkgs.lixPackageSets.latest.lix;
 
-    time.timeZone = "Europe/Berlin";
+    # Time zone and locale: NixOS defaults (UTC, en_US.UTF-8); the user sets
+    # them for the fleet in `nox.vmModule`
     i18n.defaultLocale = "en_US.UTF-8";
-    i18n.extraLocaleSettings = {
-      LC_TIME = "de_DE.UTF-8";
-      LC_MONETARY = "de_DE.UTF-8";
-      LC_NUMERIC = "de_DE.UTF-8";
-      LC_MEASUREMENT = "de_DE.UTF-8";
-      LC_PAPER = "de_DE.UTF-8";
-      LC_ADDRESS = "de_DE.UTF-8";
-      LC_TELEPHONE = "de_DE.UTF-8";
-      LC_NAME = "de_DE.UTF-8";
-      LC_IDENTIFICATION = "de_DE.UTF-8";
-    };
 
     services.openssh = {
       # Only VMs dom0 still logs into (registry `hostSSHKey`: the builder);
