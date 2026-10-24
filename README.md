@@ -1,13 +1,26 @@
 # NoX – NixOS on Xen
 
-Tools, NixOS modules and (later) VM templates for a Qubes-like NixOS on Xen:
-dom0 without network access to the guests, driver domains for network and
-USB, apps in isolated guests.
+Tools, NixOS modules and roles for a Qubes-like NixOS on Xen: dom0 without
+network access to the guests, driver domains for network and USB, apps in
+isolated guests.
 
 License: MIT.
 
-Status: early. Today it contains `nox-relay`; the general dom0/guest modules
-and VM templates move here from the author's nixos-config over time.
+Status: early. dom0 (Xen, desktop, tools), the VM schema with roles and an
+app catalog, and the infrastructure VMs live here; a config is NoX plus
+the machine's hardware plus its own domains.
+
+## A config
+
+```sh
+nix flake init -t github:23b00t/NoX
+```
+
+gives `flake.nix` (one call of `nox.lib.mkSystems`), `vms.nix` (the
+domains: `nox.vms.<name>` with role, label, apps, resources) and
+`machines/` (hardware data and the machine's NixOS module). Every option,
+the roles, the app catalog and the infrastructure VMs:
+[docs/options.md](docs/options.md) (generated: `nix build .#options-doc`).
 
 ## nox-relay
 

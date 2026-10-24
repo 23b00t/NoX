@@ -336,8 +336,9 @@ in
   services = {
     xen-memory-balancer.enable = true;
 
-    # dom0 pulls its system from the builder VM (v2.4): `dom0-update [--switch]`
-    dom0-update.enable = true;
+    # dom0 pulls its system from the builder VM (v2.4): `dom0-update [--switch]`;
+    # only with a builder (nox.infra.builder)
+    dom0-update.enable = vmRegistry.byName ? builder;
 
     # v2.6: both USB controllers belong to sys-usb; input devices come back via
     # the input proxy, the webcam goes to chat via USB/IP. `sys-usb-rescue`.

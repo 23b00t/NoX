@@ -33,6 +33,16 @@
         # The VM schema (nox.vms, nox.images) and its adapter to the registry
         registry = ./nixos/registry;
         tests = ./nixos/tests;
+        # The flake glue of a NoX config (nixosConfigurations of the
+        # machines and VMs, runners, store images): nixos/lib/systems.nix
+        mkSystems = import ./nixos/lib/systems.nix { inherit self; };
+      };
+
+      # `nix flake init -t github:23b00t/NoX`: a machine with the core
+      # infrastructure and two app VMs
+      templates.default = {
+        path = ./template;
+        description = "NoX config: one machine (hardware), the domains in vms.nix";
       };
 
       overlays.default = final: _prev: {
@@ -54,6 +64,7 @@
             nox-rpc
             nox-cli
             ;
+          options-doc = pkgs.callPackage ./nix/options-doc.nix { };
           default = nox.nox-relay;
         }
       );
