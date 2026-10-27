@@ -810,8 +810,10 @@ in
       };
 
       # Notifications; colors, sizes and fonts from theme.nix. The control
-      # center (waybar bell) is a compact floating panel under the bar instead
-      # of the default full-height grey sidebar
+      # center (waybar bell) is a floating panel under the bar, full monitor
+      # height: `control-center-height = -1` (fit to content) stays small in
+      # swaync 0.12.6 once notifications of several apps pile up (hp
+      # 2026-10-27: 12 apps, 1.5 visible)
       swaync = {
         enable = true;
         settings = {
@@ -821,9 +823,8 @@ in
           control-center-layer = "top";
           layer-shell = true;
           cssPriority = "application";
-          fit-to-screen = false;
+          fit-to-screen = true;
           control-center-width = theme.notifications.width;
-          control-center-height = -1; # fit to content
           control-center-margin-top = theme.gap;
           control-center-margin-bottom = theme.gap;
           control-center-margin-right = theme.gap;

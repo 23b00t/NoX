@@ -268,7 +268,8 @@ let
                 exit 0
               fi
             fi
-            if out="$(asuser systemd-run --user --collect --quiet "''${unit[@]}" -- /nix/store/nox/bin/nox-app-env "''${args[@]}" 2>&1)"; then
+            # OOMPolicy=continue as in NoX's app handler (rpc.nix)
+            if out="$(asuser systemd-run --user --collect --quiet "''${unit[@]}" --property=OOMPolicy=continue -- /nix/store/nox/bin/nox-app-env "''${args[@]}" 2>&1)"; then
               echo "ok: started ''${args[0]}"
             else
               echo "error: $out"

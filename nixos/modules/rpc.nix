@@ -13,7 +13,7 @@
 # - copy: `nox-pack` sends a manifest and a tar stream; the broker asks with
 #   the manifest and cuts off a stream larger than announced or than
 #   `host.copyLimit`; the target unpacks files and directories only into
-#   ~/Incoming/<source>, never overwriting. `nox-copy` in dom0 copies dom0's
+#   ~/Incoming/<source>, merging folders, never overwriting. `nox-copy` in dom0 copies dom0's
 #   files or, through the guest service `send`, a guest's files
 #
 # Needs services.nox-relay on both sides (relay.nix).
@@ -92,7 +92,10 @@ let
         exit 0
       fi
     fi
-    if out="$(systemd-run --user --collect --quiet "''${unit[@]}" ${runArgs} -- "''${args[@]}" 2>&1)"; then
+    # OOMPolicy=continue: when the OOM killer takes one process (e.g. magick
+    # in a terminal), the rest of the unit lives on; the default `stop` took
+    # foot with zellij, nvim and Claude along (xmg 2026-10-27)
+    if out="$(systemd-run --user --collect --quiet "''${unit[@]}" --property=OOMPolicy=continue ${runArgs} -- "''${args[@]}" 2>&1)"; then
       echo "ok: started ''${args[0]}"
     else
       echo "error: $out"
@@ -185,13 +188,17 @@ let
 
   # Guest handler `copy`: unpack into a scratch directory first (bsdtar
   # refuses absolute and `..` paths and writing through symlinks), keep only
-  # files and directories, then move them into ~/Incoming/<source> without
-  # overwriting anything (a taken name gets a suffix). A stream cut off by
-  # the broker fails in bsdtar and leaves nothing.
+  # files and directories, then merge them into ~/Incoming/<source> without
+  # overwriting anything: new names move in, directories merge (a repeated
+  # copy of a folder brings its new files along), identical files are
+  # skipped, a changed file or a file/directory clash gets a suffix. A
+  # symlink in ~/Incoming is never followed. A stream cut off by the broker
+  # fails in bsdtar and leaves nothing.
   copyHandler = ''
     PATH=${
       lib.makeBinPath [
         pkgs.coreutils
+        pkgs.diffutils
         pkgs.findutils
         pkgs.libarchive
       ]
@@ -205,20 +212,43 @@ let
       exit 1
     fi
     dropped="$(find "$tmp" -mindepth 1 ! -type f ! -type d -print -delete | wc -l)"
-    n=0
-    for e in "$tmp"/* "$tmp"/.[!.]* "$tmp"/..?*; do
-      [ -e "$e" ] || continue
-      name="''${e##*/}"
-      dest="$dir/$name"
-      i=1
-      while [ -e "$dest" ] || [ -L "$dest" ]; do
-        dest="$dir/$name.$i"
-        i=$((i + 1))
+    new=0 same=0 renamed=0
+    merge() {
+      local e name dest i
+      for e in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+        [ -e "$e" ] || continue
+        name="''${e##*/}"
+        dest="$2/$name"
+        if ! [ -e "$dest" ] && ! [ -L "$dest" ]; then
+          mv -T -- "$e" "$dest"
+          new=$((new + 1))
+        elif [ -d "$e" ] && [ -d "$dest" ] && ! [ -L "$dest" ]; then
+          merge "$e" "$dest"
+        elif [ -f "$e" ] && [ -f "$dest" ] && ! [ -L "$dest" ] && cmp -s -- "$e" "$dest"; then
+          same=$((same + 1))
+        else
+          # an earlier copy may already hold this version under a suffix
+          i=1
+          while [ -e "$dest.$i" ] || [ -L "$dest.$i" ]; do
+            if [ -f "$e" ] && [ -f "$dest.$i" ] && ! [ -L "$dest.$i" ] && cmp -s -- "$e" "$dest.$i"; then
+              same=$((same + 1))
+              continue 2
+            elif [ -d "$e" ] && [ -d "$dest.$i" ] && ! [ -L "$dest.$i" ]; then
+              merge "$e" "$dest.$i"
+              continue 2
+            fi
+            i=$((i + 1))
+          done
+          mv -T -- "$e" "$dest.$i"
+          renamed=$((renamed + 1))
+        fi
       done
-      mv -T -- "$e" "$dest"
-      n=$((n + 1))
-    done
-    msg="ok: $n in ~/Incoming/$source"
+    }
+    merge "$tmp" "$dir"
+    msg="ok: $new new"
+    [ "$renamed" = 0 ] || msg="$msg, $renamed changed (kept both, the new one with a suffix)"
+    [ "$same" = 0 ] || msg="$msg, $same unchanged"
+    msg="$msg in ~/Incoming/$source"
     [ "$dropped" = 0 ] || msg="$msg ($dropped links or special files dropped)"
     echo "$msg"
   '';

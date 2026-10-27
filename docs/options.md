@@ -2448,7 +2448,7 @@ null
 
 
 
-Copy/paste through dom0\. Default: deny for sys-\* VMs, else allow\.
+Copy/paste through dom0 (vm-clip): allow, ask (pasting in is free, copying out asks) or deny\. Default: deny for sys-\* VMs, else allow\.
 
 
 

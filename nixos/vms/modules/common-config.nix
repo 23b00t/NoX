@@ -48,7 +48,7 @@ in
       type = types.nullOr types.str;
       default = null;
       example = "firefox.desktop";
-      description = "Desktop file of the VM's browser: PDFs and images open there (xdg-open, e.g. from yazi).";
+      description = "Desktop file of the VM's browser: links, HTML, PDFs and images open there (xdg-open, e.g. from yazi or a chat app).";
     };
   };
 
@@ -118,6 +118,15 @@ in
     ];
 
     nix.package = pkgs.lixPackageSets.latest.lix;
+
+    # The RAM balancer (dom0 modules/xen-memory.nix) reacts in 2-4 s; zram
+    # bridges a faster peak instead of the OOM killer (xmg 2026-10-27: magick
+    # took 1.1 GB in nvim between two steps). It counts used swap as usage,
+    # so the VM grows and the swap drains again. Size from the boot RAM
+    zramSwap = {
+      enable = lib.mkDefault true;
+      memoryPercent = lib.mkDefault 50;
+    };
 
     # Time zone and locale: NixOS defaults (UTC, en_US.UTF-8); the user sets
     # them for the fleet in `nox.vmModule`
@@ -227,6 +236,9 @@ in
     xdg.mime.defaultApplications = mkMerge [
       (mkIf (cfg.browser != null) (
         genAttrs [
+          "text/html"
+          "x-scheme-handler/http"
+          "x-scheme-handler/https"
           "application/pdf"
           "image/png"
           "image/jpeg"
@@ -245,8 +257,8 @@ in
 
     environment.systemPackages = mkMerge [
       (mkIf cfg.withDefaultPkgs (mkBefore defaultPkgs))
-      # xdg-open itself (the default apps above are useless without it)
-      (mkIf (cfg.browser != null) [ pkgs.xdg-utils ])
+      # xdg-open itself (yazi, file dialogs); every VM has a GUI over wprs
+      [ pkgs.xdg-utils ]
     ];
   };
 }

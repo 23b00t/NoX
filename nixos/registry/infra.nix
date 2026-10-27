@@ -22,6 +22,9 @@ let
       disposable = true;
       # network applet in the tray (and in the app menu)
       apps.nm-applet.tray = true;
+      # paste in (e.g. a WLAN key from vault) without a question, copying
+      # out asks
+      clipboard = "ask";
     };
     sys-usb = {
       index = 23;

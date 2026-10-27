@@ -226,9 +226,10 @@ in
             "custom/swaync",
           ],
 
-          // Workspaces instead of one icon per window; empty ones stay hidden
+          // Workspaces instead of one icon per window; empty ones stay hidden.
+          // Numbers only, also for named ones (the terminal workspace)
           "niri/workspaces": {
-            "format": "{value}"
+            "format": "{index}"
           },
 
           "clock": {

@@ -1,5 +1,5 @@
 # dom0 tools (NoX modules step 2: out of home-manager): vm-run, vm-gui,
-# vm-doctor, vm-backup, vm-rollback, the desktop entries for VM apps, the
+# vm-doctor, vm-backup, vm-rollback, nox printers, the desktop entries for VM apps, the
 # GitHub agent, manage-vms, explorer and vm-disp, all in the
 # system profile.
 { pkgs, vmRegistry, ... }:
@@ -10,6 +10,7 @@
     ./vm-doctor.nix
     ./vm-backup.nix
     ./vm-rollback.nix
+    ./printers.nix
     ./desktop-entries.nix
     ./github-agent-forward.nix
     ./ssh.nix

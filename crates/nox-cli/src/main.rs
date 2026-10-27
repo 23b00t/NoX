@@ -167,6 +167,13 @@ enum Cmd {
         #[arg(required = true, num_args = 2.., value_name = "ARGS")]
         args: Vec<OsString>,
     },
+    /// Find the IPP printers in the local network (sys-print scans what
+    /// sys-net names; starts sys-print): address, name, model
+    Printers {
+        /// rofi list; the chosen address goes to the clipboard (Mod+Alt+V)
+        #[arg(long)]
+        menu: bool,
+    },
     /// Update dom0 from the builder VM; --all: then the Whonix domains too
     Update {
         /// Also update the image domains (Whonix, apt over Tor)
@@ -692,6 +699,7 @@ fn main() -> ExitCode {
             a.extend(args);
             exec("nox-copy", a)
         }
+        Cmd::Printers { menu } => exec("nox-printers", if menu { vec!["--menu"] } else { vec![] }),
         Cmd::Update {
             all,
             switch,

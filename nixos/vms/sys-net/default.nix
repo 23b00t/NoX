@@ -57,6 +57,19 @@ in
       enable = true;
       withDefaultPkgs = false;
     };
+
+    # dom0's `nox printers`: the local networks (CIDR per line, without the
+    # VM bridges), which sys-print then scans for IPP printers
+    nox-rpc.guest.handlers.lan = lib.mkIf (vmRegistry.byName ? sys-print) ''
+      if [ "$source" != dom0 ]; then
+        echo "error: only dom0"
+        exit 1
+      fi
+      ${pkgs.iproute2}/bin/ip -4 -o route show proto kernel scope link |
+        while read -r net _ dev _; do
+          case "$dev" in vm-*) ;; *) echo "$net" ;; esac
+        done
+    '';
   };
 
   users.users.user.extraGroups = lib.mkAfter [ "networkmanager" ];

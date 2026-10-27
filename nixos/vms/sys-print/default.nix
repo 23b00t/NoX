@@ -28,6 +28,56 @@ let
       exit 1
     fi
   '';
+
+  # dom0's `nox printers`: stdin the networks to scan (CIDR per line, /22 to
+  # /30, from sys-net's `lan`); every host with TCP 631 open (the only port
+  # sys-net lets through) is asked for its IPP attributes. Answer `ok <n>`,
+  # then one line per printer: address, name, model (tab-separated)
+  printersHandler = ''
+    if [ "$source" != dom0 ]; then
+      echo "error: only dom0"
+      exit 1
+    fi
+    PATH=${
+      lib.makeBinPath [
+        pkgs.bash
+        pkgs.coreutils
+        pkgs.findutils
+        pkgs.gnused
+        pkgs.cups
+      ]
+    }
+    hosts() {
+      local a b c d len n size base i x
+      [[ "$1" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$ ]] || return 0
+      a=''${BASH_REMATCH[1]} b=''${BASH_REMATCH[2]} c=''${BASH_REMATCH[3]} d=''${BASH_REMATCH[4]}
+      len=''${BASH_REMATCH[5]}
+      [ "$len" -ge 22 ] && [ "$len" -le 30 ] || return 0
+      n=$(((a << 24) | (b << 16) | (c << 8) | d))
+      size=$((1 << (32 - len)))
+      base=$((n & ~(size - 1) & 0xffffffff))
+      for ((i = 1; i < size - 1; i++)); do
+        x=$((base + i))
+        echo "$((x >> 24 & 255)).$((x >> 16 & 255)).$((x >> 8 & 255)).$((x & 255))"
+      done
+    }
+    open="$(while IFS= read -r net; do hosts "$net"; done |
+      xargs -r -P 64 -I {} bash -c 'timeout 1 bash -c "</dev/tcp/$0/631" 2>/dev/null && echo "$0"' {} |
+      sort -t . -k 1,1n -k 2,2n -k 3,3n -k 4,4n)"
+    attr() { sed -n "s/^ *$1 ([^)]*) = //p" <<<"$attrs" | head -n 1; }
+    rows=()
+    for ip in $open; do
+      attrs="$(ipptool -T 3 -tv "ipp://$ip/ipp/print" \
+        ${pkgs.cups}/share/cups/ipptool/get-printer-attributes.test 2>/dev/null)" || attrs=""
+      name="$(attr printer-info)"
+      [ -n "$name" ] || name="$(attr printer-name)"
+      model="$(attr printer-make-and-model)"
+      [ -n "$attrs" ] || model="(port 631 open, no IPP at /ipp/print)"
+      rows+=("$(printf '%s\t%s\t%s' "$ip" "''${name:--}" "''${model:--}")")
+    done
+    echo "ok ''${#rows[@]}"
+    [ "''${#rows[@]}" -eq 0 ] || printf '%s\n' "''${rows[@]}"
+  '';
 in
 {
   imports = [
@@ -57,9 +107,13 @@ in
       defaultShared = false;
     };
 
-    # Only `print`, no `copy` into this VM (vms/modules/vchan-relay.nix
-    # enables the guest side)
-    nox-rpc.guest.handlers = lib.mkForce { print = printHandler; };
+    # Only `print` (and dom0's `printers` scan and liveness `ping`), no
+    # `copy` into this VM (vms/modules/vchan-relay.nix enables the guest side)
+    nox-rpc.guest.handlers = lib.mkForce {
+      print = printHandler;
+      printers = printersHandler;
+      ping = "echo ok";
+    };
   };
 
   # The handler runs as `user` and manages queues (CUPS SystemGroup)

@@ -153,7 +153,8 @@ passes its output and exit code through.
 | `nox exec <vm> <cmd> [args]` | `vm-run -c <vm> …` (a terminal window in the VM runs the command and stays open; the builder: SSH in this terminal) |
 | `nox ssh builder [ssh args]` | `ssh builder …` (only the builder has sshd; the other VMs: `nox exec`) |
 | `nox clip copy\|paste` | `vm-clip copy\|paste` |
-| `nox copy [-m] [-n] <vm> <paths…>` | `cp-vm …` |
+| `nox copy [-m] [-n] [--max b] [<from-vm>] <to-vm> <paths…>` | `nox-copy …` (lands in `~/Incoming/<source>` in the target, merging into folders already there; never overwrites) |
+| `nox printers [--menu]` | `nox-printers`: IPP printers in the local network (sys-print scans what sys-net names); `--menu`: rofi, the chosen address to the clipboard |
 | `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update …` (`--all`: `update-all …`) |
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
 | `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
