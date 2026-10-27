@@ -34,7 +34,14 @@ in
     ../modules/common-config.nix
   ];
 
-  networking.hostName = "sys-net-vm";
+  networking = {
+    hostName = "sys-net-vm";
+
+    # RTL8821CE (rtw88): the firmware got stuck in power save ("firmware failed
+    # to leave lps state", "failed to send h2c command"), downloads at ~10 KB/s
+    # (2026-10-10). No power save, no deep LPS, no ASPM.
+    networkmanager.wifi.powersave = false;
+  };
 
   services = {
     net-config = {
@@ -54,78 +61,114 @@ in
 
   users.users.user.extraGroups = lib.mkAfter [ "networkmanager" ];
 
-  # Uplink bridge; the vif-bridge hotplug script (xl devd) adds the VMs' vifs
-  systemd.network = {
-    # RTL8125 (r8169, xmg): hardware TX checksums broke forwarded (NATed)
-    # packets from the VMs: uploads from VMs at ~20 KB/s, sys-net itself at
-    # 4.8 MB/s; Tor circuits and the builder stalled. With TX checksum
-    # offload and TSO/GSO off VMs upload at 4.9 MB/s (2026-10-11).
-    # Scatter-gather must be off too: the kernel no longer drops it with TX
-    # checksums; SG on alone brought VM uploads back to ~20 KB/s and stalled
-    # Tor in the Whonix-Gateway (2026-10-14). Applied by udev,
-    # NetworkManager still manages the link.
-    links."10-r8169-no-tx-offload" = {
-      matchConfig.Driver = "r8169";
-      linkConfig = {
-        # Only the first matching .link applies: keep 99-default.link's naming
-        NamePolicy = "keep kernel database onboard slot path";
-        AlternativeNamesPolicy = "database onboard slot path mac";
-        MACAddressPolicy = "persistent";
-        TransmitChecksumOffload = false;
-        TCPSegmentationOffload = false;
-        TCP6SegmentationOffload = false;
-        GenericSegmentationOffload = false;
-        ScatterGather = false;
+  systemd = {
+    # Uplink bridge; the vif-bridge hotplug script (xl devd) adds the VMs' vifs
+    network = {
+      # RTL8125 (r8169, xmg): hardware TX checksums broke forwarded (NATed)
+      # packets from the VMs: uploads from VMs at ~20 KB/s, sys-net itself at
+      # 4.8 MB/s; Tor circuits and the builder stalled. With TX checksum
+      # offload and TSO/GSO off VMs upload at 4.9 MB/s (2026-10-11).
+      # Scatter-gather must be off too: the kernel no longer drops it with TX
+      # checksums; SG on alone brought VM uploads back to ~20 KB/s and stalled
+      # Tor in the Whonix-Gateway (2026-10-14). Applied by udev,
+      # NetworkManager still manages the link.
+      links."10-r8169-no-tx-offload" = {
+        matchConfig.Driver = "r8169";
+        linkConfig = {
+          # Only the first matching .link applies: keep 99-default.link's naming
+          NamePolicy = "keep kernel database onboard slot path";
+          AlternativeNamesPolicy = "database onboard slot path mac";
+          MACAddressPolicy = "persistent";
+          TransmitChecksumOffload = false;
+          TCPSegmentationOffload = false;
+          TCP6SegmentationOffload = false;
+          GenericSegmentationOffload = false;
+          ScatterGather = false;
+        };
+      };
+
+      netdevs = {
+        "20-vm-uplink".netdevConfig = {
+          Name = "vm-uplink";
+          Kind = "bridge";
+        };
+        # Tails (HVM): DHCP from sys-net, nothing else on this bridge
+        "20-vm-tails".netdevConfig = {
+          Name = "vm-tails";
+          Kind = "bridge";
+        };
+      };
+      networks = {
+        "30-vm-uplink" = {
+          matchConfig.Name = "vm-uplink";
+          address = [ "10.1.0.254/24" ];
+          routes =
+            map
+              (net: {
+                Destination = net;
+                Gateway = sysFirewall;
+              })
+              [
+                "10.6.0.0/24"
+                "10.0.2.0/24"
+              ];
+          networkConfig.ConfigureWithoutCarrier = true;
+          linkConfig.RequiredForOnline = "no";
+        };
+        "30-vm-tails" = {
+          matchConfig.Name = "vm-tails";
+          address = [ "10.3.0.1/24" ];
+          networkConfig = {
+            ConfigureWithoutCarrier = true;
+            DHCPServer = true;
+          };
+          dhcpServerConfig = {
+            PoolOffset = 100;
+            PoolSize = 50;
+            # Tails resolves through Tor, no DNS from here
+            EmitDNS = false;
+          };
+          linkConfig.RequiredForOnline = "no";
+        };
+        # Bridge membership of the vifs is up to the hotplug script
+        "10-vif" = {
+          matchConfig.Name = "vif*";
+          linkConfig.Unmanaged = true;
+        };
       };
     };
 
-    netdevs = {
-      "20-vm-uplink".netdevConfig = {
-        Name = "vm-uplink";
-        Kind = "bridge";
-      };
-      # Tails (HVM): DHCP from sys-net, nothing else on this bridge
-      "20-vm-tails".netdevConfig = {
-        Name = "vm-tails";
-        Kind = "bridge";
-      };
-    };
-    networks = {
-      "30-vm-uplink" = {
-        matchConfig.Name = "vm-uplink";
-        address = [ "10.1.0.254/24" ];
-        routes =
-          map
-            (net: {
-              Destination = net;
-              Gateway = sysFirewall;
-            })
-            [
-              "10.6.0.0/24"
-              "10.0.2.0/24"
-            ];
-        networkConfig.ConfigureWithoutCarrier = true;
-        linkConfig.RequiredForOnline = "no";
-      };
-      "30-vm-tails" = {
-        matchConfig.Name = "vm-tails";
-        address = [ "10.3.0.1/24" ];
-        networkConfig = {
-          ConfigureWithoutCarrier = true;
-          DHCPServer = true;
-        };
-        dhcpServerConfig = {
-          PoolOffset = 100;
-          PoolSize = 50;
-          # Tails resolves through Tor, no DNS from here
-          EmitDNS = false;
-        };
-        linkConfig.RequiredForOnline = "no";
-      };
-      # Bridge membership of the vifs is up to the hotplug script
-      "10-vif" = {
-        matchConfig.Name = "vif*";
-        linkConfig.Unmanaged = true;
+    services.NetworkManager-wait-online.enable = false;
+
+    # Tells dom0 whether the uplink is ready (default route) via xenstore
+    # (~/data/uplink, guest-writable); the Whonix-Gateway waits for it
+    # (modules/xen-image-domains.nix, waitForUplink)
+    services.xen-uplink-state = {
+      description = "Report uplink readiness to dom0 via xenstore";
+      wantedBy = [ "multi-user.target" ];
+      path = [
+        pkgs.iproute2
+        pkgs.gnugrep
+        config.microvm.xen.package
+      ];
+      script = ''
+        last=""
+        while true; do
+          if ip -4 route show default | grep -q .; then state=1; else state=0; fi
+          if [ "$state" != "$last" ]; then
+            xenstore-write data/uplink "$state" && last="$state"
+          fi
+          sleep 1
+        done
+      '';
+      serviceConfig = {
+        Restart = "always";
+        RestartSec = 5;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        NoNewPrivileges = true;
+        DevicePolicy = "closed";
+        DeviceAllow = [ "/dev/xen/xenbus rw" ];
       };
     };
   };
@@ -206,70 +249,34 @@ in
     };
   };
 
-  boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
+  boot = {
+    kernel.sysctl."net.ipv4.ip_forward" = 1;
 
-  # Loaded at runtime (first bridge rule, iptables-nft) these deadlocked with
-  # xenwatch attaching new vifs after `mr sys-net` (xmg, 2026-10-16, Known
-  # Issues): load them at boot
-  boot.kernelModules = [
-    "nft_meta_bridge"
-    "br_netfilter"
-    "nft_compat"
-  ];
+    # Loaded at runtime (first bridge rule, iptables-nft) these deadlocked with
+    # xenwatch attaching new vifs after `mr sys-net` (xmg, 2026-10-16, Known
+    # Issues): load them at boot
+    kernelModules = [
+      "nft_meta_bridge"
+      "br_netfilter"
+      "nft_compat"
+    ];
 
-  # MSI under a PV dom0 (hp WLAN, xmg Ethernet: online, restarts work,
-  # 2026-10-12). With a PVH dom0 MSI-X mapping fails for passthrough (v2.1;
-  # xmg: no network), INTx (pci=nomsi) works there
-  boot.kernelParams = lib.optional (!(vmRegistry.hostProfile.dom0Pv or false)) "pci=nomsi";
+    # MSI under a PV dom0 (hp WLAN, xmg Ethernet: online, restarts work,
+    # 2026-10-12). With a PVH dom0 MSI-X mapping fails for passthrough (v2.1;
+    # xmg: no network), INTx (pci=nomsi) works there
+    kernelParams = lib.optional (!(vmRegistry.hostProfile.dom0Pv or false)) "pci=nomsi";
 
-  # RTL8821CE (rtw88): the firmware got stuck in power save ("firmware failed
-  # to leave lps state", "failed to send h2c command"), downloads at ~10 KB/s
-  # (2026-10-10). No power save, no deep LPS, no ASPM.
-  networking.networkmanager.wifi.powersave = false;
-  # One queue per vif: with several (backend with >1 vCPU) part of the
-  # connections of multi-queue guests (Whonix-Gateway) stalled, Tor circuits
-  # timed out (xmg, 2026-10-11)
-  boot.extraModprobeConfig = ''
-    options rtw88_core disable_lps_deep=y
-    options rtw88_pci disable_aspm=y
-    options xen_netback max_queues=1
-  '';
+    # One queue per vif: with several (backend with >1 vCPU) part of the
+    # connections of multi-queue guests (Whonix-Gateway) stalled, Tor circuits
+    # timed out (xmg, 2026-10-11)
+    extraModprobeConfig = ''
+      options rtw88_core disable_lps_deep=y
+      options rtw88_pci disable_aspm=y
+      options xen_netback max_queues=1
+    '';
+  };
 
   hardware.enableRedistributableFirmware = true;
-
-  systemd.services.NetworkManager-wait-online.enable = false;
-
-  # Tells dom0 whether the uplink is ready (default route) via xenstore
-  # (~/data/uplink, guest-writable); the Whonix-Gateway waits for it
-  # (modules/xen-image-domains.nix, waitForUplink)
-  systemd.services.xen-uplink-state = {
-    description = "Report uplink readiness to dom0 via xenstore";
-    wantedBy = [ "multi-user.target" ];
-    path = [
-      pkgs.iproute2
-      pkgs.gnugrep
-      config.microvm.xen.package
-    ];
-    script = ''
-      last=""
-      while true; do
-        if ip -4 route show default | grep -q .; then state=1; else state=0; fi
-        if [ "$state" != "$last" ]; then
-          xenstore-write data/uplink "$state" && last="$state"
-        fi
-        sleep 1
-      done
-    '';
-    serviceConfig = {
-      Restart = "always";
-      RestartSec = 5;
-      ProtectSystem = "strict";
-      ProtectHome = true;
-      NoNewPrivileges = true;
-      DevicePolicy = "closed";
-      DeviceAllow = [ "/dev/xen/xenbus rw" ];
-    };
-  };
 
   microvm = {
     hypervisor = "xen";

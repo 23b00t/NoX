@@ -1,9 +1,17 @@
 # foot, dom0's terminal (/etc/xdg/foot/foot.ini). dom0 runs no foot server:
 # foot's client and server entries are hidden (they win over the package's
 # own .desktop files)
-{ pkgs, lib, ... }:
+{
+  pkgs,
+  lib,
+  config,
+  ...
+}:
 let
-  theme = import ./theme.nix { inherit lib; };
+  theme = import ./theme.nix {
+    inherit lib;
+    name = config.nox.desktop.theme;
+  };
   # locked-title: programs in dom0's terminal can't set a title like
   # "[vault] …" and get that VM's border in niri
   settings = lib.recursiveUpdate theme.foot { main.locked-title = "yes"; };

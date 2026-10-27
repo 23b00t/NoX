@@ -250,7 +250,8 @@ let
         base="${mnt}/nox/$kind"
         shift 4
         if [ $# -eq 0 ]; then
-          set -- $(find "$base" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          mapfile -t dirs < <(find "$base" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
+          set -- "''${dirs[@]}"
         fi
         n=0
         for vm in "$@"; do
@@ -261,7 +262,7 @@ let
               echo "would delete $kind $vm $g"
             else
               echo "delete $kind $vm $g"
-              rm -rf "$base/$vm/$g"
+              rm -rf "''${base:?}/''${vm:?}/''${g:?}"
             fi
           done
         done

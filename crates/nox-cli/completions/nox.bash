@@ -1,9 +1,9 @@
-# bash completion for nox. VM names come from /etc/nox/registry.json (a
-# JSON list of names, written by the NixOS module programs.nox).
+# bash completion for nox. VM names come from /etc/nox/registry.json (`vms`,
+# a JSON list of names, written by the NixOS module programs.nox).
 
 _nox_vms() {
   local f=/etc/nox/registry.json
-  [ -r "$f" ] && tr -d '[]"' <"$f" | tr ',' ' '
+  [ -r "$f" ] && grep -o '"vms":\[[^]]*\]' "$f" | sed 's/^"vms"://' | tr -d '[]"' | tr ',' ' '
 }
 
 _nox() {

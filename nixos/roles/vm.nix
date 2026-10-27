@@ -34,6 +34,7 @@ in
   imports = [
     ../vms/modules/net-config.nix
     ../vms/modules/common-config.nix
+    ../vms/modules/niri-vm.nix
   ];
 
   options.nox.unfree = lib.mkOption {
@@ -65,7 +66,7 @@ in
       # Further volumes of the VM's module: lib.mkAfter, so home stays in front
       volumes = lib.optional (vm.home.size != null) {
         mountPoint = "/home/user";
-        image = "home.img";
+        image = if vm.home.image != null then vm.home.image else "home.img";
         inherit (vm.home) size;
       };
     }

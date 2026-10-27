@@ -1,10 +1,14 @@
 {
   pkgs,
   lib,
+  config,
   ...
 }:
 let
-  theme = import ./theme.nix { inherit lib; };
+  theme = import ./theme.nix {
+    inherit lib;
+    name = config.nox.desktop.theme;
+  };
 in
 {
   environment.systemPackages = with pkgs; [

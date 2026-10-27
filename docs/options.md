@@ -825,6 +825,30 @@ strings concatenated with “\\n”
 
 
 
+### nox\.desktop\.theme
+
+
+
+Desktop theme (desktop/themes/\<name>\.nix): colors, fonts and radii for niri, waybar, rofi, swaync, swaylock, foot and GTK/Qt\. Single values stay overridable through the modules’ options (e\.g\. nox\.desktop\.niri\.settings)\.
+
+
+
+*Type:*
+value “tokyo-night” (singular enum)
+
+
+
+*Default:*
+
+```nix
+"tokyo-night"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
 ### nox\.desktop\.wpaperd\.enable
 
 
@@ -2566,8 +2590,6 @@ null
 
 ### nox\.vms\.\<name>\.egress
 
-
-
 Outgoing traffic the VM may send through sys-firewall; null: everything\. DNS always through sys-firewall’s resolver\.
 
 
@@ -2589,6 +2611,8 @@ null
 
 
 ### nox\.vms\.\<name>\.egress\.\*\.ports
+
+
 
 Ports; empty: all ports to that net\.
 
@@ -2691,6 +2715,38 @@ null or boolean
 
 ```nix
 null
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.vms\.\<name>\.home\.image
+
+
+
+Image of the /home/user volume; null: home\.img in the VM’s state directory\. An absolute path shares another VM’s home (two starts of one VM that never run together; set ` backup = false ` on the second)\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"/var/lib/microvms/godot/home.img"
 ```
 
 *Declared by:*

@@ -11,7 +11,10 @@
   ...
 }:
 let
-  theme = import ../desktop/theme.nix { inherit lib; };
+  theme = import ../desktop/theme.nix {
+    inherit lib;
+    name = config.nox.desktop.theme;
+  };
   nicPciPaths = vmRegistry.hardware.pci.devicePaths.nic or [ ];
   # NIC drivers blacklisted in dom0 (registry hostProfile), loaded again by
   # sys-net-rescue
@@ -64,7 +67,8 @@ let
   # (from the sender, so escaped). warn: allowed only by typing the target's
   # name. No answer within 30 s = deny
   copyAsk = pkgs.writeShellScript "nox-ask" ''
-    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    export XDG_RUNTIME_DIR
     for s in "$XDG_RUNTIME_DIR"/wayland-*; do
       case "$s" in *.lock) continue ;; esac
       [ -S "$s" ] && export WAYLAND_DISPLAY="''${s##*/}" && break
@@ -536,13 +540,16 @@ in
     '';
   };
 
-  # nox-relay (root) creates the wprs sockets for dom0's wprsc here
-  systemd.tmpfiles.rules = [ "d /run/nox-relay 0755 root root -" ];
-  # Boot order barrier (see sysGroup above)
-  systemd.targets.nox-sys = {
-    description = "Driver domains and Whonix-Gateway up";
-    wants = [ "nox-sys-ready.service" ];
-    after = [ "nox-sys-ready.service" ];
+  systemd = {
+    # nox-relay (root) creates the wprs sockets for dom0's wprsc here
+    tmpfiles.rules = [ "d /run/nox-relay 0755 root root -" ];
+
+    # Boot order barrier (see sysGroup above)
+    targets.nox-sys = {
+      description = "Driver domains and Whonix-Gateway up";
+      wants = [ "nox-sys-ready.service" ];
+      after = [ "nox-sys-ready.service" ];
+    };
   };
 
   # Xen creates vifs as vif<domid>.<n> before renaming them to vm<N>

@@ -37,7 +37,7 @@ in
     };
 
     users.users.${cfg.user} = {
-      password = cfg.password;
+      inherit (cfg) password;
       extraGroups = lib.mkAfter [ "video" ];
     };
   };

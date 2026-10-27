@@ -32,9 +32,9 @@ let
     lib.concatMapStrings (
       e:
       "iifname \"vm-fw\" ip saddr ${src} ip daddr ${e.to}"
-      + lib.optionalString ((e.ports or [ ]) != [ ]) (
-        " meta l4proto { tcp, udp } th dport { ${lib.concatMapStringsSep ", " toString e.ports} }"
-      )
+      +
+        lib.optionalString ((e.ports or [ ]) != [ ])
+          " meta l4proto { tcp, udp } th dport { ${lib.concatMapStringsSep ", " toString e.ports} }"
       + " accept\n"
     ) vm.egress
     + "iifname \"vm-fw\" ip saddr ${src} reject with icmpx type admin-prohibited\n"
@@ -265,21 +265,23 @@ in
     };
   };
 
-  boot.kernel.sysctl."net.ipv4.ip_forward" = 1;
+  boot = {
+    kernel.sysctl."net.ipv4.ip_forward" = 1;
 
-  # Loaded at runtime (first bridge rule) these deadlocked with xenwatch
-  # attaching new vifs in sys-net (xmg, 2026-10-16, Known Issues): load them
-  # at boot
-  boot.kernelModules = [
-    "nft_meta_bridge"
-    "br_netfilter"
-  ];
+    # Loaded at runtime (first bridge rule) these deadlocked with xenwatch
+    # attaching new vifs in sys-net (xmg, 2026-10-16, Known Issues): load them
+    # at boot
+    kernelModules = [
+      "nft_meta_bridge"
+      "br_netfilter"
+    ];
 
-  # One queue per vif: with several (backend with >1 vCPU) part of the
-  # connections of multi-queue guests stalled (sys-net, xmg 2026-10-11)
-  boot.extraModprobeConfig = ''
-    options xen_netback max_queues=1
-  '';
+    # One queue per vif: with several (backend with >1 vCPU) part of the
+    # connections of multi-queue guests stalled (sys-net, xmg 2026-10-11)
+    extraModprobeConfig = ''
+      options xen_netback max_queues=1
+    '';
+  };
 
   microvm = {
     hypervisor = "xen";

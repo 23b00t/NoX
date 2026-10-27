@@ -1,4 +1,10 @@
-{ config, pkgs, lib, inputs, ... }:
+{
+  config,
+  pkgs,
+  lib,
+  inputs,
+  ...
+}:
 
 let
   cfg = config.steamVmImage;
@@ -21,7 +27,10 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ pkgs.qemu pkgs.coreutils ];
+    environment.systemPackages = [
+      pkgs.qemu
+      pkgs.coreutils
+    ];
 
     systemd.services.deploy-steam-vm-image = {
       description = "Deploy Steam VM qcow2 into /var/lib/libvirt/images";

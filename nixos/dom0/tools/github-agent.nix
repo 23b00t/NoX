@@ -118,4 +118,3 @@ pkgs.writeShellScriptBin "github-agent" ''
 
   echo "GitHub agent ready at $SOCKET_PATH"
 ''
-

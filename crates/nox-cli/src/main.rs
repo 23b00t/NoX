@@ -1,14 +1,18 @@
 //! nox: one command for the NoX tools in dom0.
 //!
-//! A thin wrapper for now: every subcommand execs the script that does the
-//! work (manage-vms, vm-run, vm-clip, nox-copy, dom0-update, update-all,
-//! vm-usb), found on PATH, so its output and exit code are the script's own.
+//! Moving from scripts to Rust tool by tool (xen-migration.md, nox-cli
+//! spec): `doctor` runs here (src/doctor.rs, also as `vm-doctor` by
+//! argv[0]); every other subcommand execs the script that does the work
+//! (manage-vms, vm-run, vm-clip, nox-copy, dom0-update, update-all, vm-usb),
+//! found on PATH, so its output and exit code are the script's own.
 
 use std::ffi::OsString;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitCode};
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
+
+mod doctor;
 
 #[derive(Parser)]
 #[command(
@@ -612,7 +616,20 @@ eval "$c""#;
 }
 
 fn main() -> ExitCode {
-    let cli = Cli::parse_from(help_word(std::env::args_os().collect()));
+    let args: Vec<OsString> = std::env::args_os().collect();
+    // Old tool names linked to nox pick their tool (vm-doctor -> nox doctor)
+    let name = args
+        .first()
+        .and_then(|a| std::path::Path::new(a).file_name())
+        .map(|n| n.to_string_lossy().into_owned());
+    if name.as_deref() == Some("vm-doctor") {
+        let rest: Vec<String> = args[1..]
+            .iter()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        return doctor::run_doctor(&rest);
+    }
+    let cli = Cli::parse_from(help_word(args));
     let Some(cmd) = cli.command else {
         return exec("manage-vms", ["status", "--running"]);
     };
@@ -711,7 +728,7 @@ fn main() -> ExitCode {
             }
             Input::Back { vm } => exec("input-back", vm),
         },
-        Cmd::Doctor => exec("vm-doctor", Vec::<OsString>::new()),
+        Cmd::Doctor => doctor::run_doctor(&[]),
         Cmd::Rollback {
             vm,
             gen,

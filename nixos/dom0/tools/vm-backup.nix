@@ -173,6 +173,7 @@ let
     }
 
     unit_of() {
+      # shellcheck disable=SC2194 # the list is filled in by Nix
       case " ${lib.concatStringsSep " " imageNames} " in
         *" $1 "*) echo "xen-image@$1" ;;
         *) echo "microvm@$1" ;;
@@ -198,7 +199,7 @@ let
         [ -e "$NOX_BACKUP_TEST_DISK" ] || truncate -s 4G "$NOX_BACKUP_TEST_DISK" || die "cannot create $NOX_BACKUP_TEST_DISK"
         sudo /run/current-system/sw/bin/xl block-attach disp-backup-vm \
           "format=raw,vdev=xvdz,access=rw,target=$(realpath "$NOX_BACKUP_TEST_DISK")" || die "attach of the test disk failed"
-        open=open-test
+        open="open-test"
       else
         # The backup disk by busid (it is not in the registry's USB inventory)
         vm-usb list
@@ -530,7 +531,7 @@ let
     }
 
     # ---------- arguments ----------
-    all_full=( $(awk '{ print $1 }' "$full") )
+    mapfile -t all_full < <(awk '{ print $1 }' "$full")
     home_all=( ${lib.concatStringsSep " " homeVms} )
     home_default=( ${lib.concatStringsSep " " homeDefault} )
     # Both write the chosen names/lines to $sel_file and die on bad names

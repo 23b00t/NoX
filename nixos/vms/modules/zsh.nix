@@ -4,6 +4,9 @@
   pkgs,
   ...
 }:
+# zsh in the VM: a neutral base (completion, autosuggestions, syntax
+# highlighting, history, zoxide). Plugins (antidote), the oh-my-posh prompt
+# and own aliases come from the user's config
 let
   cfg = config.services.zsh-env;
   ohMyPoshThemes = pkgs.fetchFromGitHub {
@@ -12,6 +15,8 @@ let
     rev = "28f4cc417a19d90c1cd297631207b2c64c63e2d4";
     sha256 = "sha256-YYlRi3nt0VLnBSiGqiuerJJFrkjFt2m2VeZHht/aRsg=";
   };
+  withPlugins = cfg.plugins != [ ];
+  withPrompt = cfg.ohMyPoshTheme != null;
 in
 {
   options.services.zsh-env = {
@@ -23,10 +28,18 @@ in
       description = "Target user for zsh config";
     };
 
+    plugins = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ ];
+      example = [ "zsh-users/zsh-autosuggestions" ];
+      description = "antidote plugins (GitHub owner/repo), loaded at shell start; empty: no antidote.";
+    };
+
     ohMyPoshTheme = lib.mkOption {
-      type = lib.types.str;
-      default = "montys.omp.json";
-      description = "oh-my-posh theme file name located in ~/.cache/oh-my-posh/themes/";
+      type = lib.types.nullOr lib.types.str;
+      default = null;
+      example = "montys.omp.json";
+      description = "oh-my-posh theme file name located in ~/.cache/oh-my-posh/themes/; null: no oh-my-posh prompt.";
     };
 
     extraAliases = lib.mkOption {
@@ -49,16 +62,11 @@ in
       autosuggestions.enable = true;
       syntaxHighlighting.enable = true;
 
-      shellAliases =
-        {
-          ll = "ls -l";
-          la = "ls -la";
-          sc = "systemctl";
-          n = "nvim";
-          y = "yazi";
-          cd = "z";
-        }
-        // cfg.extraAliases;
+      shellAliases = {
+        ll = "ls -l";
+        la = "ls -la";
+      }
+      // cfg.extraAliases;
 
       histSize = 10000;
       histFile = "$HOME/.zsh_history";
@@ -73,6 +81,8 @@ in
 
         eval "$(zoxide init zsh)"
 
+      ''
+      + lib.optionalString withPlugins ''
         export ANTIDOTE_HOME="$HOME/.cache/antidote"
         mkdir -p "$ANTIDOTE_HOME"
         source ${pkgs.antidote}/share/antidote/antidote.zsh
@@ -80,43 +90,41 @@ in
         antidote bundle < ~/.zsh_plugins.txt > ~/.zsh_plugins.zsh
         antidote load
 
+      ''
+      + lib.optionalString withPrompt ''
         if command -v oh-my-posh >/dev/null 2>&1; then
           eval "$(oh-my-posh init zsh --config "$HOME/.cache/oh-my-posh/themes/${cfg.ohMyPoshTheme}")"
         fi
 
+      ''
+      + ''
         export SSL_CERT_DIR=/etc/ssl/certs
         export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-      '' + cfg.extraShellInit;
+      ''
+      + cfg.extraShellInit;
     };
 
-    environment.systemPackages = with pkgs; [
-      antidote
-      oh-my-posh
-      eza
-      zoxide
-    ];
+    environment.systemPackages =
+      lib.optional withPlugins pkgs.antidote
+      ++ lib.optional withPrompt pkgs.oh-my-posh
+      ++ [
+        pkgs.eza
+        pkgs.zoxide
+      ];
 
     users.defaultUserShell = pkgs.zsh;
     users.users.${cfg.user}.shell = pkgs.zsh;
 
-    environment.etc."zsh_plugins.txt".text = ''
-      zsh-users/zsh-autosuggestions
-      zap-zsh/supercharge
-      zsh-users/zsh-syntax-highlighting
-      atoftegaard-git/zsh-omz-autocomplete
-      MichaelAquilina/zsh-you-should-use
-      zap-zsh/magic-enter
-      chivalryq/git-alias
-      zap-zsh/vim
-      zap-zsh/sudo
-      wintermi/zsh-oh-my-posh
-    '';
+    environment.etc."zsh_plugins.txt" = lib.mkIf withPlugins {
+      text = lib.concatMapStrings (p: p + "\n") cfg.plugins;
+    };
 
     systemd.tmpfiles.rules = [
       "L+ /home/${cfg.user}/.zshrc - - - - /etc/zshrc"
-      "L+ /home/${cfg.user}/.zsh_plugins.txt - - - - /etc/zsh_plugins.txt"
-
-      "d /home/${cfg.user}/.cache 0755 ${cfg.user} users -"
+    ]
+    ++ lib.optional withPlugins "L+ /home/${cfg.user}/.zsh_plugins.txt - - - - /etc/zsh_plugins.txt"
+    ++ [ "d /home/${cfg.user}/.cache 0755 ${cfg.user} users -" ]
+    ++ lib.optionals withPrompt [
       "d /home/${cfg.user}/.cache/oh-my-posh 0755 ${cfg.user} users -"
 
       "z /home/${cfg.user}/.cache/oh-my-posh/themes - - - - -"

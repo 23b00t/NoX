@@ -5,8 +5,14 @@
   ...
 }:
 
+# zellij in the VM. NoX brings no config of its own: without `configDir`
+# zellij runs with its defaults; the user's config dir (config.kdl, optional
+# layouts/tabs.swap.kdl and plugins/) comes from the user's config. The tab
+# layout `tabs` defaults to a neutral one (home tab, compact bar)
 let
   cfg = config.services.zellij-env;
+  dir = cfg.configDir;
+  has = sub: dir != null && builtins.pathExists (dir + "/${sub}");
 in
 {
   options.services.zellij-env = {
@@ -19,9 +25,9 @@ in
     };
 
     configDir = lib.mkOption {
-      type = lib.types.path;
-      default = ./zellij;
-      description = "Directory containing Zellij config (config.kdl, layouts/, plugins/).";
+      type = lib.types.nullOr lib.types.path;
+      default = null;
+      description = "The user's zellij config directory (config.kdl, optional layouts/tabs.swap.kdl and plugins/); null: zellij's defaults.";
     };
 
     tabsKdlFile = lib.mkOption {
@@ -35,22 +41,26 @@ in
     environment = {
       systemPackages = [ pkgs.zellij ];
       etc = {
-        "zellij/config.kdl".source = cfg.configDir + "/config.kdl";
-        "zellij/plugins".source = cfg.configDir + "/plugins";
-        "zellij/layouts/tabs.swap.kdl".source = cfg.configDir + "/layouts/tabs.swap.kdl";
-        "zellij/layouts/tabs.kdl".source = lib.mkIf (
-          cfg.tabsKdlFile != null
-        ) cfg.tabsKdlFile;
+        "zellij/config.kdl" = lib.mkIf (dir != null) { source = dir + "/config.kdl"; };
+        "zellij/plugins" = lib.mkIf (has "plugins") { source = dir + "/plugins"; };
+        "zellij/layouts/tabs.swap.kdl" = lib.mkIf (has "layouts/tabs.swap.kdl") {
+          source = dir + "/layouts/tabs.swap.kdl";
+        };
+        "zellij/layouts/tabs.kdl" = lib.mkIf (cfg.tabsKdlFile != null) { source = cfg.tabsKdlFile; };
       };
     };
 
     systemd.tmpfiles.rules = [
       "d /home/${cfg.user}/.config/zellij 0755 ${cfg.user} users -"
-      "L+ /home/${cfg.user}/.config/zellij/config.kdl - - - - /etc/zellij/config.kdl"
       "d /home/${cfg.user}/.config/zellij/layouts 0755 ${cfg.user} users -"
-      "L+ /home/${cfg.user}/.config/zellij/plugins - - - - /etc/zellij/plugins"
-      "L+ /home/${cfg.user}/.config/zellij/layouts/tabs.swap.kdl - - - - /etc/zellij/layouts/tabs.swap.kdl"
-      "L+ /home/${cfg.user}/.config/zellij/layouts/tabs.kdl - - - - ${cfg.tabsKdlFile}"
-    ];
+    ]
+    ++ lib.optional (
+      dir != null
+    ) "L+ /home/${cfg.user}/.config/zellij/config.kdl - - - - /etc/zellij/config.kdl"
+    ++ lib.optional (has "plugins") "L+ /home/${cfg.user}/.config/zellij/plugins - - - - /etc/zellij/plugins"
+    ++ lib.optional (has "layouts/tabs.swap.kdl") "L+ /home/${cfg.user}/.config/zellij/layouts/tabs.swap.kdl - - - - /etc/zellij/layouts/tabs.swap.kdl"
+    ++ lib.optional (
+      cfg.tabsKdlFile != null
+    ) "L+ /home/${cfg.user}/.config/zellij/layouts/tabs.kdl - - - - ${cfg.tabsKdlFile}";
   };
 }

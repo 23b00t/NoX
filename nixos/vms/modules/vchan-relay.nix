@@ -145,117 +145,125 @@ in
       # SSH, xen-migration.md spec SSH removal); copy rules: registry `copy`.
       # With wprs, dom0 starts GUI apps by RPC (`app`, C3, `vm-gui`) with the
       # environment the wprs launcher sets
-      ({
+      {
         environment.systemPackages = lib.mkIf (vmName != "sys-print") [ vmPrint ];
         services.nox-rpc.guest = {
           enable = true;
-          # dom0's vm-clip (home/vm-management/vm-gui.nix): first line get|set,
-          # then the text (set) or the answer (get); only dom0 calls
-          # Liveness for dom0 (vm-clip, nox doctor, update-all pick rpc over SSH)
-          handlers.ping = "echo ok";
-          # nox doctor's probes (home/vm-management/vm-doctor.nix), one per
-          # call: first line net|ip|wprsd|dbus, the answer on stdout
-          handlers.doctor = ''
-            if [ "$source" != dom0 ]; then
-              echo "error: only dom0"
-              exit 1
-            fi
-            IFS= read -r probe || exit 1
-            export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-            case "$probe" in
-              net)
-                ${pkgs.getent}/bin/getent hosts cache.nixos.org >/dev/null &&
-                  ${pkgs.curl}/bin/curl -sS -m 10 -o /dev/null -w "%{http_code}" https://cache.nixos.org/nix-cache-info
-                ;;
-              ip) ${pkgs.curl}/bin/curl -sS -m 10 https://api.ipify.org ;;
-              wprsd) ${pkgs.systemd}/bin/systemctl --user is-active wprsd ;;
-              dbus)
-                ${pkgs.systemd}/bin/busctl --address=unix:path=/tmp/ssh_dbus.sock --timeout=3 call \
-                  org.freedesktop.Notifications /org/freedesktop/Notifications \
-                  org.freedesktop.Notifications GetServerInformation >/dev/null && echo ok
-                ;;
-              *) echo "error: probe net|ip|wprsd|dbus"; exit 1 ;;
-            esac
-          '';
-          # home backup (dom0's vm-backup, README "Backup"): only disp-backup
-          # calls (nox-rpcd policy too). First line: the rsync server command
-          # its rsync sends, checked word by word: only known rsync options,
-          # /home/user as the only path; send = read-only sender, recv must
-          # be --update (-u: never deletes, newer files stay). A rejected
-          # line answers with the reason (rsync then stops and shows it)
-          # instead of failing silently (2026-10-21: rsync 3.5 sends
-          # --info=STATS, the old check refused it and rsync hung)
-          handlers.backup-send = ''
-            if [ "$source" != disp-backup ]; then
-              echo "error: only disp-backup"
-              exit 1
-            fi
-            IFS= read -r line || exit 1
-            read -ra args <<<"$line"
-            if ! ${checkRsync} send "''${args[@]}"; then
-              echo "error: backup-send refused: $line"
-              exit 1
-            fi
-            cd /home/user && exec ${pkgs.rsync}/bin/rsync "''${args[@]:1}"
-          '';
-          handlers.backup-recv = ''
-            if [ "$source" != disp-backup ]; then
-              echo "error: only disp-backup"
-              exit 1
-            fi
-            IFS= read -r line || exit 1
-            read -ra args <<<"$line"
-            if ! ${checkRsync} recv "''${args[@]}"; then
-              echo "error: backup-recv refused: $line"
-              exit 1
-            fi
-            cd /home/user && exec ${pkgs.rsync}/bin/rsync "''${args[@]:1}"
-          '';
-          # One-time copy into dom0 (dom0's `vm-pull` / `nox pull`, Qubes
-          # `qvm-run --pass-io` model): only dom0 calls, only plain files
-          # directly in ~/outbox. First line `list` (name<TAB>bytes per line)
-          # or `get <name>` (answer `ok <bytes>`, then the file zstd-compressed:
-          # sparse images like kali.raw would send their holes as zeros)
-          handlers.pull = ''
-            if [ "$source" != dom0 ]; then
-              echo "error: only dom0"
-              exit 1
-            fi
-            IFS= read -r line || exit 1
-            dir="''${HOME:-/home/user}/outbox"
-            case "$line" in
-              list)
-                [ -d "$dir" ] || exit 0
-                ${pkgs.findutils}/bin/find "$dir" -mindepth 1 -maxdepth 1 -type f -printf '%f\t%s\n'
-                ;;
-              "get "*)
-                name="''${line#get }"
-                if ! [[ "$name" =~ ^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$ ]]; then
-                  echo "error: bad name"
-                  exit 1
-                fi
-                f="$dir/$name"
-                if [ -L "$f" ] || [ ! -f "$f" ]; then
-                  echo "error: no file $name in ~/outbox"
-                  exit 1
-                fi
-                echo "ok $(stat -c %s "$f")"
-                exec ${pkgs.zstd}/bin/zstd -q -c -T0 -3 <"$f"
-                ;;
-              *) echo "error: list | get <name>"; exit 1 ;;
-            esac
-          '';
-          handlers.clip = lib.mkIf wprs ''
-            if [ "$source" != dom0 ]; then
-              echo "error: only dom0"
-              exit 1
-            fi
-            IFS= read -r action || exit 1
-            case "$action" in
-              get | set) exec /run/current-system/sw/bin/vm-clip-helper "$action" ;;
-              *) echo "error: clip get|set"; exit 1 ;;
-            esac
-          '';
+          handlers = {
+            # dom0's vm-clip (home/vm-management/vm-gui.nix): first line get|set,
+            # then the text (set) or the answer (get); only dom0 calls
+            # Liveness for dom0 (vm-clip, nox doctor, update-all pick rpc over SSH)
+            ping = "echo ok";
+
+            # nox doctor's probes (home/vm-management/vm-doctor.nix), one per
+            # call: first line net|ip|wprsd|dbus, the answer on stdout
+            doctor = ''
+              if [ "$source" != dom0 ]; then
+                echo "error: only dom0"
+                exit 1
+              fi
+              IFS= read -r probe || exit 1
+              XDG_RUNTIME_DIR="/run/user/$(id -u)"
+              export XDG_RUNTIME_DIR
+              case "$probe" in
+                net)
+                  ${pkgs.getent}/bin/getent hosts cache.nixos.org >/dev/null &&
+                    ${pkgs.curl}/bin/curl -sS -m 10 -o /dev/null -w "%{http_code}" https://cache.nixos.org/nix-cache-info
+                  ;;
+                ip) ${pkgs.curl}/bin/curl -sS -m 10 https://api.ipify.org ;;
+                wprsd) ${pkgs.systemd}/bin/systemctl --user is-active wprsd ;;
+                dbus)
+                  ${pkgs.systemd}/bin/busctl --address=unix:path=/tmp/ssh_dbus.sock --timeout=3 call \
+                    org.freedesktop.Notifications /org/freedesktop/Notifications \
+                    org.freedesktop.Notifications GetServerInformation >/dev/null && echo ok
+                  ;;
+                *) echo "error: probe net|ip|wprsd|dbus"; exit 1 ;;
+              esac
+            '';
+
+            # home backup (dom0's vm-backup, README "Backup"): only disp-backup
+            # calls (nox-rpcd policy too). First line: the rsync server command
+            # its rsync sends, checked word by word: only known rsync options,
+            # /home/user as the only path; send = read-only sender, recv must
+            # be --update (-u: never deletes, newer files stay). A rejected
+            # line answers with the reason (rsync then stops and shows it)
+            # instead of failing silently (2026-10-21: rsync 3.5 sends
+            # --info=STATS, the old check refused it and rsync hung)
+            backup-send = ''
+              if [ "$source" != disp-backup ]; then
+                echo "error: only disp-backup"
+                exit 1
+              fi
+              IFS= read -r line || exit 1
+              read -ra args <<<"$line"
+              if ! ${checkRsync} send "''${args[@]}"; then
+                echo "error: backup-send refused: $line"
+                exit 1
+              fi
+              cd /home/user && exec ${pkgs.rsync}/bin/rsync "''${args[@]:1}"
+            '';
+
+            backup-recv = ''
+              if [ "$source" != disp-backup ]; then
+                echo "error: only disp-backup"
+                exit 1
+              fi
+              IFS= read -r line || exit 1
+              read -ra args <<<"$line"
+              if ! ${checkRsync} recv "''${args[@]}"; then
+                echo "error: backup-recv refused: $line"
+                exit 1
+              fi
+              cd /home/user && exec ${pkgs.rsync}/bin/rsync "''${args[@]:1}"
+            '';
+
+            # One-time copy into dom0 (dom0's `vm-pull` / `nox pull`, Qubes
+            # `qvm-run --pass-io` model): only dom0 calls, only plain files
+            # directly in ~/outbox. First line `list` (name<TAB>bytes per line)
+            # or `get <name>` (answer `ok <bytes>`, then the file zstd-compressed:
+            # sparse images like kali.raw would send their holes as zeros)
+            pull = ''
+              if [ "$source" != dom0 ]; then
+                echo "error: only dom0"
+                exit 1
+              fi
+              IFS= read -r line || exit 1
+              dir="''${HOME:-/home/user}/outbox"
+              case "$line" in
+                list)
+                  [ -d "$dir" ] || exit 0
+                  ${pkgs.findutils}/bin/find "$dir" -mindepth 1 -maxdepth 1 -type f -printf '%f\t%s\n'
+                  ;;
+                "get "*)
+                  name="''${line#get }"
+                  if ! [[ "$name" =~ ^[A-Za-z0-9_+-][A-Za-z0-9._+-]*$ ]]; then
+                    echo "error: bad name"
+                    exit 1
+                  fi
+                  f="$dir/$name"
+                  if [ -L "$f" ] || [ ! -f "$f" ]; then
+                    echo "error: no file $name in ~/outbox"
+                    exit 1
+                  fi
+                  echo "ok $(stat -c %s "$f")"
+                  exec ${pkgs.zstd}/bin/zstd -q -c -T0 -3 <"$f"
+                  ;;
+                *) echo "error: list | get <name>"; exit 1 ;;
+              esac
+            '';
+
+            clip = lib.mkIf wprs ''
+              if [ "$source" != dom0 ]; then
+                echo "error: only dom0"
+                exit 1
+              fi
+              IFS= read -r action || exit 1
+              case "$action" in
+                get | set) exec /run/current-system/sw/bin/vm-clip-helper "$action" ;;
+                *) echo "error: clip get|set"; exit 1 ;;
+              esac
+            '';
+          };
           apps = lib.mkIf wprs {
             enable = true;
             after = [ "wprsd.service" ];
@@ -277,7 +285,7 @@ in
             };
           };
         };
-      })
+      }
 
       # ... and no admin interface (only for VMs that use net-config)
       (lib.optionalAttrs (options.services ? net-config) {

@@ -48,86 +48,95 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = with pkgs; [
-      gnupg
-      pinentry-curses
-      git
-      gh
-      openssl
+    environment = {
+      systemPackages = with pkgs; [
+        gnupg
+        pinentry-curses
+        git
+        gh
+        openssl
 
-      python3
-      fd
-      zip
-      xz
-      unzip
+        python3
+        fd
+        zip
+        xz
+        unzip
 
-      gcc
-      gnumake
-      # rustc
-      # cargo
-      # rust-analyzer
-      watchexec
-      statix
-      tree-sitter
-      # vectorcode
-      nodejs
-      # nodePackages.npm
-      watchman
-      icu
+        gcc
+        gnumake
+        # rustc
+        # cargo
+        # rust-analyzer
+        watchexec
+        statix
+        tree-sitter
+        # vectorcode
+        nodejs
+        # nodePackages.npm
+        watchman
+        icu
 
-      ripgrep
-      fzf
+        ripgrep
+        fzf
 
-      lazygit
-      # (pkgs.writeShellScriptBin "lazygit" ''
-      #   export GPG_TTY=$(tty)
-      #   ${pkgs.gnupg}/bin/gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1
-      #   exec ${pkgs.lazygit}/bin/lazygit "$@"
-      # '')
-    ];
+        lazygit
+        # (pkgs.writeShellScriptBin "lazygit" ''
+        #   export GPG_TTY=$(tty)
+        #   ${pkgs.gnupg}/bin/gpg-connect-agent updatestartuptty /bye >/dev/null 2>&1
+        #   exec ${pkgs.lazygit}/bin/lazygit "$@"
+        # '')
+      ];
 
-    # für statisch gelinkte Binaries in nvim
-    programs.nix-ld.enable = true;
-    programs.nix-ld.libraries = with pkgs; [ icu ];
-
-    programs.neovim = {
-      enable = true;
-      defaultEditor = true;
-      withNodeJs = true;
-      withPython3 = true;
-    };
-
-    programs.git = {
-      enable = true;
-      config = {
-        help.autocorrect = 1;
-        push.default = "simple";
-        pull.rebase = false;
-        "branch \"main\"".mergeoptions = "--no-edit";
-        init.defaultBranch = "main";
-        # Identity and signing (user.name, user.email, signing key) come
-        # from the user's config (NoX docs/options.md, "git identity")
+      variables = {
+        EDITOR = "nvim";
+        VISUAL = "nvim";
+      }
+      // lib.optionalAttrs cfg.githubAgent.enable {
+        # Set SSH_AUTH_SOCK for all environments to the correct agent socket path
+        SSH_AUTH_SOCK = githubAgentSocket;
       };
-    };
 
-    programs.ssh = lib.mkIf cfg.githubAgent.enable {
-      # DO NOT set "IdentitiesOnly yes" for github.com if you rely on agent forwarding!
-      # This disables forwarded keys and allows only explicit local IdentityFile-entries.
-      # To use agent forwarding, simply let ssh's default handle it.
-      extraConfig = ''
-        Host github.com
-          # IdentityAgent can be set if you need a nonstandard socket (usually not required)
-          # IdentityAgent ${githubAgentSocket}
+      etc."gpg-agent.conf".text = ''
+        pinentry-program /run/current-system/sw/bin/pinentry-tty
       '';
     };
 
-    environment.variables = {
-      EDITOR = "nvim";
-      VISUAL = "nvim";
-    }
-    // lib.optionalAttrs cfg.githubAgent.enable {
-      # Set SSH_AUTH_SOCK for all environments to the correct agent socket path
-      SSH_AUTH_SOCK = githubAgentSocket;
+    programs = {
+      # für statisch gelinkte Binaries in nvim
+      nix-ld.enable = true;
+
+      nix-ld.libraries = with pkgs; [ icu ];
+
+      neovim = {
+        enable = true;
+        defaultEditor = true;
+        withNodeJs = true;
+        withPython3 = true;
+      };
+
+      git = {
+        enable = true;
+        config = {
+          help.autocorrect = 1;
+          push.default = "simple";
+          pull.rebase = false;
+          "branch \"main\"".mergeoptions = "--no-edit";
+          init.defaultBranch = "main";
+          # Identity and signing (user.name, user.email, signing key) come
+          # from the user's config (NoX docs/options.md, "git identity")
+        };
+      };
+
+      ssh = lib.mkIf cfg.githubAgent.enable {
+        # DO NOT set "IdentitiesOnly yes" for github.com if you rely on agent forwarding!
+        # This disables forwarded keys and allows only explicit local IdentityFile-entries.
+        # To use agent forwarding, simply let ssh's default handle it.
+        extraConfig = ''
+          Host github.com
+            # IdentityAgent can be set if you need a nonstandard socket (usually not required)
+            # IdentityAgent ${githubAgentSocket}
+        '';
+      };
     };
 
     systemd.tmpfiles.rules = [
@@ -135,10 +144,6 @@ in
       "d /home/${cfg.user}/.gnupg 0700 ${cfg.user} users -"
       "L+ /home/${cfg.user}/.gnupg/gpg-agent.conf - - - - /etc/gpg-agent.conf"
     ];
-
-    environment.etc."gpg-agent.conf".text = ''
-      pinentry-program /run/current-system/sw/bin/pinentry-tty
-    '';
 
     systemd.services.ide-lazyvim-config = {
       description = "Clone/update LazyVim config into ~/.config/nvim";

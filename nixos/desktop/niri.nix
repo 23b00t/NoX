@@ -6,7 +6,16 @@
   ...
 }:
 let
-  theme = import ./theme.nix { inherit lib; };
+  theme = import ./theme.nix {
+    inherit lib;
+    name = config.nox.desktop.theme;
+  };
+  # Shared with VMs that run their own niri (godot-gpu): input, layout, look,
+  # window and workspace keys, generic window rules
+  base = import ./niri-base.nix {
+    inherit lib theme;
+    inherit (config.nox.desktop) keyboard;
+  };
   hostname = config.networking.hostName;
   login = config.nox.desktop.login;
   # Default wallpaper (desktop and lock screen), from nixos-artwork
@@ -228,7 +237,7 @@ let
     exit 0
   '';
 
-  binds = {
+  binds = base.binds // {
     # Replaces niri's built-in hotkey overlay (Mod+Shift+Slash)
     "Mod+Slash" = {
       _props."hotkey-overlay-title" = "Keybinding Viewer";
@@ -428,113 +437,22 @@ let
       "spawn-sh" = "playerctl next";
     };
 
-    "Mod+O" = {
-      _props.repeat = false;
-      "toggle-overview" = { };
-    };
-
     "Mod+Q" = {
       _props.repeat = false;
       _props."hotkey-overlay-title" = "Close Window (terminals: press twice)";
       spawn = [ "close-guard" ];
     };
 
-    "Mod+Left"."focus-column-left" = { };
-    "Mod+Down"."focus-window-down" = { };
-    "Mod+Up"."focus-window-up" = { };
-    "Mod+Right"."focus-column-right" = { };
-
-    "Mod+Ctrl+Home"."move-column-to-first" = { };
-    "Mod+Ctrl+End"."move-column-to-last" = { };
-
-    # Monitors: Mod+H/J/K/L focus, with Shift the column (and its tabs) moves
-    "Mod+H"."focus-monitor-left" = { };
-    "Mod+J"."focus-monitor-down" = { };
-    "Mod+K"."focus-monitor-up" = { };
-    "Mod+L"."focus-monitor-right" = { };
-    "Mod+Shift+H"."move-column-to-monitor-left" = { };
-    "Mod+Shift+J"."move-column-to-monitor-down" = { };
-    "Mod+Shift+K"."move-column-to-monitor-up" = { };
-    "Mod+Shift+L"."move-column-to-monitor-right" = { };
-
-    # Mod+Alt moves the window (left/right: into the neighbour column or out
-    # of it as its own column), Mod+Ctrl the whole column
-    "Mod+Alt+Left"."consume-or-expel-window-left" = { };
-    "Mod+Alt+Down"."move-window-down" = { };
-    "Mod+Alt+Up"."move-window-up" = { };
-    "Mod+Alt+Right"."consume-or-expel-window-right" = { };
-    "Mod+Ctrl+Left"."move-column-left" = { };
-    "Mod+Ctrl+Right"."move-column-right" = { };
-
-    "Mod+U"."focus-workspace-down" = { };
-    "Mod+I"."focus-workspace-up" = { };
-    "Mod+Shift+U"."move-column-to-workspace-down" = { };
-    "Mod+Shift+I"."move-column-to-workspace-up" = { };
-
-    # Tabs of the focused column (VM terminals) by number; workspaces are
-    # reached with Mod+I/U, Mod+Ctrl+<n> still moves columns
-    "Mod+1"."focus-window-in-column" = 1;
-    "Mod+2"."focus-window-in-column" = 2;
-    "Mod+3"."focus-window-in-column" = 3;
-    "Mod+4"."focus-window-in-column" = 4;
-    "Mod+5"."focus-window-in-column" = 5;
-    "Mod+6"."focus-window-in-column" = 6;
-    "Mod+7"."focus-window-in-column" = 7;
-    "Mod+8"."focus-window-in-column" = 8;
-    "Mod+9"."focus-window-in-column" = 9;
-    "Mod+0"."focus-window-bottom" = { };
-
-    "Mod+Ctrl+1"."move-column-to-workspace" = 1;
-    "Mod+Ctrl+2"."move-column-to-workspace" = 2;
-    "Mod+Ctrl+3"."move-column-to-workspace" = 3;
-    "Mod+Ctrl+4"."move-column-to-workspace" = 4;
-    "Mod+Ctrl+5"."move-column-to-workspace" = 5;
-    "Mod+Ctrl+6"."move-column-to-workspace" = 6;
-    "Mod+Ctrl+7"."move-column-to-workspace" = 7;
-    "Mod+Ctrl+8"."move-column-to-workspace" = 8;
-    "Mod+Ctrl+9"."move-column-to-workspace" = 9;
-    "Mod+Ctrl+0"."move-column-to-workspace" = 10;
-
-    "Mod+BracketLeft"."consume-or-expel-window-left" = { };
-    "Mod+BracketRight"."consume-or-expel-window-right" = { };
     "Mod+Period" = {
       _props."hotkey-overlay-title" = "Glyph Picker (Nerd Font)";
       "spawn-sh" =
         "rofimoji --files nerd_font --max-recent 10 --action copy --selector-args='-theme /etc/xdg/rofi/config.rasi'";
     };
 
-    "Mod+Shift+Minus"."set-window-height" = "-10%";
-    "Mod+Shift+Equal"."set-window-height" = "+10%";
-
-    "Mod+Minus"."set-column-width" = "-10%";
-    "Mod+Equal"."set-column-width" = "+10%";
-    "Mod+Alt+R"."switch-preset-column-width" = { };
-    "Mod+Alt+Shift+R"."switch-preset-column-width-back" = { };
-    "Mod+Ctrl+Shift+R"."switch-preset-window-height" = { };
-    "Mod+Ctrl+R"."reset-window-height" = { };
-
-    "Mod+V"."toggle-window-floating" = { };
-    "Mod+Shift+V"."switch-focus-between-floating-and-tiling" = { };
-    "Mod+W"."toggle-column-tabbed-display" = { };
-
-    "Mod+F"."fullscreen-window" = { };
-    "Mod+Shift+F"."maximize-column" = { };
-    "Mod+M"."maximize-column" = { };
-    "Mod+Ctrl+F"."expand-column-to-available-width" = { };
-    "Mod+C"."center-column" = { };
-    "Mod+Ctrl+C"."center-visible-columns" = { };
-
     Print.screenshot = { };
     "Ctrl+Print"."screenshot-screen" = { };
     "Alt+Print"."screenshot-window" = { };
 
-    "Mod+Escape" = {
-      _props."allow-inhibiting" = false;
-      "toggle-keyboard-shortcuts-inhibit" = { };
-    };
-
-    "Mod+Shift+E".quit = { };
-    "Ctrl+Alt+Delete".quit = { };
   };
 
   # One viewer entry per action; keys sharing an action are merged
@@ -705,406 +623,309 @@ in
     '')
   ];
 
-  nox.desktop.niri.settings = {
-    "prefer-no-csd" = { };
-    "screenshot-path" = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png";
-    "hotkey-overlay"."skip-at-startup" = { };
+  nox = {
+    desktop = {
+      niri.settings = base.settings // {
+        "screenshot-path" = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png";
 
-    # No hot corner (top left of each monitor opened the overview)
-    gestures."hot-corners".off = { };
+        inherit binds;
 
-    input = {
-      "mod-key" = "Super";
-
-      keyboard = {
-        # nox.desktop.keyboard, unset fields left out
-        xkb = lib.filterAttrs (_: v: v != "") config.nox.desktop.keyboard;
-
-        numlock = { };
+        _children = [
+          {
+            workspace = {
+              _args = [ "terminal" ];
+              "open-on-output" = "DP-2";
+            };
+          }
+          {
+            workspace = {
+              _args = [ "browser" ];
+              "open-on-output" = "DP-2";
+            };
+          }
+          {
+            workspace = {
+              _args = [ "remote" ];
+              "open-on-output" = "DP-1";
+            };
+          }
+          {
+            output = {
+              _args = [ "eDP-1" ];
+              inherit (edp) mode;
+              scale = 1.0;
+              position._props = {
+                x = 0;
+                y = 0;
+              };
+            };
+          }
+          {
+            output = {
+              _args = [ "DP-2" ];
+              mode = "1920x1080@60.00";
+              scale = 1.0;
+              position._props = {
+                x = edp.width;
+                y = 0;
+              };
+            };
+          }
+          {
+            output = {
+              _args = [ "DP-1" ];
+              mode = "1920x1080@60.00";
+              scale = 1.0;
+              position._props = {
+                x = edp.width + 1920;
+                y = 0;
+              };
+            };
+          }
+          { "spawn-at-startup"._args = [ "waybar" ]; }
+          {
+            "spawn-at-startup"._args = [
+              "systemctl"
+              "--user"
+              "restart"
+              "wpaperd.service"
+            ];
+          }
+          # Chat apps and zen at startup again: started with the session, wprsd
+          # kept Super as pressed (apps got every key as Super+key); the wprs
+          # modifier sync (our wprs fork, modules/wprs-overlay.nix) releases it
+          # (xen-migration.md, Known Issues). The tray apps (`trayApps` above)
+          # are appended after this list.
+          # (login windows: nox.desktop.login, after this list)
+          {
+            "window-rule"._children = [
+              {
+                match._props = {
+                  "app-id" = "^\\[irc\\] term-irc$";
+                };
+              }
+              { "open-on-workspace" = "remote"; }
+              { "default-column-width".proportion = 1.0; }
+            ];
+          }
+          {
+            "window-rule"._children = [
+              {
+                match._props = {
+                  "app-id" = "^\\[[a-z0-9-]+\\] (zen|app\\.zen_browser\\.zen)$";
+                };
+              }
+              { "open-on-workspace" = "browser"; }
+              { "default-column-width".proportion = 1.0; }
+            ];
+          }
+        ]
+        ++ base.windowRules
+        # The user's login windows (nox.desktop.login): the terminal tabs open as
+        # tabs of one full-width column on the workspace "terminal"
+        ++ lib.optionals (login.terminalTabs != [ ]) [
+          {
+            "window-rule"._children = [
+              {
+                match._props."app-id" = "^(${
+                  lib.concatMapStringsSep "|" (
+                    t: if t == "dom0" then "term-dom0" else "\\[${t}\\] term-${t}"
+                  ) login.terminalTabs
+                })$";
+              }
+              { "open-on-workspace" = "terminal"; }
+              { "default-column-display" = "tabbed"; }
+              { "default-column-width".proportion = 1.0; }
+            ];
+          }
+          { "spawn-at-startup"._args = [ "${terminalTabs}" ]; }
+        ]
+        ++ map (w: {
+          "spawn-at-startup"._args = [
+            "vm-run"
+            w.vm
+          ]
+          ++ w.command;
+        }) login.windows
+        ++ map (args: { "spawn-at-startup"._args = args; }) trayCommands
+        ++ labelRules;
       };
 
-      "focus-follows-mouse" = { };
+      # Lock screen; PAM comes from security.pam.services.swaylock (system side)
+      swaylock = {
+        enable = true;
+        settings = with theme; {
+          image = lib.mkDefault dracula;
+          scaling = "fill";
+          color = raw.bg;
+          font = font.family;
+          font-size = font.lockSize;
+          indicator-radius = 100;
+          indicator-thickness = 8;
+          show-failed-attempts = true;
+          ignore-empty-password = true;
 
-      touchpad = {
-        tap = { };
-        "natural-scroll" = { };
+          inside-color = rawWithAlpha "bg" opacity.surface;
+          inside-clear-color = rawWithAlpha "bg" opacity.surface;
+          inside-ver-color = rawWithAlpha "bg" opacity.surface;
+          inside-wrong-color = rawWithAlpha "bg" opacity.surface;
+          inside-caps-lock-color = rawWithAlpha "bg" opacity.surface;
+
+          ring-color = raw.accent;
+          ring-clear-color = raw.info;
+          ring-ver-color = raw.accent2;
+          ring-wrong-color = raw.urgent;
+          ring-caps-lock-color = raw.warn;
+
+          key-hl-color = raw.fgActive;
+          bs-hl-color = raw.urgent;
+          caps-lock-key-hl-color = raw.fgActive;
+          caps-lock-bs-hl-color = raw.urgent;
+
+          text-color = raw.fg;
+          text-clear-color = raw.info;
+          text-ver-color = raw.accent2;
+          text-wrong-color = raw.urgent;
+          text-caps-lock-color = raw.warn;
+
+          line-color = "00000000";
+          line-clear-color = "00000000";
+          line-ver-color = "00000000";
+          line-wrong-color = "00000000";
+          line-caps-lock-color = "00000000";
+          separator-color = "00000000";
+        };
+      };
+
+      # services.dunst = {
+      #   enable = true;
+      # };
+    };
+
+    desktop = {
+      wpaperd = {
+        enable = true;
+        # Every output (the user's config adds per-output sections)
+        settings.any.path = lib.mkDefault dracula;
+      };
+
+      # Notifications; colors, sizes and fonts from theme.nix. The control
+      # center (waybar bell) is a compact floating panel under the bar instead
+      # of the default full-height grey sidebar
+      swaync = {
+        enable = true;
+        settings = {
+          positionX = "right";
+          positionY = "top";
+          layer = "overlay";
+          control-center-layer = "top";
+          layer-shell = true;
+          cssPriority = "application";
+          fit-to-screen = false;
+          control-center-width = theme.notifications.width;
+          control-center-height = -1; # fit to content
+          control-center-margin-top = theme.gap;
+          control-center-margin-bottom = theme.gap;
+          control-center-margin-right = theme.gap;
+          control-center-margin-left = theme.gap;
+          notification-2fa-action = true;
+          notification-inline-replies = false;
+          notification-icon-size = theme.notifications.iconSize;
+          notification-body-image-height = 100;
+          notification-body-image-width = 200;
+          widgets = [
+            "title"
+            "dnd"
+            "notifications"
+          ];
+          widget-config = {
+            title = {
+              text = "Notifications";
+              clear-all-button = true;
+              button-text = "Clear";
+            };
+            dnd.text = "Do not disturb";
+          };
+        };
+        # swaync 0.12 loads its packaged CSS first; this overrides its variables
+        style = with theme; ''
+          :root {
+            --cc-bg: alpha(${color.bgDark}, ${toString opacity.popup});
+            --noti-border-color: ${color.border};
+            --noti-bg-darker: ${color.bgDark};
+            --noti-bg-hover: alpha(${color.border}, ${toString opacity.surface});
+            --noti-bg-focus: alpha(${color.border}, 0.5);
+            --noti-close-bg: ${color.border};
+            --noti-close-bg-hover: ${color.accent};
+            --text-color: #${palette.fg};
+            --text-color-disabled: ${color.muted};
+            --bg-selected: ${color.accent};
+            --border-radius: ${toString radius}px;
+            --notification-icon-size: ${toString notifications.iconSize}px;
+            --notification-shadow:
+              0 0 0 1px alpha(${color.shadow}, 0.3),
+              0 1px 3px 1px alpha(${color.shadow}, 0.7),
+              0 2px 6px 2px alpha(${color.shadow}, 0.3);
+            --font-size-summary: ${toString notifications.summarySize}px;
+            --font-size-body: ${toString notifications.bodySize}px;
+          }
+
+          * {
+            font-family: "${font.family}";
+          }
+
+          .notification-row {
+            outline: none;
+          }
+
+          .notification {
+            margin: 6px 12px;
+            padding: 0;
+            box-shadow: var(--notification-shadow);
+            background: alpha(${color.bg}, ${toString opacity.surface});
+            color: ${color.fg};
+          }
+
+          .control-center {
+            border: 1px solid ${color.border};
+            box-shadow: 0 2px 8px alpha(${color.shadow}, ${toString opacity.shadow});
+          }
+
+          .control-center .notification {
+            box-shadow: none;
+          }
+
+          .widget-title > label {
+            font-size: ${toString notifications.summarySize}px;
+            font-weight: bold;
+            color: ${color.accent};
+          }
+
+          .widget-title > button,
+          .widget-dnd switch {
+            background: alpha(${color.border}, ${toString opacity.surface});
+            color: var(--text-color);
+            border: none;
+            border-radius: ${toString radiusInner}px;
+          }
+
+          .widget-title > button:hover {
+            background: ${color.accent2};
+            color: ${color.bgDark};
+          }
+
+          .widget-dnd switch:checked {
+            background: ${color.accent};
+          }
+
+          .widget-dnd switch slider {
+            background: #${palette.fg};
+            border-radius: ${toString radiusInner}px;
+          }
+        '';
       };
     };
 
-    layout = {
-      gaps = theme.gap;
-      "center-focused-column" = "on-overflow";
-      "always-center-single-column" = { };
-
-      "preset-column-widths"._children = [
-        { proportion = 0.33333; }
-        { proportion = 0.5; }
-        { proportion = 0.66667; }
-      ];
-
-      # New windows open full width (as after Mod+M); Mod+Alt+R cycles the
-      # presets above
-      "default-column-width".proportion = 1.0;
-
-      # Tabbed columns (VM terminals): one segment per tab; inactive tabs
-      # in the accent color, the focused one stronger (muted was too faint)
-      "tab-indicator" = {
-        "hide-when-single-tab" = { };
-        "gaps-between-tabs" = 4;
-        width = 6;
-        "corner-radius" = 3;
-        "active-color" = theme.color.accentStrong;
-        "inactive-color" = theme.color.accent;
-      };
-
-      # Border in the trust label color (default `unknown` here; dom0 and the
-      # VMs in `labelRules`): dimmed when unfocused, full plus a focus ring of
-      # the same color when focused
-      "focus-ring" = {
-        width = 2;
-        "active-color" = theme.label.unknown;
-        "inactive-color" = theme.labelWithAlpha "unknown" theme.opacity.inactiveRing;
-        "urgent-color" = theme.color.urgent;
-      };
-
-      border = {
-        on = { };
-        width = 3;
-        "active-color" = theme.label.unknown;
-        "inactive-color" = theme.labelWithAlpha "unknown" theme.opacity.inactiveBorder;
-        "urgent-color" = theme.color.urgent;
-      };
-
-      shadow = {
-        on = { };
-        softness = 30;
-        spread = 5;
-        offset._props = {
-          x = 0;
-          y = 5;
-        };
-        color = theme.withAlpha "shadow" theme.opacity.shadow;
-      };
-    };
-
-    inherit binds;
-
-    _children = [
-      {
-        workspace = {
-          _args = [ "terminal" ];
-          "open-on-output" = "DP-2";
-        };
-      }
-      {
-        workspace = {
-          _args = [ "browser" ];
-          "open-on-output" = "DP-2";
-        };
-      }
-      {
-        workspace = {
-          _args = [ "remote" ];
-          "open-on-output" = "DP-1";
-        };
-      }
-      {
-        output = {
-          _args = [ "eDP-1" ];
-          inherit (edp) mode;
-          scale = 1.0;
-          position._props = {
-            x = 0;
-            y = 0;
-          };
-        };
-      }
-      {
-        output = {
-          _args = [ "DP-2" ];
-          mode = "1920x1080@60.00";
-          scale = 1.0;
-          position._props = {
-            x = edp.width;
-            y = 0;
-          };
-        };
-      }
-      {
-        output = {
-          _args = [ "DP-1" ];
-          mode = "1920x1080@60.00";
-          scale = 1.0;
-          position._props = {
-            x = edp.width + 1920;
-            y = 0;
-          };
-        };
-      }
-      { "spawn-at-startup"._args = [ "waybar" ]; }
-      {
-        "spawn-at-startup"._args = [
-          "systemctl"
-          "--user"
-          "restart"
-          "wpaperd.service"
-        ];
-      }
-      # Chat apps and zen at startup again: started with the session, wprsd
-      # kept Super as pressed (apps got every key as Super+key); the wprs
-      # modifier sync (our wprs fork, modules/wprs-overlay.nix) releases it
-      # (xen-migration.md, Known Issues). The tray apps (`trayApps` above)
-      # are appended after this list.
-      # (login windows: nox.desktop.login, after this list)
-      {
-        "window-rule"._children = [
-          {
-            match._props = {
-              "app-id" = "^\\[irc\\] term-irc$";
-            };
-          }
-          { "open-on-workspace" = "remote"; }
-          { "default-column-width".proportion = 1.0; }
-        ];
-      }
-      {
-        "window-rule"._children = [
-          {
-            match._props = {
-              "app-id" = "^\\[[a-z0-9-]+\\] (zen|app\\.zen_browser\\.zen)$";
-            };
-          }
-          { "open-on-workspace" = "browser"; }
-          { "default-column-width".proportion = 1.0; }
-        ];
-      }
-      {
-        "window-rule"._children = [
-          { "geometry-corner-radius" = theme.radius; }
-          { "clip-to-geometry" = true; }
-          { "draw-border-with-background" = false; }
-          { opacity = 0.85; }
-          {
-            "background-effect" = {
-              blur = true;
-              saturation = 2.0;
-              noise = 0.03;
-            };
-          }
-        ];
-      }
-      {
-        "window-rule"._children = [
-          {
-            match._props = {
-              "is-focused" = true;
-            };
-          }
-          { opacity = 0.9; }
-        ];
-      }
-    ]
-    # The user's login windows (nox.desktop.login): the terminal tabs open as
-    # tabs of one full-width column on the workspace "terminal"
-    ++ lib.optionals (login.terminalTabs != [ ]) [
-      {
-        "window-rule"._children = [
-          {
-            match._props."app-id" = "^(${
-              lib.concatMapStringsSep "|" (
-                t: if t == "dom0" then "term-dom0" else "\\[${t}\\] term-${t}"
-              ) login.terminalTabs
-            })$";
-          }
-          { "open-on-workspace" = "terminal"; }
-          { "default-column-display" = "tabbed"; }
-          { "default-column-width".proportion = 1.0; }
-        ];
-      }
-      { "spawn-at-startup"._args = [ "${terminalTabs}" ]; }
-    ]
-    ++ map (w: {
-      "spawn-at-startup"._args = [
-        "vm-run"
-        w.vm
-      ]
-      ++ w.command;
-    }) login.windows
-    ++ map (args: { "spawn-at-startup"._args = args; }) trayCommands
-    ++ labelRules;
   };
 
-  nox.desktop = {
-    wpaperd = {
-      enable = true;
-      # Every output (the user's config adds per-output sections)
-      settings.any.path = lib.mkDefault dracula;
-    };
-
-    # Notifications; colors, sizes and fonts from theme.nix. The control
-    # center (waybar bell) is a compact floating panel under the bar instead
-    # of the default full-height grey sidebar
-    swaync = {
-      enable = true;
-      settings = {
-        positionX = "right";
-        positionY = "top";
-        layer = "overlay";
-        control-center-layer = "top";
-        layer-shell = true;
-        cssPriority = "application";
-        fit-to-screen = false;
-        control-center-width = theme.notifications.width;
-        control-center-height = -1; # fit to content
-        control-center-margin-top = theme.gap;
-        control-center-margin-bottom = theme.gap;
-        control-center-margin-right = theme.gap;
-        control-center-margin-left = theme.gap;
-        notification-2fa-action = true;
-        notification-inline-replies = false;
-        notification-icon-size = theme.notifications.iconSize;
-        notification-body-image-height = 100;
-        notification-body-image-width = 200;
-        widgets = [
-          "title"
-          "dnd"
-          "notifications"
-        ];
-        widget-config = {
-          title = {
-            text = "Notifications";
-            clear-all-button = true;
-            button-text = "Clear";
-          };
-          dnd.text = "Do not disturb";
-        };
-      };
-      # swaync 0.12 loads its packaged CSS first; this overrides its variables
-      style = with theme; ''
-        :root {
-          --cc-bg: alpha(${color.bgDark}, ${toString opacity.popup});
-          --noti-border-color: ${color.border};
-          --noti-bg-darker: ${color.bgDark};
-          --noti-bg-hover: alpha(${color.border}, ${toString opacity.surface});
-          --noti-bg-focus: alpha(${color.border}, 0.5);
-          --noti-close-bg: ${color.border};
-          --noti-close-bg-hover: ${color.accent};
-          --text-color: ${palette.fg};
-          --text-color-disabled: ${color.muted};
-          --bg-selected: ${color.accent};
-          --border-radius: ${toString radius}px;
-          --notification-icon-size: ${toString notifications.iconSize}px;
-          --notification-shadow:
-            0 0 0 1px alpha(${color.shadow}, 0.3),
-            0 1px 3px 1px alpha(${color.shadow}, 0.7),
-            0 2px 6px 2px alpha(${color.shadow}, 0.3);
-          --font-size-summary: ${toString notifications.summarySize}px;
-          --font-size-body: ${toString notifications.bodySize}px;
-        }
-
-        * {
-          font-family: "${font.family}";
-        }
-
-        .notification-row {
-          outline: none;
-        }
-
-        .notification {
-          margin: 6px 12px;
-          padding: 0;
-          box-shadow: var(--notification-shadow);
-          background: alpha(${color.bg}, ${toString opacity.surface});
-          color: ${color.fg};
-        }
-
-        .control-center {
-          border: 1px solid ${color.border};
-          box-shadow: 0 2px 8px alpha(${color.shadow}, ${toString opacity.shadow});
-        }
-
-        .control-center .notification {
-          box-shadow: none;
-        }
-
-        .widget-title > label {
-          font-size: ${toString notifications.summarySize}px;
-          font-weight: bold;
-          color: ${color.accent};
-        }
-
-        .widget-title > button,
-        .widget-dnd switch {
-          background: alpha(${color.border}, ${toString opacity.surface});
-          color: var(--text-color);
-          border: none;
-          border-radius: ${toString radiusInner}px;
-        }
-
-        .widget-title > button:hover {
-          background: ${color.accent2};
-          color: ${color.bgDark};
-        }
-
-        .widget-dnd switch:checked {
-          background: ${color.accent};
-        }
-
-        .widget-dnd switch slider {
-          background: ${palette.fg};
-          border-radius: ${toString radiusInner}px;
-        }
-      '';
-    };
-  };
-
-  # Lock screen; PAM comes from security.pam.services.swaylock (system side)
-  nox.desktop.swaylock = {
-    enable = true;
-    settings = with theme; {
-      image = lib.mkDefault dracula;
-      scaling = "fill";
-      color = raw.bg;
-      font = font.family;
-      font-size = font.lockSize;
-      indicator-radius = 100;
-      indicator-thickness = 8;
-      show-failed-attempts = true;
-      ignore-empty-password = true;
-
-      inside-color = rawWithAlpha "bg" opacity.surface;
-      inside-clear-color = rawWithAlpha "bg" opacity.surface;
-      inside-ver-color = rawWithAlpha "bg" opacity.surface;
-      inside-wrong-color = rawWithAlpha "bg" opacity.surface;
-      inside-caps-lock-color = rawWithAlpha "bg" opacity.surface;
-
-      ring-color = raw.accent;
-      ring-clear-color = raw.info;
-      ring-ver-color = raw.accent2;
-      ring-wrong-color = raw.urgent;
-      ring-caps-lock-color = raw.warn;
-
-      key-hl-color = raw.fgActive;
-      bs-hl-color = raw.urgent;
-      caps-lock-key-hl-color = raw.fgActive;
-      caps-lock-bs-hl-color = raw.urgent;
-
-      text-color = raw.fg;
-      text-clear-color = raw.info;
-      text-ver-color = raw.accent2;
-      text-wrong-color = raw.urgent;
-      text-caps-lock-color = raw.warn;
-
-      line-color = "00000000";
-      line-clear-color = "00000000";
-      line-ver-color = "00000000";
-      line-wrong-color = "00000000";
-      line-caps-lock-color = "00000000";
-      separator-color = "00000000";
-    };
-  };
-
-  # services.dunst = {
-  #   enable = true;
-  # };
 }

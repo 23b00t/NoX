@@ -1,7 +1,8 @@
 # nox: one command for the NoX tools in dom0 (thin wrapper over the
 # scripts it calls, which come from the system configuration).
 #
-# `vms` only feeds the shell completion (/etc/nox/registry.json);
+# /etc/nox/registry.json: `vms` (names for the shell completion) plus
+# `registry` (data of the tools nox runs itself, e.g. `doctor`);
 # `commandsFile` + `extraCommands` are the lists of `nox xen|nix|root`
 # (/etc/nox/commands).
 { self }:
@@ -43,11 +44,18 @@ in
       ];
       description = "VM names offered by the shell completion.";
     };
+    registry = lib.mkOption {
+      type = lib.types.attrsOf (pkgs.formats.json { }).type;
+      default = { };
+      description = "Data of the tools that run inside nox (e.g. `doctor`, from the vm-doctor module), next to `vms` in /etc/nox/registry.json.";
+    };
   };
 
   config = lib.mkIf cfg.enable {
-    environment.systemPackages = [ cfg.package ];
-    environment.etc."nox/registry.json".text = builtins.toJSON cfg.vms;
-    environment.etc."nox/commands".text = builtins.readFile cfg.commandsFile + "\n" + cfg.extraCommands;
+    environment = {
+      systemPackages = [ cfg.package ];
+      etc."nox/registry.json".text = builtins.toJSON ({ inherit (cfg) vms; } // cfg.registry);
+      etc."nox/commands".text = builtins.readFile cfg.commandsFile + "\n" + cfg.extraCommands;
+    };
   };
 }

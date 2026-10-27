@@ -200,6 +200,12 @@ let
       default = null;
       description = "Size of the /home/user volume in MB.";
     };
+    home.image = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      example = "/var/lib/microvms/godot/home.img";
+      description = "Image of the /home/user volume; null: home.img in the VM's state directory. An absolute path shares another VM's home (two starts of one VM that never run together; set `backup = false` on the second).";
+    };
     gpu = mkOption {
       type = types.nullOr types.bool;
       default = null;

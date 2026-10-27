@@ -142,6 +142,13 @@ in
         description = "Further windows at login.";
       };
     };
+    theme = lib.mkOption {
+      type = lib.types.enum (
+        map (lib.removeSuffix ".nix") (builtins.attrNames (builtins.readDir ./themes))
+      );
+      default = "tokyo-night";
+      description = "Desktop theme (desktop/themes/<name>.nix): colors, fonts and radii for niri, waybar, rofi, swaync, swaylock, foot and GTK/Qt. Single values stay overridable through the modules' options (e.g. nox.desktop.niri.settings).";
+    };
     keyboard =
       lib.mapAttrs
         (
@@ -212,15 +219,17 @@ in
     }
     (lib.mkIf cfg.swaync.enable {
       # at-spi2-core: no "AT-SPI: Error retrieving accessibility bus" noise
-      environment.systemPackages = [
-        pkgs.swaynotificationcenter
-        pkgs.at-spi2-core
-      ];
-      # Not under /etc/xdg/swaync: swaync takes its base style.css from
-      # XDG_CONFIG_DIRS (/etc/xdg first) and the user one (-s) on top; ours
-      # there would replace the base and leave only the overrides
-      environment.etc."nox/swaync/config.json".source = swayncConfig;
-      environment.etc."nox/swaync/style.css".source = swayncStyle;
+      environment = {
+        systemPackages = [
+          pkgs.swaynotificationcenter
+          pkgs.at-spi2-core
+        ];
+        # Not under /etc/xdg/swaync: swaync takes its base style.css from
+        # XDG_CONFIG_DIRS (/etc/xdg first) and the user one (-s) on top; ours
+        # there would replace the base and leave only the overrides
+        etc."nox/swaync/config.json".source = swayncConfig;
+        etc."nox/swaync/style.css".source = swayncStyle;
+      };
       systemd.user.services.swaync = sessionService // {
         description = "Swaync notification daemon";
         documentation = [ "https://github.com/ErikReider/SwayNotificationCenter" ];

@@ -63,14 +63,26 @@ in
       nixos.enable = false;
     };
 
-    # Driver domains (sys-net, sys-vpn, …): tell dom0 the backend is up once
-    # xl devd runs (data/backend-ready, guest-writable); clients' preStart
-    # waits for it (vms/modules/net-config.nix)
-    systemd.services.xendriverdomain = mkIf (config.microvm.xen.driverDomain or false) {
-      serviceConfig = {
-        ExecStartPost = "${config.microvm.xen.package}/bin/xenstore-write data/backend-ready 1";
-        ExecStopPost = "-${config.microvm.xen.package}/bin/xenstore-rm data/backend-ready";
+    systemd = {
+      # Driver domains (sys-net, sys-vpn, …): tell dom0 the backend is up once
+      # xl devd runs (data/backend-ready, guest-writable); clients' preStart
+      # waits for it (vms/modules/net-config.nix)
+      services.xendriverdomain = mkIf (config.microvm.xen.driverDomain or false) {
+        serviceConfig = {
+          ExecStartPost = "${config.microvm.xen.package}/bin/xenstore-write data/backend-ready 1";
+          ExecStopPost = "-${config.microvm.xen.package}/bin/xenstore-rm data/backend-ready";
+        };
       };
+
+      # Keyboards live in sys-usb (and in steam via input-to): Ctrl+Alt+Del
+      # meant for dom0 (niri quit) rebooted sys-usb, all input dropped
+      # (xmg 2026-10-15). Masked, the guest ignores it
+      ctrlAltDelUnit = "/dev/null";
+
+      tmpfiles.rules = [
+        "d /home/${cfg.user} 0755 ${cfg.user} users -"
+        "d /home/${cfg.user}/.ssh 0700 ${cfg.user} users -"
+      ];
     };
     # Xen's vif-bridge adds `iptables -m physdev` rules for every new vif;
     # loading these modules then (modprobe) deadlocked with xenwatch: no
@@ -83,7 +95,7 @@ in
     ];
 
     nixpkgs.overlays = [
-      (final: prev: {
+      (final: _prev: {
         inherit (final.lixPackageSets.latest)
           nixpkgs-review
           #         error: infinite recursion encountered
@@ -176,13 +188,24 @@ in
     # so log in automatically; the console is reachable only from dom0
     services.getty.autologinUser = cfg.user;
 
-    # dconf on the VM's own session bus (apps started over RPC use it,
-    # vchan-relay.nix); dark by default for GTK4/libadwaita apps
-    programs.dconf = {
-      enable = true;
-      profiles.user.databases = [
-        { settings."org/gnome/desktop/interface".color-scheme = "prefer-dark"; }
-      ];
+    programs = {
+      # dconf on the VM's own session bus (apps started over RPC use it,
+      # vchan-relay.nix); dark by default for GTK4/libadwaita apps
+      dconf = {
+        enable = true;
+        profiles.user.databases = [
+          { settings."org/gnome/desktop/interface".color-scheme = "prefer-dark"; }
+        ];
+      };
+
+      # No nano: vim is the editor everywhere ($EDITOR, also yazi), the IDE
+      # stack sets nvim (2026-10-14)
+      nano.enable = false;
+
+      vim = {
+        enable = true;
+        defaultEditor = !config.programs.neovim.defaultEditor;
+      };
     };
 
     environment.sessionVariables = {
@@ -201,19 +224,6 @@ in
       noto-fonts-color-emoji
     ];
 
-    # No nano: vim is the editor everywhere ($EDITOR, also yazi), the IDE
-    # stack sets nvim (2026-10-14)
-    programs.nano.enable = false;
-    programs.vim = {
-      enable = true;
-      defaultEditor = !config.programs.neovim.defaultEditor;
-    };
-
-    # Keyboards live in sys-usb (and in steam via input-to): Ctrl+Alt+Del
-    # meant for dom0 (niri quit) rebooted sys-usb, all input dropped
-    # (xmg 2026-10-15). Masked, the guest ignores it
-    systemd.ctrlAltDelUnit = "/dev/null";
-
     xdg.mime.defaultApplications = mkMerge [
       (mkIf (cfg.browser != null) (
         genAttrs [
@@ -231,11 +241,6 @@ in
       (genAttrs [ "text/plain" "text/markdown" ] (
         _: if config.programs.neovim.defaultEditor then "nvim.desktop" else "vim.desktop"
       ))
-    ];
-
-    systemd.tmpfiles.rules = [
-      "d /home/${cfg.user} 0755 ${cfg.user} users -"
-      "d /home/${cfg.user}/.ssh 0700 ${cfg.user} users -"
     ];
 
     environment.systemPackages = mkMerge [

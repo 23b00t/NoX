@@ -20,7 +20,7 @@
   };
 
   outputs =
-    { nixpkgs, ... }@inputs:
+    inputs:
     let
       hardware = import ./machines/hardware.nix;
     in

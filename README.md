@@ -41,14 +41,23 @@ nox = {
     };
     # your LazyVim config instead of the upstream starter
     services.ide.lazyvimRepo = "https://github.com/<you>/lazyvim.git";
+    # zsh (NoX: plain zsh with completion, suggestions, highlighting)
+    services.zsh-env = {
+      extraAliases.n = "nvim";
+      plugins = [ "zsh-users/zsh-autosuggestions" ]; # antidote
+      ohMyPoshTheme = "montys.omp.json";
+    };
+    # zellij (NoX: zellij's defaults): config.kdl, layouts/, plugins/
+    services.zellij-env.configDir = ./zellij;
   };
   # every VM: time zone and locale (NoX: UTC, en_US.UTF-8)
   vmModule.time.timeZone = "Europe/Berlin";
   # the builder (nox.infra.builder.enable): the repo it builds
   vms.builder.module.nox.builder.repoUrl = "https://github.com/<you>/<config>";
 };
-# dom0: niri's keyboard (NoX: us)
+# dom0: niri's keyboard (NoX: us), theme (NoX ships tokyo-night, the default)
 # nox.desktop.keyboard = { layout = "us"; variant = "altgr-intl"; };
+# nox.desktop.theme = "tokyo-night";
 ```
 
 ## nox-relay
@@ -148,7 +157,7 @@ passes its output and exit code through.
 | `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update …` (`--all`: `update-all …`) |
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
 | `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
-| `nox doctor` | `vm-doctor` (smoke test of the running system) |
+| `nox doctor` | built in (src/doctor.rs; `vm-doctor` is a link to nox): smoke test of the running system |
 | `nox rollback <vm> [--gen n\|--reset]` | `vm-rollback …`: runner of an older system generation as the VM's `current` |
 | `nox rollback --data <vm>`, `nox snapshot <vm>` | `vm-rollback --data`, `vm-snapshot` (copy of a stopped VM's images) |
 | `nox gc [--keep n] [-n]` | `vm-gc …` (old system generations, then GC; default keeps 3) |

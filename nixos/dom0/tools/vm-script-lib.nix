@@ -15,11 +15,7 @@ let
     vms:
     builtins.concatStringsSep "\n" (
       map (
-        vm:
-        if vm.short != null && vm.short != vm.name then
-          "  ${vm.name} (${vm.short})"
-        else
-          "  ${vm.name}"
+        vm: if vm.short != null && vm.short != vm.name then "  ${vm.name} (${vm.short})" else "  ${vm.name}"
       ) vms
     );
 
@@ -48,9 +44,7 @@ let
             ) assignments
           );
         in
-        "      ${vmPatterns vm})\n"
-        + assignmentLines
-        + "\n        ;;"
+        "      ${vmPatterns vm})\n" + assignmentLines + "\n        ;;"
       ) vms
     );
 
@@ -63,11 +57,23 @@ let
       map (
         vm:
         let
-          baseFields = [ vm.name vm.ip ] ++ (if includeUser then [ (vmUser vm) ] else [ ]);
+          baseFields = [
+            vm.name
+            vm.ip
+          ]
+          ++ (if includeUser then [ (vmUser vm) ] else [ ]);
           base = builtins.concatStringsSep " " baseFields;
         in
         if vm.short != null && vm.short != vm.name then
-          base + "\n" + (builtins.concatStringsSep " " ([ vm.short vm.ip ] ++ (if includeUser then [ (vmUser vm) ] else [ ])))
+          base
+          + "\n"
+          + (builtins.concatStringsSep " " (
+            [
+              vm.short
+              vm.ip
+            ]
+            ++ (if includeUser then [ (vmUser vm) ] else [ ])
+          ))
         else
           base
       ) vms
