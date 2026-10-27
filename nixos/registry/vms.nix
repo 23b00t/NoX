@@ -369,6 +369,12 @@ in
       default = { };
       description = "Image domains (upstream disk images: Whonix, Kali); manual steps in the docs. Their `apps` only give dom0's desktop entries (`package` and `install` are not used, the image brings the software).";
     };
+    theme = mkOption {
+      type = import ../desktop/theme-type.nix { inherit lib; };
+      default = { };
+      example = lib.literalExpression ''{ name = "tokyo-night"; flavor = "neon"; }'';
+      description = "Desktop theme of the whole fleet: dom0's desktop (nox.desktop.theme takes it as its default) and every VM (foot over wprs, the own niri of e.g. godot-gpu). Set it here, not per machine, so the VMs follow dom0; options in nox.desktop.theme.";
+    };
     vmModule = mkOption {
       type = types.deferredModule;
       default = { };

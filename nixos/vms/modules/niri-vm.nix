@@ -7,6 +7,7 @@
   config,
   lib,
   pkgs,
+  vmRegistry,
   ...
 }:
 let
@@ -63,8 +64,10 @@ in
 
     theme = lib.mkOption {
       type = import ../../desktop/theme-type.nix { inherit lib; };
-      default = { };
-      description = "Desktop theme, as nox.desktop.theme in dom0 (colors only: this desktop has no wallpaper).";
+      # The fleet's theme (registry nox.theme), as dom0's desktop
+      default = vmRegistry.theme;
+      defaultText = lib.literalExpression "nox.theme (vms.nix)";
+      description = "Desktop theme (colors only: this desktop has no wallpaper). Default: the fleet's nox.theme, like dom0.";
     };
 
     keyboard =

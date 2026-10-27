@@ -7,6 +7,7 @@
   config,
   lib,
   pkgs,
+  vmRegistry,
   ...
 }:
 let
@@ -144,7 +145,9 @@ in
     };
     theme = lib.mkOption {
       type = import ./theme-type.nix { inherit lib; };
-      default = { };
+      # The fleet's theme (registry nox.theme), which the VMs follow too
+      default = vmRegistry.theme;
+      defaultText = lib.literalExpression "nox.theme (vms.nix)";
       example = lib.literalExpression ''
         {
           name = "tokyo-night";
@@ -153,7 +156,7 @@ in
           lock.shade = "normal";
         }
       '';
-      description = "Desktop theme: colors, fonts and radii for niri, waybar, rofi, swaync, swaylock, foot and GTK/Qt, and the generated wallpaper and lock screen (nix/nox-branding.nix). Single values stay overridable through the modules' options (e.g. nox.desktop.niri.settings, nox.desktop.wpaperd.settings).";
+      description = "Desktop theme of dom0: colors, fonts and radii for niri, waybar, rofi, swaync, swaylock, foot and GTK/Qt, and the generated wallpaper and lock screen (nix/nox-branding.nix). Defaults to the fleet's `nox.theme` (vms.nix); set that one, so the VMs follow (a different value here only changes dom0 and warns). Single values stay overridable through the modules' options (e.g. nox.desktop.niri.settings, nox.desktop.wpaperd.settings).";
     };
     keyboard =
       lib.mapAttrs
@@ -198,6 +201,11 @@ in
     };
     swaylock = {
       enable = lib.mkEnableOption "swaylock (Mod+Alt+L)";
+      image = lib.mkOption {
+        type = lib.types.nullOr lib.types.path;
+        default = null;
+        description = "Own lock screen image instead of the rendered one (nox-branding). With it the ring is the plain one (shown while typing, filled) instead of the logo's neon o.";
+      };
       settings = lib.mkOption {
         type =
           with lib.types;
@@ -216,6 +224,11 @@ in
 
   config = lib.mkMerge [
     {
+      # The VMs only see nox.theme (registry): a different dom0 theme splits
+      # the look
+      warnings =
+        lib.optional (cfg.theme != vmRegistry.theme)
+          "nox.desktop.theme differs from nox.theme (vms.nix): the VMs keep nox.theme. Set the theme in vms.nix to change both.";
       environment.etc."niri/config.kdl".source = niriConfig;
       # xwayland-satellite: niri starts Xwayland with it on demand
       environment.systemPackages = [

@@ -18,7 +18,7 @@ in
   environment.etc = {
     "xdg/waybar/style.css" = {
       text = ''
-        /* Colors from home/desktop/theme.nix */
+        /* Colors from desktop/theme.nix */
         @define-color bar-bg alpha(${theme.color.shadow}, ${toString theme.opacity.bar});
         @define-color main-bg alpha(${theme.color.bg}, ${toString theme.opacity.surface});
         @define-color main-fg ${theme.color.fg};

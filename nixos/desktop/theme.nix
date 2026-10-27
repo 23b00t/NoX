@@ -4,6 +4,7 @@
 # data file per theme in ./themes; nox.desktop.theme picks it (`name`) and
 # overrides single roles (`colors`, `graphics`).
 # Usage: `theme = import ./theme.nix { inherit lib; inherit (config.nox.desktop) theme; };`
+# (VMs: `inherit (vmRegistry) theme;`, the fleet's nox.theme)
 {
   lib,
   # nox.desktop.theme (only name, colors and graphics are read here)

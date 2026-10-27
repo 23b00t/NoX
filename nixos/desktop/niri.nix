@@ -766,55 +766,63 @@ in
       # The lock image (nix/nox-branding.nix) shows the logo without its o,
       # the gap on the screen center: swaylock's ring, always visible, is the
       # o as a neon tube (light core, glow-colored edges, the image draws its
-      # glow). Radius and thickness match branding/gen.py's LOCK_RING.
+      # glow). Radius and thickness match branding/gen.py's LOCK_RING. With an
+      # own image (nox.desktop.swaylock.image) the ring is the plain one again:
+      # shown while typing, filled, in the theme's colors
       swaylock = {
         enable = true;
         settings =
           with theme;
           let
+            own = config.nox.desktop.swaylock.image != null;
             core = colorMath.mix graphics.glow "ffffff" 0.55;
             clear = "00000000";
+            inside = if own then rawWithAlpha "bg" opacity.surface else clear;
+            line = c: if own then clear else c;
+            keyHl = if own then raw.fgActive else graphics.front;
           in
           {
-            image = lib.mkDefault "${branding}/share/nox/lock.png";
+            image = lib.mkDefault (
+              if own then config.nox.desktop.swaylock.image else "${branding}/share/nox/lock.png"
+            );
             scaling = "fill";
             color = raw.bg;
             font = font.family;
             font-size = font.lockSize;
-            indicator-radius = 70;
-            indicator-thickness = 7;
-            indicator-idle-visible = true;
+            indicator-radius = if own then 100 else 70;
+            indicator-thickness = if own then 8 else 7;
+            indicator-idle-visible = !own;
             show-failed-attempts = true;
             ignore-empty-password = true;
 
-            inside-color = clear;
-            inside-clear-color = clear;
-            inside-ver-color = clear;
-            inside-wrong-color = clear;
-            inside-caps-lock-color = clear;
+            inside-color = inside;
+            inside-clear-color = inside;
+            inside-ver-color = inside;
+            inside-wrong-color = inside;
+            inside-caps-lock-color = inside;
 
-            ring-color = core;
+            ring-color = if own then raw.accent else core;
             ring-clear-color = raw.info;
-            ring-ver-color = graphics.glow2;
+            ring-ver-color = if own then raw.accent2 else graphics.glow2;
             ring-wrong-color = raw.urgent;
             ring-caps-lock-color = raw.warn;
 
-            key-hl-color = "ffffff";
+            key-hl-color = keyHl;
             bs-hl-color = raw.urgent;
-            caps-lock-key-hl-color = "ffffff";
+            caps-lock-key-hl-color = keyHl;
             caps-lock-bs-hl-color = raw.urgent;
 
-            text-color = graphics.front;
+            text-color = if own then raw.fg else graphics.front;
             text-clear-color = raw.info;
-            text-ver-color = graphics.glow2;
+            text-ver-color = if own then raw.accent2 else graphics.glow2;
             text-wrong-color = raw.urgent;
             text-caps-lock-color = raw.warn;
 
-            line-color = graphics.glow;
-            line-clear-color = raw.info;
-            line-ver-color = graphics.glow2;
-            line-wrong-color = raw.urgent;
-            line-caps-lock-color = raw.warn;
+            line-color = line graphics.glow;
+            line-clear-color = line raw.info;
+            line-ver-color = line graphics.glow2;
+            line-wrong-color = line raw.urgent;
+            line-caps-lock-color = line raw.warn;
             separator-color = clear;
           };
       };

@@ -2,10 +2,15 @@
   lib,
   pkgs,
   inputs,
+  vmRegistry,
   ...
 }:
 let
-  theme = import ../../desktop/theme.nix { inherit lib; };
+  # The fleet's theme (registry nox.theme), the same as dom0's desktop
+  theme = import ../../desktop/theme.nix {
+    inherit lib;
+    inherit (vmRegistry) theme;
+  };
   # vm-clip-helper: explicit copy/paste via dom0's vm-clip, the selection
   # itself is not synced with dom0 (wprsd --selection-sync false)
   clipboard = import ../../modules/wprs-clipboard.nix { inherit pkgs; };

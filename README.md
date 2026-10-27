@@ -54,12 +54,18 @@ nox = {
   vmModule.time.timeZone = "Europe/Berlin";
   # the builder (nox.infra.builder.enable): the repo it builds
   vms.builder.module.nox.builder.repoUrl = "https://github.com/<you>/<config>";
+  # theme of dom0 and every VM (NoX: nox, organic logo, dark, moon and
+  # stars; themes: nox, tokyo-night, catppuccin-mocha, dracula, black;
+  # wallpaper and lock screen are rendered from branding/templates)
+  # theme = { name = "tokyo-night"; flavor = "neon"; lock.decor = [ ]; };
 };
-# dom0: niri's keyboard (NoX: us), theme (NoX: nox, organic logo, dark,
-# moon and stars; themes: nox, tokyo-night, catppuccin-mocha, dracula,
-# black; wallpaper and lock screen are rendered from branding/templates)
+# dom0: niri's keyboard (NoX: us)
 # nox.desktop.keyboard = { layout = "us"; variant = "altgr-intl"; };
-# nox.desktop.theme = { name = "tokyo-night"; flavor = "neon"; lock.decor = [ ]; };
+# dom0: own wallpaper on one output, the rendered one on the others
+# (wpaperd's `any` section); an own lock image turns the lock ring back into
+# the plain one (shown while typing, filled)
+# nox.desktop.wpaperd.settings."DP-2".path = "${./wallpapers/mine.jpg}";
+# nox.desktop.swaylock.image = ./wallpapers/lock.jpg;
 ```
 
 ## nox-relay

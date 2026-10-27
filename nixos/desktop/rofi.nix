@@ -148,7 +148,7 @@ in
         }
       '';
     };
-    # Colors from home/desktop/theme.nix
+    # Colors from desktop/theme.nix
     "xdg/rofi/theme.rasi" = {
       text = ''
         * {

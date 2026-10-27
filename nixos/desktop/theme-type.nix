@@ -1,10 +1,14 @@
-# Type of nox.desktop.theme (dom0) and services.niri-vm.theme (VMs with their
-# own niri): which theme (desktop/themes/<name>.nix), single color overrides,
-# and the look of the generated wallpaper and lock screen
-# (nix/nox-branding.nix, templates from branding/gen.py).
+# Type of nox.theme (registry, the fleet), nox.desktop.theme (dom0) and
+# services.niri-vm.theme (VMs with their own niri): which theme
+# (desktop/themes/<name>.nix), single color overrides, and the look of the
+# generated wallpaper and lock screen (nix/nox-branding.nix, templates from
+# branding/gen.py).
 { lib }:
 let
   inherit (lib) mkOption types;
+
+  # "rrggbb" without '#' (a '#' would end up doubled in CSS and KDL)
+  hex = types.strMatching "[0-9a-fA-F]{6}";
 
   # flavor, shade and decor; with a parent (the lock screen) they default to
   # the parent's values, except those set in `own`
@@ -62,7 +66,7 @@ types.submodule (
         description = "Theme (desktop/themes/<name>.nix): colors for niri, waybar, rofi, swaync, swaylock, foot, GTK/Qt, logo and wallpaper; icon theme.";
       };
       colors = mkOption {
-        type = types.attrsOf types.str;
+        type = types.attrsOf hex;
         default = { };
         example = {
           accent = "ff9e64";
@@ -70,7 +74,7 @@ types.submodule (
         description = "Overrides of the theme's semantic roles (hex without '#'): bg, bgDark, border, fg, fgActive, accent, accentStrong, accent2, muted, urgent, warn, ok, info, shadow. Logo and wallpaper colors follow them where the theme derives them from roles.";
       };
       graphics = mkOption {
-        type = types.attrsOf types.str;
+        type = types.attrsOf hex;
         default = { };
         example = {
           glow = "ff9e64";

@@ -721,6 +721,30 @@ true
 
 
 
+### nox\.desktop\.swaylock\.image
+
+
+
+Own lock screen image instead of the rendered one (nox-branding)\. With it the ring is the plain one (shown while typing, filled) instead of the logo’s neon o\.
+
+
+
+*Type:*
+null or absolute path
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
 ### nox\.desktop\.swaylock\.settings
 
 
@@ -829,19 +853,320 @@ strings concatenated with “\\n”
 
 
 
-Desktop theme (desktop/themes/\<name>\.nix): colors, fonts and radii for niri, waybar, rofi, swaync, swaylock, foot and GTK/Qt\. Single values stay overridable through the modules’ options (e\.g\. nox\.desktop\.niri\.settings)\.
+Desktop theme of dom0: colors, fonts and radii for niri, waybar, rofi, swaync, swaylock, foot and GTK/Qt, and the generated wallpaper and lock screen (nix/nox-branding\.nix)\. Defaults to the fleet’s ` nox.theme ` (vms\.nix); set that one, so the VMs follow (a different value here only changes dom0 and warns)\. Single values stay overridable through the modules’ options (e\.g\. nox\.desktop\.niri\.settings, nox\.desktop\.wpaperd\.settings)\.
 
 
 
 *Type:*
-value “tokyo-night” (singular enum)
+submodule
 
 
 
 *Default:*
 
 ```nix
-"tokyo-night"
+nox.theme (vms.nix)
+```
+
+
+
+*Example:*
+
+```nix
+{
+  name = "tokyo-night";
+  flavor = "neon";
+  decor = [ "stars" ];
+  lock.shade = "normal";
+}
+
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.colors
+
+
+
+Overrides of the theme’s semantic roles (hex without ‘\#’): bg, bgDark, border, fg, fgActive, accent, accentStrong, accent2, muted, urgent, warn, ok, info, shadow\. Logo and wallpaper colors follow them where the theme derives them from roles\.
+
+
+
+*Type:*
+attribute set of string matching the pattern \[0-9a-fA-F]{6}
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  accent = "ff9e64";
+}
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.decor
+
+
+
+Sky behind the logo: a crescent moon, stars, both or none\.
+
+
+
+*Type:*
+list of (one of “moon”, “stars”)
+
+
+
+*Default:*
+
+```nix
+[
+  "moon"
+  "stars"
+]
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.flavor
+
+
+
+Logo style: organic (glossy 3D), neon (glowing tubes) or glitch\.
+
+
+
+*Type:*
+one of “organic”, “neon”, “glitch”
+
+
+
+*Default:*
+
+```nix
+"organic"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.graphics
+
+
+
+Overrides of the logo and wallpaper colors (hex without ‘\#’): front, surface, edgeA, edgeB, glow, glow2 (bg and bgDark follow ` colors `)\.
+
+
+
+*Type:*
+attribute set of string matching the pattern \[0-9a-fA-F]{6}
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  glow = "ff9e64";
+}
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.lock
+
+
+
+Look of the lock screen image (the logo without its o: swaylock’s ring takes its place)\. flavor defaults to neon, shade and decor to the wallpaper’s\.
+
+
+
+*Type:*
+submodule
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.lock\.decor
+
+
+
+Sky behind the logo: a crescent moon, stars, both or none\.
+
+
+
+*Type:*
+list of (one of “moon”, “stars”)
+
+
+
+*Default:*
+
+```nix
+theme.decor
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.lock\.flavor
+
+
+
+Logo style: organic (glossy 3D), neon (glowing tubes) or glitch\.
+
+
+
+*Type:*
+one of “organic”, “neon”, “glitch”
+
+
+
+*Default:*
+
+```nix
+"neon"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.lock\.shade
+
+
+
+Background of the graphics: the theme’s colors (normal) or pulled 45 % towards black (dark)\. The desktop colors stay as they are\.
+
+
+
+*Type:*
+one of “normal”, “dark”
+
+
+
+*Default:*
+
+```nix
+theme.shade
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.name
+
+
+
+Theme (desktop/themes/\<name>\.nix): colors for niri, waybar, rofi, swaync, swaylock, foot, GTK/Qt, logo and wallpaper; icon theme\.
+
+
+
+*Type:*
+one of “black”, “catppuccin-mocha”, “dracula”, “nox”, “tokyo-night”
+
+
+
+*Default:*
+
+```nix
+"nox"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.resolution
+
+
+
+Size of the rendered wallpaper and lock screen image (scaled to each output)\.
+
+
+
+*Type:*
+one of “3840x2160”, “2560x1600”
+
+
+
+*Default:*
+
+```nix
+"3840x2160"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.shade
+
+
+
+Background of the graphics: the theme’s colors (normal) or pulled 45 % towards black (dark)\. The desktop colors stay as they are\.
+
+
+
+*Type:*
+one of “normal”, “dark”
+
+
+
+*Default:*
+
+```nix
+"dark"
 ```
 
 *Declared by:*
@@ -1848,6 +2173,325 @@ false
 
 
 
+### nox\.theme
+
+
+
+Desktop theme of the whole fleet: dom0’s desktop (nox\.desktop\.theme takes it as its default) and every VM (foot over wprs, the own niri of e\.g\. godot-gpu)\. Set it here, not per machine, so the VMs follow dom0; options in nox\.desktop\.theme\.
+
+
+
+*Type:*
+submodule
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{ name = "tokyo-night"; flavor = "neon"; }
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.colors
+
+
+
+Overrides of the theme’s semantic roles (hex without ‘\#’): bg, bgDark, border, fg, fgActive, accent, accentStrong, accent2, muted, urgent, warn, ok, info, shadow\. Logo and wallpaper colors follow them where the theme derives them from roles\.
+
+
+
+*Type:*
+attribute set of string matching the pattern \[0-9a-fA-F]{6}
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  accent = "ff9e64";
+}
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.decor
+
+
+
+Sky behind the logo: a crescent moon, stars, both or none\.
+
+
+
+*Type:*
+list of (one of “moon”, “stars”)
+
+
+
+*Default:*
+
+```nix
+[
+  "moon"
+  "stars"
+]
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.flavor
+
+
+
+Logo style: organic (glossy 3D), neon (glowing tubes) or glitch\.
+
+
+
+*Type:*
+one of “organic”, “neon”, “glitch”
+
+
+
+*Default:*
+
+```nix
+"organic"
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.graphics
+
+
+
+Overrides of the logo and wallpaper colors (hex without ‘\#’): front, surface, edgeA, edgeB, glow, glow2 (bg and bgDark follow ` colors `)\.
+
+
+
+*Type:*
+attribute set of string matching the pattern \[0-9a-fA-F]{6}
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  glow = "ff9e64";
+}
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.lock
+
+
+
+Look of the lock screen image (the logo without its o: swaylock’s ring takes its place)\. flavor defaults to neon, shade and decor to the wallpaper’s\.
+
+
+
+*Type:*
+submodule
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.lock\.decor
+
+
+
+Sky behind the logo: a crescent moon, stars, both or none\.
+
+
+
+*Type:*
+list of (one of “moon”, “stars”)
+
+
+
+*Default:*
+
+```nix
+theme.decor
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.lock\.flavor
+
+
+
+Logo style: organic (glossy 3D), neon (glowing tubes) or glitch\.
+
+
+
+*Type:*
+one of “organic”, “neon”, “glitch”
+
+
+
+*Default:*
+
+```nix
+"neon"
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.lock\.shade
+
+
+
+Background of the graphics: the theme’s colors (normal) or pulled 45 % towards black (dark)\. The desktop colors stay as they are\.
+
+
+
+*Type:*
+one of “normal”, “dark”
+
+
+
+*Default:*
+
+```nix
+theme.shade
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.name
+
+
+
+Theme (desktop/themes/\<name>\.nix): colors for niri, waybar, rofi, swaync, swaylock, foot, GTK/Qt, logo and wallpaper; icon theme\.
+
+
+
+*Type:*
+one of “black”, “catppuccin-mocha”, “dracula”, “nox”, “tokyo-night”
+
+
+
+*Default:*
+
+```nix
+"nox"
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.resolution
+
+
+
+Size of the rendered wallpaper and lock screen image (scaled to each output)\.
+
+
+
+*Type:*
+one of “3840x2160”, “2560x1600”
+
+
+
+*Default:*
+
+```nix
+"3840x2160"
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.shade
+
+
+
+Background of the graphics: the theme’s colors (normal) or pulled 45 % towards black (dark)\. The desktop colors stay as they are\.
+
+
+
+*Type:*
+one of “normal”, “dark”
+
+
+
+*Default:*
+
+```nix
+"dark"
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.unfree
 
 
@@ -2051,8 +2695,6 @@ null
 
 
 ### nox\.vms\.\<name>\.apps\.\<name>\.args
-
-
 
 Arguments for every start (desktop entry and tray)\.
 
@@ -2589,6 +3231,8 @@ null
 
 
 ### nox\.vms\.\<name>\.egress
+
+
 
 Outgoing traffic the VM may send through sys-firewall; null: everything\. DNS always through sys-firewall’s resolver\.
 

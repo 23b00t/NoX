@@ -108,6 +108,9 @@ let
       globalExtraSSH = [ ];
       hardware = mkHardware host;
       hostProfile = machines.${host}.profile or { };
+      # nox.theme: the same on every machine (VMs share store images), so
+      # dom0 and its VMs look alike
+      inherit (noxFor null) theme;
     };
 in
 {
