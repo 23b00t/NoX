@@ -52,7 +52,10 @@ nox = {
   };
   # every VM: time zone and locale (NoX: UTC, en_US.UTF-8)
   vmModule.time.timeZone = "Europe/Berlin";
-  # the builder (nox.infra.builder.enable): the repo it builds
+  # the builder (nox.infra.builder.enable): the repo it builds; a private
+  # repo by SSH with the builder's deploy key (cat its
+  # /var/lib/builder/deploy-key.pub, add it at GitHub as a read-only deploy key)
+  # vms.builder.module.nox.builder.repoUrl = "git@github.com:<you>/<config>.git";
   vms.builder.module.nox.builder.repoUrl = "https://github.com/<you>/<config>";
   # theme of dom0 and every VM (NoX: nox, organic logo, dark, moon and
   # stars; themes: nox, tokyo-night, catppuccin-mocha, dracula, black;

@@ -23,9 +23,16 @@ let
 
     [ -r "$key" ] || { echo "builder-build: signing key $key missing" >&2; exit 1; }
 
+    # SSH URLs (a private config): the builder's own read-only deploy key
+    # and GitHub's pinned host key (programs.ssh.knownHosts below), no agent
+    export GIT_SSH_COMMAND="${pkgs.openssh}/bin/ssh -i ${stateDir}/deploy-key -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/dev/null"
+
     if [ ! -d "$repo/.git" ]; then
-      ${pkgs.git}/bin/git clone --quiet ${repoUrl} "$repo" >&2
+      ${pkgs.git}/bin/git clone --quiet ${lib.escapeShellArg repoUrl} "$repo" >&2
     fi
+    # A changed repoUrl (e.g. https -> ssh when the config went private)
+    # applies to the existing checkout too
+    ${pkgs.git}/bin/git -C "$repo" remote set-url origin ${lib.escapeShellArg repoUrl}
     ${pkgs.git}/bin/git -C "$repo" fetch --quiet origin "$branch" >&2
     ${pkgs.git}/bin/git -C "$repo" checkout --quiet --detach FETCH_HEAD >&2
     echo "builder-build: $machine from $branch @ $(${pkgs.git}/bin/git -C "$repo" rev-parse --short HEAD)" >&2
@@ -68,12 +75,17 @@ in
       options.nox.builder.repoUrl = lib.mkOption {
         type = lib.types.str;
         example = "https://github.com/<you>/<your-nox-config>";
-        description = "Git URL of the config the builder builds (`nox.vms.builder.module` in the user's vms.nix).";
+        description = "Git URL of the config the builder builds (`nox.vms.builder.module` in the user's vms.nix). HTTPS for a public repo; for a private one the SSH URL (git@github.com:<you>/<config>.git) with the builder's own read-only deploy key (/var/lib/builder/deploy-key.pub, registered at GitHub as the repo's deploy key).";
       };
     }
   ];
 
   networking.hostName = "builder-vm";
+
+  # GitHub's host key (api.github.com/meta, 2026-10-27) for the deploy key's
+  # SSH fetches: checked strictly, never learned on first use
+  programs.ssh.knownHosts."github.com".publicKey =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl";
 
   services = {
     net-config = {
@@ -136,9 +148,11 @@ in
 
     services = {
       # Signing key, generated in the VM on first boot; only the public part
-      # leaves it (vms/builder/signing-key-<machine>.pub, trusted by that dom0)
+      # leaves it (vms/builder/signing-key-<machine>.pub, trusted by that dom0).
+      # Same for the deploy key: an SSH key for a private config repo, read
+      # only, registered at GitHub as that repo's deploy key (README "Builder")
       builder-signing-key = {
-        description = "Generate the builder's Nix signing key";
+        description = "Generate the builder's Nix signing key and deploy key";
         wantedBy = [ "multi-user.target" ];
         after = [ "local-fs.target" ];
         unitConfig.RequiresMountsFor = [ stateDir ];
@@ -147,12 +161,19 @@ in
           User = "user";
           UMask = "0077";
         };
-        path = [ config.nix.package ];
+        path = [
+          config.nix.package
+          pkgs.openssh
+        ];
         script = ''
           if [ ! -e ${stateDir}/signing-key ]; then
             nix key generate-secret --key-name builder-vm-1 > ${stateDir}/signing-key
             nix key convert-secret-to-public < ${stateDir}/signing-key > ${stateDir}/signing-key.pub
             chmod 644 ${stateDir}/signing-key.pub
+          fi
+          if [ ! -e ${stateDir}/deploy-key ]; then
+            ssh-keygen -q -t ed25519 -N "" -C builder-vm-deploy -f ${stateDir}/deploy-key
+            chmod 644 ${stateDir}/deploy-key.pub
           fi
         '';
       };

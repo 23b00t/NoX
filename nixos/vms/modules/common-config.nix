@@ -128,6 +128,12 @@ in
       memoryPercent = lib.mkDefault 50;
     };
 
+    # The user's session (zellij, nvim, Claude, …) gets 10 s to stop, then
+    # SIGKILL: the default 2 min outlasted the runner, which destroys the
+    # domain after 60 s (nvim, xmg 2026-10-27: "A stop job is running for
+    # User Manager for UID 1000"), so every restart of such a VM took a minute
+    systemd.services."user@".serviceConfig.TimeoutStopSec = lib.mkDefault "10s";
+
     # Time zone and locale: NixOS defaults (UTC, en_US.UTF-8); the user sets
     # them for the fleet in `nox.vmModule`
     i18n.defaultLocale = "en_US.UTF-8";

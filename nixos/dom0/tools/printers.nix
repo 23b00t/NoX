@@ -37,11 +37,17 @@ let
       echo "starting sys-print …" >&2
       systemctl start microvm@sys-print.service || fail "sys-print startet nicht"
     fi
-    # Its relay connects after the boot
-    for _ in $(seq 120); do
-      [ "$(timeout 5 nox-rpc --dom0 ping sys-print 2>/dev/null)" = ok ] && break
-      sleep 1
-    done
+    # Its relay connects after the boot (marker as in vm-disp); 2 minutes at
+    # most, then one ping as the check, so a stuck relay ends with a message
+    if ! [ -e /run/nox-relay/sys-print.ready ]; then
+      echo "waiting for sys-print's relay …" >&2
+      for _ in $(seq 240); do
+        [ -e /run/nox-relay/sys-print.ready ] && break
+        sleep 0.5
+      done
+    fi
+    [ "$(timeout 10 nox-rpc --dom0 ping sys-print 2>/dev/null)" = ok ] ||
+      fail "sys-print antwortet nicht (journalctl -u nox-relay-sys-print)"
 
     nets="$(timeout 20 nox-rpc --dom0 lan sys-net)" || fail "sys-net nennt kein Netz"
     [ -n "$nets" ] || fail "sys-net hat kein lokales Netz (kein WLAN/LAN?)"
