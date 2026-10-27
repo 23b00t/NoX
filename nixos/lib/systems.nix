@@ -12,7 +12,7 @@
 #   machines.<host> { modules; hardware = { profile; usbDevices;
 #                   pciDeviceIds; pciDevicePaths; }; } (registry/machine.nix)
 #   vmView          machine whose registry the standalone VM outputs see
-#   backupLuksUuids LUKS volumes `nox backup` may open (empty: the only one)
+#   backupLuksUuids LUKS volumes `nox backup` takes right away (others: by passphrase)
 #   builderKeys     directory with the builder's signing keys and allowed
 #                   commit signers (dom0-update), null without a builder
 #

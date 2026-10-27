@@ -432,7 +432,7 @@ let
       }
     }
     full_get_one() { # full_get_one <target> <gen> <disk> <used> <before> <total>
-      local t="$1" g="$2" d="$3" kind p dir stage
+      local t="$1" g="$2" d="$3" kind p dir stage parent
       kind="$(kind_of "$t")"
       p="$(path_of "$t" "$d")"
       case "$kind" in
@@ -456,6 +456,13 @@ let
         *)
           dir="$(dirname "$p")"
           stage="$dir/.nox-restore"
+          # Missing folders (a new system, e.g. ~/vm-images/kali) belong to
+          # the owner of the nearest existing parent, not to root
+          if [ ! -d "$dir" ]; then
+            parent="$dir"
+            while [ ! -d "$parent" ]; do parent="$(dirname "$parent")"; done
+            sudo -u "#$(stat -c %u "$parent")" -g "#$(stat -c %g "$parent")" mkdir -p "$dir" || return 1
+          fi
           sudo mkdir -p "$stage" || return 1
           if ! fetch "$@" | sudo tar -C "$stage" -xS -f -; then
             sudo rm -rf "$stage"

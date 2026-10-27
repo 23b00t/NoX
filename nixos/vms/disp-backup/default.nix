@@ -83,9 +83,10 @@ let
       open | open-test)
         # The disk is the only sd* here (own disks are xvd*); vm-backup's
         # test disk (NOX_BACKUP_TEST_DISK) comes as xvdz. LUKS on the whole
-        # disk or on a partition. A disk may hold several LUKS volumes: only
-        # one listed in the registry (`backupLuksUuids`) is opened, never
-        # another; without a list only a disk with a single LUKS volume
+        # disk or on any partition. Any LUKS volume can be the backup volume:
+        # one listed in the registry (`backupLuksUuids`) is taken right away,
+        # otherwise the one the passphrase opens (several with the same
+        # passphrase: error listing them, list one in the registry)
         IFS= read -r pw || exit 1
         allowed=" ${lib.concatStringsSep " " vmRegistry.backupLuksUuids} "
         dev=""
@@ -104,7 +105,7 @@ let
               break 2
             fi
           done
-          if [ "$allowed" = "  " ] && [ "''${#found[@]}" -gt 0 ]; then
+          if [ "''${#found[@]}" -gt 0 ]; then
             # Partitions may still be coming up: decide on a second look
             [ -n "$seen" ] && break
             seen=1
@@ -112,16 +113,24 @@ let
           [ "$1" = open-test ] && [ -b /dev/xvdz ] && break
           sleep 1
         done
-        if [ "$allowed" = "  " ] && [ "''${#found[@]}" -eq 1 ]; then
+        if [ -z "$dev" ] && [ "''${#found[@]}" -eq 1 ]; then
           dev="''${found[0]%% *}"
-        elif [ -z "$dev" ] && [ "''${#found[@]}" -gt 0 ] && [ "$1" = open ]; then
-          if [ "$allowed" = "  " ]; then
-            echo "error: several LUKS volumes on the disk; list the backup volume in the registry (backupLuksUuids):"
-          else
-            echo "error: none of the LUKS volumes on the disk is a backup volume (registry backupLuksUuids):"
+        elif [ -z "$dev" ] && [ "''${#found[@]}" -gt 1 ] && [ "$1" = open ]; then
+          matches=()
+          for f in "''${found[@]}"; do
+            if printf '%s' "$pw" | cryptsetup open --test-passphrase --key-file=- "''${f%% *}" 2>/dev/null; then
+              matches+=("$f")
+            fi
+          done
+          if [ "''${#matches[@]}" -eq 0 ]; then
+            echo "wrong passphrase"
+            exit 3
+          elif [ "''${#matches[@]}" -gt 1 ]; then
+            echo "error: the passphrase opens several LUKS volumes; list the backup volume in the registry (backupLuksUuids):"
+            printf '  %s\n' "''${matches[@]}"
+            exit 1
           fi
-          printf '  %s\n' "''${found[@]}"
-          exit 1
+          dev="''${matches[0]%% *}"
         fi
         if [ -z "$dev" ] && [ "$1" = open-test ] && [ -b /dev/xvdz ]; then
           # Fresh test disk: format it like a real one (LUKS + ext4)
