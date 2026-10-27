@@ -1,0 +1,107 @@
+{
+  "front~glow2~300": {
+    "a": "front",
+    "b": "glow2",
+    "t": 0.3
+  },
+  "front~glow2~650": {
+    "a": "front",
+    "b": "glow2",
+    "t": 0.65
+  },
+  "glow2~glow~250": {
+    "a": "glow2",
+    "b": "glow",
+    "t": 0.25
+  },
+  "edgeA~bgDark~600": {
+    "a": "edgeA",
+    "b": "bgDark",
+    "t": 0.6000000000000001
+  },
+  "edgeB~bgDark~600": {
+    "a": "edgeB",
+    "b": "bgDark",
+    "t": 0.6000000000000001
+  },
+  "edgeA~bgDark~520": {
+    "a": "edgeA",
+    "b": "bgDark",
+    "t": 0.52
+  },
+  "edgeB~bgDark~520": {
+    "a": "edgeB",
+    "b": "bgDark",
+    "t": 0.52
+  },
+  "edgeA~bgDark~440": {
+    "a": "edgeA",
+    "b": "bgDark",
+    "t": 0.44
+  },
+  "edgeB~bgDark~440": {
+    "a": "edgeB",
+    "b": "bgDark",
+    "t": 0.44
+  },
+  "edgeA~bgDark~360": {
+    "a": "edgeA",
+    "b": "bgDark",
+    "t": 0.36000000000000004
+  },
+  "edgeB~bgDark~360": {
+    "a": "edgeB",
+    "b": "bgDark",
+    "t": 0.36000000000000004
+  },
+  "edgeA~bgDark~280": {
+    "a": "edgeA",
+    "b": "bgDark",
+    "t": 0.28
+  },
+  "edgeB~bgDark~280": {
+    "a": "edgeB",
+    "b": "bgDark",
+    "t": 0.28
+  },
+  "glow~ffffff~550": {
+    "a": "glow",
+    "b": "ffffff",
+    "t": 0.55
+  },
+  "edgeA~bgDark~300": {
+    "a": "edgeA",
+    "b": "bgDark",
+    "t": 0.3
+  },
+  "edgeB~bgDark~300": {
+    "a": "edgeB",
+    "b": "bgDark",
+    "t": 0.3
+  },
+  "bg~glow2~120": {
+    "a": "bg",
+    "b": "glow2",
+    "t": 0.12
+  },
+  "front~glow2~450": {
+    "a": "front",
+    "b": "glow2",
+    "t": 0.45
+  },
+  "glow2~glow~400": {
+    "a": "glow2",
+    "b": "glow",
+    "t": 0.4
+  },
+  "front~glow2~500": {
+    "a": "front",
+    "b": "glow2",
+    "t": 0.5
+  },
+  "front~glow~400": {
+    "a": "front",
+    "b": "glow",
+    "t": 0.4
+  }
+}

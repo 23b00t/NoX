@@ -10,7 +10,7 @@
 let
   theme = import ./theme.nix {
     inherit lib;
-    name = config.nox.desktop.theme;
+    inherit (config.nox.desktop) theme;
   };
   iconTheme = pkgs.tela-circle-icon-theme.override { colorVariants = [ theme.icons.variant ]; };
   video = "chromium-browser.desktop";

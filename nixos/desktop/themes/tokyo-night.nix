@@ -1,11 +1,12 @@
-# Theme tokyo-night (nox.desktop.theme): colors, transparency, radii and
-# fonts for niri, waybar, rofi, swaync, swaylock, foot and GTK/Qt.
-{ lib }:
-let
-  # Tokyo Night palette, hex without '#'
+# Theme tokyo-night (nox.desktop.theme.name): Tokyo Night storm/night with an
+# extra pink as the strong accent. Data only; desktop/theme.nix adds the
+# shared parts (opacity, radii, fonts, …).
+rec {
+  # Hex without '#'
   palette = {
     bg = "24283b"; # storm background
     bgDark = "1a1b26"; # night background
+    surface = "292e42";
     fg = "c0caf5";
     comment = "565f89";
     border = "3b4261";
@@ -18,17 +19,11 @@ let
     red = "f7768e";
     yellow = "e0af68";
     green = "9ece6a";
+    white = "eef1ff";
     black = "000000";
   };
 
-  # 0.0-1.0 -> two hex digits
-  alphaHex =
-    a: lib.toLower (lib.fixedWidthString 2 "0" (lib.toHexString (builtins.floor (a * 255 + 0.5))));
-in
-rec {
-  inherit palette;
-
-  # Semantic roles, hex without '#' (swaylock wants it that way)
+  # Semantic roles (nox.desktop.theme.colors overrides them)
   raw = {
     inherit (palette) bg bgDark border;
     fg = palette.blue; # text everywhere, as waybar always had it
@@ -44,11 +39,8 @@ rec {
     shadow = palette.black;
   };
 
-  # Trust labels (vms/registry.nix `label`): window border and focus ring per
-  # VM in niri, hex without '#'; dom0 = titles not starting with "[" (VM
-  # windows always carry wprsc's "[<vm>] " prefix), unknown = everything else
-  # (e.g. a VM window without a title): never dom0's color
-  labelRaw = {
+  # Trust labels: window border per VM label (same meaning in every theme)
+  labels = {
     dom0 = palette.fg;
     unknown = palette.comment;
     sys = palette.red;
@@ -58,89 +50,44 @@ rec {
     vault = palette.cyan;
     anon = palette.blue;
   };
-  label = lib.mapAttrs (_: c: "#${c}") labelRaw;
-  labelWithAlpha = l: a: "${label.${l}}${alphaHex a}";
 
-  # Same roles as "#rrggbb" for CSS, KDL and rasi
-  color = lib.mapAttrs (_: c: "#${c}") raw;
-
-  # Transparency levels
-  opacity = {
-    surface = 0.8; # waybar modules, notifications
-    popup = 0.9; # swaync control center
-    launcher = 0.97; # all rofi menus; less see-through than popup
-    bar = 0.1; # waybar background (on black)
-    shadow = 0.44;
-    inactiveRing = 0.8;
-    inactiveBorder = 0.5; # label border of unfocused windows
+  # Logo and wallpaper colors: blue/magenta/cyan, no pink
+  graphics = r: {
+    front = palette.white;
+    inherit (palette) surface;
+    edgeA = r.info;
+    edgeB = r.accent;
+    glow = r.accent;
+    glow2 = r.accent2;
   };
 
-  # "#rrggbbaa" / "rrggbbaa" from a role name and an opacity
-  withAlpha = role: a: "${color.${role}}${alphaHex a}";
-  rawWithAlpha = role: a: "${raw.${role}}${alphaHex a}";
-
-  # Corner radii in px; `radius` matches niri's geometry-corner-radius
-  radius = 10;
-  radiusInner = 6;
-
-  # Gap between windows (niri) and around floating panels (swaync)
-  gap = 10;
-
-  font = {
-    family = "FiraCode Nerd Font";
-    barSize = 14; # px, waybar
-    launcherSize = 11; # pt, rofi
-    lockSize = 24; # px, swaylock
-  };
-
-  # swaync: popups and the control center (waybar bell)
-  notifications = {
-    width = 420; # px, control center
-    iconSize = 64;
-    summarySize = 16; # px
-    bodySize = 15; # px
-  };
-
-  # Icon theme for GTK/Qt and rofi; package: tela-circle-icon-theme with this variant
   icons = {
     name = "Tela-circle-dracula";
     variant = "dracula";
   };
 
-  # foot (foot.ini sections), font and colors as kitty had them; dom0
-  # (home/home.nix) and the VMs over wprs (vms/modules/wprs.nix)
-  foot = {
-    # Medium: Regular looked thin in foot next to kitty (kitty thickens
-    # glyphs, foot does not); bold set explicitly, foot derives it otherwise.
-    # Fallback for symbols FiraCode lacks (home/desktop/symbols-font.nix) and
-    # emoji (termusic's highlight symbols)
-    main = {
-      font = "${font.family}:style=Medium:size=11.5, Noto Sans Symbols 2:size=11.5, FreeMono:size=11.5, Noto Color Emoji:size=11.5";
-      font-bold = "${font.family}:style=Bold:size=11.5, Noto Sans Symbols 2:size=11.5, FreeMono:size=11.5, Noto Color Emoji:size=11.5";
-    };
-    scrollback.lines = 2000;
-    mouse.hide-when-typing = "yes";
-    colors-dark = {
-      background = "1e1f28";
-      foreground = "f8f8f2";
-      selection-background = "44475a";
-      selection-foreground = "1e1f28";
-      regular0 = "000000";
-      regular1 = "ff5555";
-      regular2 = "50fa7b";
-      regular3 = "f0fa8b";
-      regular4 = "bd92f8";
-      regular5 = "ff78c5";
-      regular6 = "8ae9fc";
-      regular7 = "bbbbbb";
-      bright0 = "545454";
-      bright1 = "ff5454";
-      bright2 = "50fa7b";
-      bright3 = "f0fa8b";
-      bright4 = "bd92f8";
-      bright5 = "ff78c5";
-      bright6 = "8ae9fc";
-      bright7 = "ffffff";
-    };
+  # foot [colors-dark]: tokyonight.nvim's extras/foot/tokyonight_night.ini
+  terminal = {
+    background = "1a1b26";
+    foreground = "c0caf5";
+    selection-background = "283457";
+    selection-foreground = "c0caf5";
+    urls = "73daca";
+    regular0 = "15161e";
+    regular1 = "f7768e";
+    regular2 = "9ece6a";
+    regular3 = "e0af68";
+    regular4 = "7aa2f7";
+    regular5 = "bb9af7";
+    regular6 = "7dcfff";
+    regular7 = "a9b1d6";
+    bright0 = "414868";
+    bright1 = "f7768e";
+    bright2 = "9ece6a";
+    bright3 = "e0af68";
+    bright4 = "7aa2f7";
+    bright5 = "bb9af7";
+    bright6 = "7dcfff";
+    bright7 = "c0caf5";
   };
 }

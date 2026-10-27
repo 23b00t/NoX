@@ -8,7 +8,7 @@
 let
   theme = import ./theme.nix {
     inherit lib;
-    name = config.nox.desktop.theme;
+    inherit (config.nox.desktop) theme;
   };
   # Shared with VMs that run their own niri (godot-gpu): input, layout, look,
   # window and workspace keys, generic window rules
@@ -18,8 +18,19 @@ let
   };
   hostname = config.networking.hostName;
   login = config.nox.desktop.login;
-  # Default wallpaper (desktop and lock screen), from nixos-artwork
-  dracula = pkgs.nixos-artwork.wallpapers.dracula.gnomeFilePath;
+  colorMath = import ../lib/color.nix { inherit lib; };
+  # Default wallpaper and lock screen image: the NoX logo in the theme's
+  # colors (nix/nox-branding.nix)
+  branding =
+    let
+      t = config.nox.desktop.theme;
+    in
+    pkgs.callPackage ../../nix/nox-branding.nix {
+      colors = theme.graphics;
+      inherit (t) resolution;
+      wallpaper = { inherit (t) flavor shade decor; };
+      lock = { inherit (t.lock) flavor shade decor; };
+    };
 
   # Trust label per VM (vms/registry.nix `label`, absent = untrusted): one
   # window rule per label on the "[<vm>] " app id prefix that dom0's wprsc
@@ -751,50 +762,61 @@ in
         ++ labelRules;
       };
 
-      # Lock screen; PAM comes from security.pam.services.swaylock (system side)
+      # Lock screen; PAM comes from security.pam.services.swaylock (system side).
+      # The lock image (nix/nox-branding.nix) shows the logo without its o,
+      # the gap on the screen center: swaylock's ring, always visible, is the
+      # o as a neon tube (light core, glow-colored edges, the image draws its
+      # glow). Radius and thickness match branding/gen.py's LOCK_RING.
       swaylock = {
         enable = true;
-        settings = with theme; {
-          image = lib.mkDefault dracula;
-          scaling = "fill";
-          color = raw.bg;
-          font = font.family;
-          font-size = font.lockSize;
-          indicator-radius = 100;
-          indicator-thickness = 8;
-          show-failed-attempts = true;
-          ignore-empty-password = true;
+        settings =
+          with theme;
+          let
+            core = colorMath.mix graphics.glow "ffffff" 0.55;
+            clear = "00000000";
+          in
+          {
+            image = lib.mkDefault "${branding}/share/nox/lock.png";
+            scaling = "fill";
+            color = raw.bg;
+            font = font.family;
+            font-size = font.lockSize;
+            indicator-radius = 70;
+            indicator-thickness = 7;
+            indicator-idle-visible = true;
+            show-failed-attempts = true;
+            ignore-empty-password = true;
 
-          inside-color = rawWithAlpha "bg" opacity.surface;
-          inside-clear-color = rawWithAlpha "bg" opacity.surface;
-          inside-ver-color = rawWithAlpha "bg" opacity.surface;
-          inside-wrong-color = rawWithAlpha "bg" opacity.surface;
-          inside-caps-lock-color = rawWithAlpha "bg" opacity.surface;
+            inside-color = clear;
+            inside-clear-color = clear;
+            inside-ver-color = clear;
+            inside-wrong-color = clear;
+            inside-caps-lock-color = clear;
 
-          ring-color = raw.accent;
-          ring-clear-color = raw.info;
-          ring-ver-color = raw.accent2;
-          ring-wrong-color = raw.urgent;
-          ring-caps-lock-color = raw.warn;
+            ring-color = core;
+            ring-clear-color = raw.info;
+            ring-ver-color = graphics.glow2;
+            ring-wrong-color = raw.urgent;
+            ring-caps-lock-color = raw.warn;
 
-          key-hl-color = raw.fgActive;
-          bs-hl-color = raw.urgent;
-          caps-lock-key-hl-color = raw.fgActive;
-          caps-lock-bs-hl-color = raw.urgent;
+            key-hl-color = "ffffff";
+            bs-hl-color = raw.urgent;
+            caps-lock-key-hl-color = "ffffff";
+            caps-lock-bs-hl-color = raw.urgent;
 
-          text-color = raw.fg;
-          text-clear-color = raw.info;
-          text-ver-color = raw.accent2;
-          text-wrong-color = raw.urgent;
-          text-caps-lock-color = raw.warn;
+            text-color = graphics.front;
+            text-clear-color = raw.info;
+            text-ver-color = graphics.glow2;
+            text-wrong-color = raw.urgent;
+            text-caps-lock-color = raw.warn;
 
-          line-color = "00000000";
-          line-clear-color = "00000000";
-          line-ver-color = "00000000";
-          line-wrong-color = "00000000";
-          line-caps-lock-color = "00000000";
-          separator-color = "00000000";
-        };
+            line-color = graphics.glow;
+            line-clear-color = raw.info;
+            line-ver-color = graphics.glow2;
+            line-wrong-color = raw.urgent;
+            line-caps-lock-color = raw.warn;
+            separator-color = clear;
+          };
       };
 
       # services.dunst = {
@@ -806,7 +828,7 @@ in
       wpaperd = {
         enable = true;
         # Every output (the user's config adds per-output sections)
-        settings.any.path = lib.mkDefault dracula;
+        settings.any.path = lib.mkDefault "${branding}/share/nox/wallpaper.png";
       };
 
       # Notifications; colors, sizes and fonts from theme.nix. The control

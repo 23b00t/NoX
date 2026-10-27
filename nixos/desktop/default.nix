@@ -143,11 +143,17 @@ in
       };
     };
     theme = lib.mkOption {
-      type = lib.types.enum (
-        map (lib.removeSuffix ".nix") (builtins.attrNames (builtins.readDir ./themes))
-      );
-      default = "tokyo-night";
-      description = "Desktop theme (desktop/themes/<name>.nix): colors, fonts and radii for niri, waybar, rofi, swaync, swaylock, foot and GTK/Qt. Single values stay overridable through the modules' options (e.g. nox.desktop.niri.settings).";
+      type = import ./theme-type.nix { inherit lib; };
+      default = { };
+      example = lib.literalExpression ''
+        {
+          name = "tokyo-night";
+          flavor = "neon";
+          decor = [ "stars" ];
+          lock.shade = "normal";
+        }
+      '';
+      description = "Desktop theme: colors, fonts and radii for niri, waybar, rofi, swaync, swaylock, foot and GTK/Qt, and the generated wallpaper and lock screen (nix/nox-branding.nix). Single values stay overridable through the modules' options (e.g. nox.desktop.niri.settings, nox.desktop.wpaperd.settings).";
     };
     keyboard =
       lib.mapAttrs

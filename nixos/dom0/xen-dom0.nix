@@ -13,7 +13,7 @@
 let
   theme = import ../desktop/theme.nix {
     inherit lib;
-    name = config.nox.desktop.theme;
+    inherit (config.nox.desktop) theme;
   };
   nicPciPaths = vmRegistry.hardware.pci.devicePaths.nic or [ ];
   # NIC drivers blacklisted in dom0 (registry hostProfile), loaded again by
