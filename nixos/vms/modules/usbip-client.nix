@@ -75,7 +75,9 @@ let
             exit 1
           fi
           install -d -m 0700 /var/lib/bluetooth
-          tar -C /var/lib/bluetooth --no-same-owner --no-same-permissions -xf "$tmp" || exit 1
+          # --skip-old-files: only devices the VM doesn't know yet; its own (newer)
+          # pairing of a device is never overwritten by sys-usb's older one
+          tar -C /var/lib/bluetooth --no-same-owner --no-same-permissions --skip-old-files -xf "$tmp" || exit 1
           systemctl restart bluetooth
           ;;
       ''}
@@ -125,6 +127,19 @@ in
       (lib.mkIf bluetooth {
         hardware.bluetooth.enable = true;
         hardware.firmware = [ bluetoothFirmware ];
+        # dom0's waybar icon opens it where the adapter is (bt-manager,
+        # modules/xen-usb.nix)
+        services.blueman.enable = lib.mkDefault true;
+        # Pairings survive a restart (steam: a gamepad knows one host and its
+        # key, a pairing on tmpfs broke after every restart, 2026-10-26);
+        # disposable VMs boot empty on purpose. sys-usb has its own volume
+        microvm.volumes = lib.mkIf (!(vmRegistry.byName.${vmName}.disposable or false)) [
+          {
+            mountPoint = "/var/lib/bluetooth";
+            image = "bluetooth.img";
+            size = 64;
+          }
+        ];
       })
     ]
   );

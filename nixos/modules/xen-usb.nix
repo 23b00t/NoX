@@ -478,6 +478,31 @@ let
     exit "$rc"
   '';
 
+  # waybar's Bluetooth icon: the manager where the adapter is. In sys-usb (or
+  # nowhere) and in a VM with blueman (usbip-client.nix gives it to every
+  # Bluetooth VM by default): blueman there; a VM that turned blueman off
+  # (steam pairs only in its own Bluetooth dialog) gets a notification
+  noBluemanVms = builtins.filter (
+    vm: !(config.microvm.vms.${vm}.config.config.services.blueman.enable or false)
+  ) (builtins.attrNames config.microvm.vms);
+  btManager = pkgs.writeShellScriptBin "bt-manager" ''
+    set -u
+    names=" ${lib.concatStringsSep " " btNames} "
+    owner=sys-usb
+    while read -r _ _ name o _; do
+      case "$names" in *" $name "*) owner="$o" ;; esac
+    done < <(${vmUsb}/bin/vm-usb list | tail -n +2)
+    case "$owner" in "" | dom0*) owner=sys-usb ;; esac
+    # shellcheck disable=SC2194 # the list is filled in by Nix
+    case " ${lib.concatStringsSep " " noBluemanVms} " in
+      *" $owner "*)
+        exec ${pkgs.libnotify}/bin/notify-send -a bluetooth "Bluetooth" \
+          "Bluetooth is currently managed by $owner-vm"
+        ;;
+    esac
+    exec vm-run "$owner" dbus-run-session -- blueman-manager
+  '';
+
   # Give the USB controllers back to dom0
   releaseControllers = ''
     if xl domid ${links.domain} >/dev/null 2>&1; then
@@ -524,6 +549,7 @@ in
       vmUsb
       inputTo
       inputBack
+      btManager
     ];
 
     # vm-usb state (assignments), runtime only like the assignments themselves

@@ -99,6 +99,10 @@
         { "geometry-corner-radius" = theme.radius; }
         { "clip-to-geometry" = true; }
         { "draw-border-with-background" = false; }
+        # An app that asks to start maximized (LibreOffice remembers it) gets a
+        # maximized column with its label border, not the edge-to-edge
+        # maximize, which draws no border (xmg 2026-10-27)
+        { "open-maximized-to-edges" = false; }
         { opacity = 0.85; }
         {
           "background-effect" = {

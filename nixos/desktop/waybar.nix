@@ -326,7 +326,7 @@ in
             "tooltip": false,
             "exec": "echo ",
             "interval": 3600,
-            "on-click": "vm-run su dbus-run-session -- blueman-manager"
+            "on-click": "bt-manager"
           },
 
 
