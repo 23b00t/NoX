@@ -7,7 +7,7 @@
 let
   theme = import ./theme.nix {
     inherit lib;
-    name = config.nox.desktop.theme;
+    inherit (config.nox.desktop) theme;
   };
 in
 {

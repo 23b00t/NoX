@@ -14,7 +14,7 @@ let
   kdl = import ../../lib/kdl.nix { inherit lib; };
   theme = import ../../desktop/theme.nix {
     inherit lib;
-    name = cfg.theme;
+    inherit (cfg) theme;
   };
   base = import ../../desktop/niri-base.nix {
     inherit lib theme;
@@ -62,9 +62,9 @@ in
     };
 
     theme = lib.mkOption {
-      type = lib.types.str;
-      default = "tokyo-night";
-      description = "Desktop theme (NoX desktop/themes/<name>.nix), as nox.desktop.theme in dom0.";
+      type = import ../../desktop/theme-type.nix { inherit lib; };
+      default = { };
+      description = "Desktop theme, as nox.desktop.theme in dom0 (colors only: this desktop has no wallpaper).";
     };
 
     keyboard =

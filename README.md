@@ -55,9 +55,11 @@ nox = {
   # the builder (nox.infra.builder.enable): the repo it builds
   vms.builder.module.nox.builder.repoUrl = "https://github.com/<you>/<config>";
 };
-# dom0: niri's keyboard (NoX: us), theme (NoX ships tokyo-night, the default)
+# dom0: niri's keyboard (NoX: us), theme (NoX: nox, organic logo, dark,
+# moon and stars; themes: nox, tokyo-night, catppuccin-mocha, dracula,
+# black; wallpaper and lock screen are rendered from branding/templates)
 # nox.desktop.keyboard = { layout = "us"; variant = "altgr-intl"; };
-# nox.desktop.theme = "tokyo-night";
+# nox.desktop.theme = { name = "tokyo-night"; flavor = "neon"; lock.decor = [ ]; };
 ```
 
 ## nox-relay

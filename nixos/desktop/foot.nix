@@ -10,7 +10,7 @@
 let
   theme = import ./theme.nix {
     inherit lib;
-    name = config.nox.desktop.theme;
+    inherit (config.nox.desktop) theme;
   };
   # locked-title: programs in dom0's terminal can't set a title like
   # "[vault] …" and get that VM's border in niri

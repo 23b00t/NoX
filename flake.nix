@@ -65,6 +65,12 @@
             nox-cli
             ;
           options-doc = pkgs.callPackage ./nix/options-doc.nix { };
+          # Logo, icon, wallpaper and lock screen of the default theme (nox,
+          # organic, dark, moon and stars); a config builds its own from
+          # nox.desktop.theme
+          nox-branding = pkgs.callPackage ./nix/nox-branding.nix {
+            colors = (import ./nixos/desktop/theme.nix { inherit (pkgs) lib; }).graphics;
+          };
           default = nox.nox-relay;
         }
       );
