@@ -51,7 +51,7 @@ in
           socketConfig = {
             ListenStream = "/run/xen-vnc/${domain}.sock";
             Accept = true;
-            SocketUser = "nx";
+            SocketUser = config.nox.user;
             SocketMode = "0600";
             DirectoryMode = "0755";
           };

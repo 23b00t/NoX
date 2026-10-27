@@ -1,5 +1,5 @@
 # plymouth theme "nox": the NoX wallpaper (nox-branding, the theme's colors)
-# full screen, the passphrase in a translucent field below the logo, and the
+# full screen, the passphrase in a translucent field below the logo (no prompt text), and the
 # boot in short form: the last systemd status lines in a translucent panel at
 # the bottom (older lines fade). Esc shows the full boot messages (plymouth's
 # console view). Script plugin, so no compiled code.
@@ -56,7 +56,7 @@ let
     log.panel.image = Image("log.png");
     log.panel.sprite = Sprite(log.panel.image);
     log.x = X + W / 2 - log.panel.image.GetWidth() / 2;
-    log.y = Y + H - log.panel.image.GetHeight() - H * 0.05;
+    log.y = Y + H - log.panel.image.GetHeight() - H * 0.03;
     log.panel.sprite.SetPosition(log.x, log.y, 10);
     for (i = 0; i < LINES; i++)
       {
@@ -88,17 +88,15 @@ let
     pw.field.image = Image("field.png");
     pw.field.sprite = Sprite(pw.field.image);
     pw.x = X + W / 2 - pw.field.image.GetWidth() / 2;
-    pw.y = Y + H * 0.68;
+    # Lower than the logo's wordmark (padding), above the status panel
+    pw.y = Y + H * 0.75;
     pw.field.sprite.SetPosition(pw.x, pw.y, 20);
-    pw.prompt.sprite = Sprite();
-    pw.prompt.sprite.SetPosition(pw.x, pw.y - 30, 21);
     pw.bullet_image = Image("bullet.png");
     pw.shown = 0;
 
     fun pw_opacity (o)
       {
         pw.field.sprite.SetOpacity(o);
-        pw.prompt.sprite.SetOpacity(o);
         for (i = 0; pw.bullet[i]; i++)
           pw.bullet[i].SetOpacity(o);
       }
@@ -106,7 +104,6 @@ let
 
     fun password_callback (prompt, bullets)
       {
-        pw.prompt.sprite.SetImage(Image.Text(prompt, ${rgb colors.accent}, 1, "${font} 13"));
         pw_opacity(1);
         for (i = 0; pw.bullet[i] || i < bullets; i++)
           {

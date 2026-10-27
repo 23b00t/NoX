@@ -530,7 +530,7 @@ in
 
     user = lib.mkOption {
       type = lib.types.str;
-      default = "nx";
+      default = "user";
       description = "dom0 user that may use the rpc-in relay sockets (nox-rpc --dom0); runs the input proxy and vm-usb.";
     };
 

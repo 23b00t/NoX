@@ -293,8 +293,12 @@ in
           "pulseaudio#microphone": {
             "format": "{format_source}",
 
-            "format-source": "{volume}%",
+            "format-source": " {volume}%",
             "format-source-muted": " mute",
+            // The microphone itself (waybar's defaults act on the speaker)
+            "on-click": "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
+            "on-scroll-up": "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SOURCE@ 5%+",
+            "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%-"
           },
 
           "battery": {

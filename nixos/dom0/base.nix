@@ -86,8 +86,13 @@ let
 in
 {
   boot = {
-    loader.systemd-boot.enable = true;
-    loader.efi.canTouchEfiVariables = true;
+    loader = {
+      systemd-boot.enable = true;
+      efi.canTouchEfiVariables = true;
+      # No boot menu: the default entry boots at once; hold Space right after
+      # the firmware logo to get the menu
+      timeout = lib.mkDefault 0;
+    };
     plymouth.enable = true;
     initrd = {
       systemd.enable = true;
@@ -156,6 +161,7 @@ in
   imports = [
     inputs.microvm.nixosModules.host
     ./unfree.nix
+    ./user.nix
     # Desktop (niri, waybar, …) without home-manager
     ../desktop
     # ../modules/steam-vm-image.nix

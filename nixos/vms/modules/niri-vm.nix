@@ -23,6 +23,10 @@ let
   };
 
   settings = base.settings // {
+    # Render on the passed-through GPU: an HVM guest also has QEMU's emulated
+    # VGA, which niri took as its primary device (no render node: "error
+    # doing early import: DeviceMissing" every second, godot-gpu 2026-10-27)
+    debug."render-drm-device" = cfg.renderDevice;
     binds =
       base.binds
       // {
@@ -96,6 +100,12 @@ in
       description = "Keys that start a program (niri key → command).";
     };
 
+    renderDevice = lib.mkOption {
+      type = lib.types.str;
+      default = "/dev/dri/renderD128";
+      description = "DRM render node niri draws with: the passed-through GPU (QEMU's emulated VGA has none, so the first render node is the GPU's).";
+    };
+
     startup = lib.mkOption {
       type = lib.types.listOf (lib.types.listOf lib.types.str);
       default = [ ];
@@ -107,6 +117,18 @@ in
   config = lib.mkIf cfg.enable {
     programs.niri.enable = true;
     environment.etc."niri/config.kdl".source = niriConfig;
+
+    # nvidia-drm comes ~2 s after greetd (as in steam's gs.sh): wait for the
+    # render node, at most 15 s, so niri doesn't start without it
+    systemd.services.greetd.serviceConfig.ExecStartPre = [
+      "${pkgs.writeShellScript "wait-render-device" ''
+        for _ in $(${pkgs.coreutils}/bin/seq 30); do
+          [ -e ${lib.escapeShellArg cfg.renderDevice} ] && exit 0
+          ${pkgs.coreutils}/bin/sleep 0.5
+        done
+        echo "${cfg.renderDevice} missing after 15 s, starting niri anyway"
+      ''}"
+    ];
 
     services.greetd = {
       enable = true;

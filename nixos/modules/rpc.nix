@@ -462,7 +462,7 @@ in
       enable = lib.mkEnableOption "nox-rpcd in dom0";
       user = lib.mkOption {
         type = lib.types.str;
-        default = "nx";
+        default = "user";
         description = "dom0 user running nox-rpcd (shows the `ask` notifications).";
       };
       owner = lib.mkOption {

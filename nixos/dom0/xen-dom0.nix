@@ -353,7 +353,10 @@ in
 
     # v2.6: both USB controllers belong to sys-usb; input devices come back via
     # the input proxy, the webcam goes to chat via USB/IP. `sys-usb-rescue`.
-    xen-usb.enable = true;
+    xen-usb = {
+      enable = true;
+      inherit (config.nox) user;
+    };
 
     # v2.8.1: re-attaches uplink and USB/IP vifs after a driver domain or VM
     # restart, releases USB/IP devices of VMs that went away
@@ -412,6 +415,7 @@ in
   services.nox-rpc.host = {
     askCommand = copyAsk;
     enable = true;
+    inherit (config.nox) user;
     # Every Xen guest that runs the rpc guest side (vms/modules/vchan-relay.nix)
     guests = builtins.filter (
       vm:

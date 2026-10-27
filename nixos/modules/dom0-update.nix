@@ -61,10 +61,13 @@ let
       trap 'kill "$keepalive" 2>/dev/null' EXIT
     fi
 
-    # The builder doesn't autostart: start it and wait for SSH (over vchan)
+    # The builder doesn't autostart: start it and wait for SSH (over vchan).
+    # Started here = stopped again after a successful update.
+    started_builder=0
     if ! systemctl is-active --quiet microvm@builder; then
       echo "dom0-update: starting the builder VM" >&2
       sudo systemctl start microvm@builder
+      started_builder=1
     fi
     for _ in $(seq 120); do
       ssh -o ConnectTimeout=5 ${builderIp} true 2>/dev/null && break
@@ -85,6 +88,11 @@ let
     sudo ${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set "$out"
     sudo "$out/bin/switch-to-configuration" "$action"
     echo "dom0-update: $action done ($out)" >&2
+
+    if [ "$started_builder" = 1 ]; then
+      echo "dom0-update: stopping the builder VM again" >&2
+      sudo systemctl stop microvm@builder
+    fi
   '';
 in
 {
