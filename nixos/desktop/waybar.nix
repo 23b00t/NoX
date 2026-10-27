@@ -346,4 +346,19 @@ in
       '';
     };
   };
+
+  # waybar as a user service of the graphical session (niri), not niri's
+  # spawn-at-startup: `systemctl --user restart waybar` reloads it, and it
+  # comes back after a crash
+  systemd.user.services.waybar = {
+    description = "Waybar (status bar)";
+    partOf = [ "graphical-session.target" ];
+    after = [ "graphical-session.target" ];
+    wantedBy = [ "graphical-session.target" ];
+    serviceConfig = {
+      ExecStart = "${pkgs.waybar}/bin/waybar";
+      Restart = "on-failure";
+      RestartSec = 1;
+    };
+  };
 }

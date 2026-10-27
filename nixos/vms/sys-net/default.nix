@@ -72,20 +72,24 @@ in
     '';
   };
 
-  users.users.user = {
-    extraGroups = lib.mkAfter [ "networkmanager" ];
-    # nm-applet's "Edit connections": nm-connection-editor registers its
-    # app id on the session bus, which dom0's filtered bus refuses
-    # ("Failed to register: … ServiceUnknown", xmg 2026-10-27). It only needs
-    # NetworkManager on the VM's system bus, so it runs on the VM's own
-    # session bus; the user profile comes first in PATH (also for nm-applet)
-    packages = [
-      (pkgs.writeShellScriptBin "nm-connection-editor" ''
-        export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus"
-        exec ${pkgs.networkmanagerapplet}/bin/nm-connection-editor "$@"
-      '')
-    ];
-  };
+  users.users.user.extraGroups = lib.mkAfter [ "networkmanager" ];
+
+  # nm-applet's "Edit connections": nm-connection-editor registers its app id
+  # on the session bus, which dom0's filtered bus refuses ("Failed to
+  # register: … ServiceUnknown", xmg 2026-10-27). It only needs
+  # NetworkManager on the VM's system bus, so it runs on the VM's own session
+  # bus (uid 1000 as in vchan-relay.nix). Wrapped inside the package: nm-applet
+  # calls it by its store path; binary wrapper (wrapGAppsHook), so --set
+  nixpkgs.overlays = [
+    (_: prev: {
+      networkmanagerapplet = prev.networkmanagerapplet.overrideAttrs (old: {
+        postFixup = (old.postFixup or "") + ''
+          wrapProgram $out/bin/nm-connection-editor \
+            --set DBUS_SESSION_BUS_ADDRESS unix:path=/run/user/1000/bus
+        '';
+      });
+    })
+  ];
 
   systemd = {
     # Uplink bridge; the vif-bridge hotplug script (xl devd) adds the VMs' vifs

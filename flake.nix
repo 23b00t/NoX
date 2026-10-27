@@ -65,6 +65,8 @@
             nox-cli
             ;
           options-doc = pkgs.callPackage ./nix/options-doc.nix { };
+          # Hardware check for a NoX machine (report, --nix: machines/hardware.nix)
+          nox-hwcheck = pkgs.callPackage ./nix/nox-hwcheck.nix { };
           # Logo, icon, wallpaper and lock screen of the default theme (nox,
           # organic, dark, moon and stars); a config builds its own from
           # nox.desktop.theme

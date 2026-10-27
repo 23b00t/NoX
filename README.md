@@ -146,6 +146,27 @@ services.nox-rpc.host = {
 };
 ```
 
+## nox-hwcheck
+
+Can a machine run NoX, and which devices go where? `nox-hwcheck` (in dom0,
+or `nix run github:23b00t/NoX#nox-hwcheck` on a live system) prints a
+report with traffic lights: VT-x/AMD-V and VT-d/AMD-Vi, UEFI, Secure Boot,
+interrupt remapping, RAM (≥32 GB green, ≥16 orange), the largest disk
+(≥500 GB green, ≥250 orange), IOMMU groups, GPUs (a second one for
+passthrough), network cards for sys-net, USB controllers for sys-usb,
+whether keyboard and mouse only come over USB, CPU threads and P/E cores,
+shared interrupt lines and firmware warnings. It changes nothing.
+
+`nox-hwcheck --nix` prints a block for the config's `machines/hardware.nix`
+(format of `template/machines/hardware.nix`): profile, PCI paths, the
+drivers dom0 must not load, the USB devices with a suggested policy.
+Review it: `dom0Pv` and the owners are decisions, not hardware.
+
+Run it with `sudo`. In a running dom0 under Xen it reads Xen's view (`xl
+info`, `xl dmesg`); dom0 sees neither the IOMMU groups nor the P/E cores
+nor the USB devices' classes (they are in sys-usb), so a live system gives
+the complete picture.
+
 ## nox (CLI)
 
 One command for dom0. For now a thin wrapper: each subcommand runs the

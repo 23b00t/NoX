@@ -34,5 +34,7 @@
     '')
     (import ./explorer.nix { inherit pkgs vmRegistry; })
     (import ./github-agent.nix { inherit pkgs; })
+    # nox-hwcheck: hardware report (and machines/hardware.nix block, --nix)
+    (pkgs.callPackage ../../../nix/nox-hwcheck.nix { })
   ];
 }

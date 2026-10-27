@@ -142,6 +142,15 @@ in
       "net.ipv4.udp_wmem_min" = 16384; # Min UDP send buffer: 16 KB
     };
   };
+
+  # dom0 has fixed RAM (the balancer never touches it) and no swap partition:
+  # zram takes the rare peaks (evaluations, many VMs starting) instead of the
+  # OOM killer, and lets dom0 shrink later. Size from the boot RAM
+  zramSwap = {
+    enable = lib.mkDefault true;
+    memoryPercent = lib.mkDefault 50;
+  };
+
   nixpkgs.pkgs = pkgs;
 
   imports = [

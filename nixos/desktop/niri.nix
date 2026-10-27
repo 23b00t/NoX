@@ -693,7 +693,6 @@ in
               };
             };
           }
-          { "spawn-at-startup"._args = [ "waybar" ]; }
           {
             "spawn-at-startup"._args = [
               "systemctl"

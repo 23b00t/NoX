@@ -25,14 +25,19 @@ let
   # Kali image domain (machines/xmg/xen.nix), updated by update-all
   hasKali = config.services.xen-image-domains.domains ? kali;
 
-  # Destroys the domain of MicroVM $1 if it is still there after 30 s (shut
-  # down but not torn down, still holding its PCI devices and memory)
+  # Destroys the domain of MicroVM $1 if it is left behind: right away once
+  # it is shut down (state `s`, e.g. `--ps--`: the guest is off, but the
+  # domain still holds its PCI devices and memory, and the runner is gone;
+  # sys-usb waited 30 s for nothing, xmg 2026-10-27), otherwise after 30 s
   destroyLeftoverDomain = pkgs.writeShellScript "destroy-leftover-domain" ''
     xl=${config.virtualisation.xen.package}/bin/xl
     dom="$1-vm"
-    for _ in $(seq 30); do
+    for _ in $(seq 60); do
       $xl domid "$dom" >/dev/null 2>&1 || exit 0
-      sleep 1
+      case "$($xl list "$dom" 2>/dev/null | ${pkgs.gawk}/bin/awk 'NR == 2 { print $5 }')" in
+        *s*) break ;;
+      esac
+      sleep 0.5
     done
     echo "destroying leftover domain $dom: $($xl list "$dom" 2>/dev/null | tail -n 1)"
     $xl destroy "$dom" || true
@@ -233,14 +238,16 @@ let
     echo "update-all: done" >&2
   '';
   # Boot order (xen-migration.md, spec step 3): group 1 = the driver domains
-  # that start at boot plus the Whonix-Gateway, started in parallel (uplink
-  # waits order them among themselves); every other domain waits for
+  # that start at boot, started in parallel; every other domain waits for
   # nox-sys.target = each of them booted (its relay connected, NoX
-  # --ready-file), at most 120 s
+  # --ready-file), at most 120 s. The Whonix-Gateway is not in group 1: it
+  # waits up to 90 s for sys-net's uplink before it starts, which held every
+  # app VM back (xmg 2026-10-26: 2 min); now it waits for group 1 like the
+  # others, and the Workstation waits for the Gateway itself (its pre-start)
   imageDomains = config.services.xen-image-domains.domains;
   sysGroup = {
     vms = builtins.filter (lib.hasPrefix "sys-") config.microvm.autostart;
-    images = lib.optional (imageDomains.whonix-gateway.autostart or false) "whonix-gateway";
+    images = [ ];
   };
   sysUnits =
     map (n: "microvm@${n}.service") sysGroup.vms ++ map (n: "xen-image@${n}.service") sysGroup.images;
@@ -686,7 +693,7 @@ in
       (
         {
           nox-sys-ready = {
-            description = "Wait until the driver domains and the Whonix-Gateway are up";
+            description = "Wait until the driver domains are up";
             wants = sysUnits;
             after = sysUnits;
             serviceConfig = {

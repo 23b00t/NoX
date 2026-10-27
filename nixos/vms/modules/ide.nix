@@ -8,21 +8,48 @@ let
   cfg = config.services.ide;
   # Path where the agent socket will be available in the VM (matches SSH RemoteForward)
   githubAgentSocket = "/tmp/ssh-github-agent.sock";
+  # Runs once per boot; waits for GitHub itself instead of systemd restarts:
+  # the VM's network-online comes long before the uplink through
+  # sys-firewall/sys-net works (xmg 2026-10-27: "Could not resolve host" for
+  # ~5 min after a restart of the sys VMs, then the restart limit hit)
   lazyvimSyncScript = pkgs.writeShellScript "ide-lazyvim-sync" ''
-    set -e
+    set -eu
+    git=${pkgs.git}/bin/git
 
     NVIM_DIR="/home/${cfg.user}/.config/nvim"
     REPO_URL="${cfg.lazyvimRepo}"
+    # Fetched over HTTPS: an SSH origin (git@github.com, for pushing) needs
+    # ssh and the forwarded GitHub agent, neither exists at boot
+    case "$REPO_URL" in
+      git@github.com:*) FETCH_URL="https://github.com/''${REPO_URL#git@github.com:}" ;;
+      *) FETCH_URL="$REPO_URL" ;;
+    esac
+
+    # GitHub reachable (DNS and HTTPS), at most 5 minutes
+    for i in $(seq 60); do
+      "$git" ls-remote -q "$FETCH_URL" HEAD >/dev/null 2>&1 && break
+      if [ "$i" = 60 ]; then
+        echo "GitHub not reachable after 5 minutes, no sync this boot"
+        exit 0
+      fi
+      sleep 5
+    done
 
     if [ ! -d "$NVIM_DIR/.git" ]; then
       mkdir -p "$(dirname "$NVIM_DIR")"
-      ${pkgs.git}/bin/git clone "$REPO_URL" "$NVIM_DIR"
-    else
-      cd "$NVIM_DIR"
-      # Over HTTPS: the origin is SSH (git@github.com, for pushing), but at
-      # boot there is neither ssh in PATH nor the forwarded GitHub agent
-      ${pkgs.git}/bin/git pull --ff-only "$REPO_URL" "$(${pkgs.git}/bin/git rev-parse --abbrev-ref HEAD)"
+      "$git" clone "$FETCH_URL" "$NVIM_DIR"
+      "$git" -C "$NVIM_DIR" remote set-url origin "$REPO_URL"
+      exit 0
     fi
+    cd "$NVIM_DIR"
+    # Local changes (e.g. lazy-lock.json after a plugin update) win: no pull
+    # until they are committed or reverted
+    if [ -n "$("$git" status --porcelain)" ]; then
+      echo "Local changes in $NVIM_DIR, not pulling:"
+      "$git" status --short
+      exit 0
+    fi
+    "$git" pull --ff-only "$FETCH_URL" "$("$git" rev-parse --abbrev-ref HEAD)"
   '';
 in
 {
@@ -150,16 +177,13 @@ in
       wantedBy = [ "multi-user.target" ];
       after = [ "network-online.target" ];
       requires = [ "network-online.target" ];
-      # The uplink (sys-net) can come up after network-online in the VM
-      startLimitBurst = 10;
-      startLimitIntervalSec = 600;
+      # The script waits for GitHub itself (up to 5 min); exec, not oneshot,
+      # so multi-user.target does not wait for it
       serviceConfig = {
-        Type = "oneshot";
+        Type = "exec";
         User = cfg.user;
         Group = "users";
         ExecStart = lazyvimSyncScript;
-        Restart = "on-failure";
-        RestartSec = 30;
       };
     };
   };

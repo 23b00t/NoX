@@ -94,6 +94,7 @@ in
     ./rofi.nix
     ./gtk-qt.nix
     ./foot.nix
+    ./plymouth.nix
   ];
 
   options.nox.desktop = {
