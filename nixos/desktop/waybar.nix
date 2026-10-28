@@ -199,7 +199,7 @@ in
           // Global bar options
           "layer": "top",
           "position": "top",
-          "height": 30,
+          "height": 28,
           "margin-left": 8,
           "margin-right": 8,
           "margin-top": 4,

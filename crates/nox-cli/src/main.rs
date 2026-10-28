@@ -621,6 +621,7 @@ eval "$c""#;
 }
 
 fn main() -> ExitCode {
+    sys::default_sigpipe();
     let args: Vec<OsString> = std::env::args_os().collect();
     // Old tool names linked to nox pick their tool (vm-doctor -> nox doctor)
     let name = args

@@ -5,6 +5,21 @@ use std::ffi::{OsStr, OsString};
 use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitCode, Stdio};
 
+extern "C" {
+    fn signal(signum: i32, handler: usize) -> usize;
+}
+
+/// SIGPIPE back to its default: `nox list | head` ends nox quietly like any
+/// Unix tool, instead of a panic in println! (Rust ignores SIGPIPE)
+pub fn default_sigpipe() {
+    const SIGPIPE: i32 = 13;
+    const SIG_DFL: usize = 0;
+    // SAFETY: called once at the start of main, before any thread exists
+    unsafe {
+        signal(SIGPIPE, SIG_DFL);
+    }
+}
+
 /// Replaces this process with `prog args…`; returns only if that fails.
 pub fn exec<I, S>(prog: &str, args: I) -> ExitCode
 where

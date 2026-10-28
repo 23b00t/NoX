@@ -21,6 +21,7 @@ rec {
     cyan = "56b6c2";
     blue = "61afef";
     magenta = "c678dd";
+    violet = "9d7cd8";
     black = "000000";
   };
 
@@ -51,6 +52,7 @@ rec {
     sys = palette.red;
     dev = palette.magenta;
     personal = palette.green;
+    social = palette.violet;
     untrusted = palette.yellow;
     vault = palette.cyan;
     anon = palette.blue;

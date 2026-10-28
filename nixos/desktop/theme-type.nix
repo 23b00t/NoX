@@ -81,6 +81,14 @@ types.submodule (
         };
         description = "Overrides of the logo and wallpaper colors (hex without '#'): front, surface, edgeA, edgeB, glow, glow2 (bg and bgDark follow `colors`).";
       };
+      labels = mkOption {
+        type = types.attrsOf hex;
+        default = { };
+        example = {
+          social = "d1bfff";
+        };
+        description = "Overrides of the trust label colors (hex without '#'): the border and focus ring of each VM's windows in dom0 (registry `label`). Labels: dom0, unknown, sys, dev, personal, social, untrusted, vault, anon.";
+      };
       resolution = mkOption {
         type = types.enum [
           "3840x2160"

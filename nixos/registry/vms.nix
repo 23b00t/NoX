@@ -149,6 +149,7 @@ let
           "sys"
           "dev"
           "personal"
+          "social"
           "untrusted"
           "vault"
           "anon"

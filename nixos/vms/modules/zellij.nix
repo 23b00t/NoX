@@ -2,17 +2,46 @@
   config,
   lib,
   pkgs,
+  vmRegistry,
   ...
 }:
 
 # zellij in the VM. NoX brings no config of its own: without `configDir`
 # zellij runs with its defaults; the user's config dir (config.kdl, optional
 # layouts/tabs.swap.kdl and plugins/) comes from the user's config. The tab
-# layout `tabs` defaults to a neutral one (home tab, compact bar)
+# layout `tabs` defaults to a neutral one (home tab, compact bar). The theme
+# `nox` (themes/nox.kdl) follows the fleet's nox.theme: `theme "nox"` in
+# config.kdl
 let
   cfg = config.services.zellij-env;
   dir = cfg.configDir;
   has = sub: dir != null && builtins.pathExists (dir + "/${sub}");
+
+  theme = import ../../desktop/theme.nix {
+    inherit lib;
+    inherit (vmRegistry) theme;
+  };
+  term = theme.foot.colors-dark;
+  # zellij's legacy theme format: green is its active frame and tab, orange
+  # its key hints; they take the desktop's accents, the rest the terminal
+  # colors
+  themeKdl = ''
+    themes {
+        nox {
+            fg "#${theme.raw.fg}"
+            bg "#${theme.raw.border}"
+            black "#${term.regular0}"
+            red "#${term.regular1}"
+            green "#${theme.raw.accent}"
+            yellow "#${term.regular3}"
+            blue "#${term.regular4}"
+            magenta "#${term.regular5}"
+            cyan "#${term.regular6}"
+            white "#${term.regular7}"
+            orange "#${theme.raw.accentStrong}"
+        }
+    }
+  '';
 in
 {
   options.services.zellij-env = {
@@ -47,12 +76,15 @@ in
           source = dir + "/layouts/tabs.swap.kdl";
         };
         "zellij/layouts/tabs.kdl" = lib.mkIf (cfg.tabsKdlFile != null) { source = cfg.tabsKdlFile; };
+        "zellij/themes/nox.kdl".text = themeKdl;
       };
     };
 
     systemd.tmpfiles.rules = [
       "d /home/${cfg.user}/.config/zellij 0755 ${cfg.user} users -"
       "d /home/${cfg.user}/.config/zellij/layouts 0755 ${cfg.user} users -"
+      "d /home/${cfg.user}/.config/zellij/themes 0755 ${cfg.user} users -"
+      "L+ /home/${cfg.user}/.config/zellij/themes/nox.kdl - - - - /etc/zellij/themes/nox.kdl"
     ]
     ++ lib.optional (
       dir != null

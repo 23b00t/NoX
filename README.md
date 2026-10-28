@@ -47,7 +47,8 @@ nox = {
       plugins = [ "zsh-users/zsh-autosuggestions" ]; # antidote
       ohMyPoshTheme = "montys.omp.json";
     };
-    # zellij (NoX: zellij's defaults): config.kdl, layouts/, plugins/
+    # zellij (NoX: zellij's defaults): config.kdl, layouts/, plugins/;
+    # `theme "nox"` in config.kdl follows the theme below
     services.zellij-env.configDir = ./zellij;
   };
   # every VM: time zone and locale (NoX: UTC, en_US.UTF-8)
@@ -61,6 +62,10 @@ nox = {
   # stars; themes: nox, tokyo-night, catppuccin-mocha, dracula, black;
   # wallpaper and lock screen are rendered from branding/templates)
   # theme = { name = "tokyo-night"; flavor = "neon"; lock.decor = [ ]; };
+  # trust labels (a VM's `label`): the border color of its windows in dom0;
+  # labels dom0, unknown, sys, dev, personal, social, untrusted, vault, anon,
+  # each theme has a color for every one, single ones can be overridden
+  # theme.labels = { social = "d1bfff"; untrusted = "ff9e64"; };
 };
 # dom0: niri's keyboard (NoX: us)
 # nox.desktop.keyboard = { layout = "us"; variant = "altgr-intl"; };

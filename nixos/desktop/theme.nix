@@ -2,12 +2,12 @@
 # rofi, swaync, swaylock, foot and GTK/Qt, plus the colors of the NoX logo
 # and wallpaper (`graphics`, nix/nox-branding.nix). The colors come from one
 # data file per theme in ./themes; nox.desktop.theme picks it (`name`) and
-# overrides single roles (`colors`, `graphics`).
+# overrides single roles (`colors`, `graphics`, `labels`).
 # Usage: `theme = import ./theme.nix { inherit lib; inherit (config.nox.desktop) theme; };`
 # (VMs: `inherit (vmRegistry) theme;`, the fleet's nox.theme)
 {
   lib,
-  # nox.desktop.theme (only name, colors and graphics are read here)
+  # nox.desktop.theme (only name, colors, graphics and labels are read here)
   theme ? { },
 }:
 let
@@ -36,8 +36,9 @@ rec {
   # Trust labels (vms/registry.nix `label`): window border and focus ring per
   # VM in niri, hex without '#'; dom0 = titles not starting with "[" (VM
   # windows always carry wprsc's "[<vm>] " prefix), unknown = everything else
-  # (e.g. a VM window without a title): never dom0's color
-  labelRaw = data.labels;
+  # (e.g. a VM window without a title): never dom0's color. nox.theme.labels
+  # overrides single colors
+  labelRaw = data.labels // theme.labels or { };
   label = lib.mapAttrs (_: c: "#${c}") labelRaw;
   labelWithAlpha = l: a: "${label.${l}}${alphaHex a}";
 

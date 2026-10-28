@@ -9,6 +9,8 @@
     ../modules/net-config.nix
     ../modules/common-config.nix
     ../modules/persistent-store-overlay.nix
+    # yazi and bashmount (removable media, LUKS), with the udisks2 polkit rule
+    ../modules/yazi-config.nix
   ];
 
   networking.hostName = "disp-vm";
@@ -53,21 +55,13 @@
     blueman.enable = true;
   };
 
-  # Phones over USB cable (MTP): android-file-transfer (GUI), or
-  # `aft-mtp-mount ~/phone` / `fusermount -u ~/phone`
-  environment.systemPackages = [ pkgs.android-file-transfer ];
-
-  # As in yazi-config.nix: wheel may use udisks2 without a polkit agent
-  security.polkit.extraConfig = ''
-    polkit.addRule(function(action, subject) {
-      if (
-        subject.isInGroup("wheel") &&
-        action.id.indexOf("org.freedesktop.udisks2.") == 0
-      ) {
-        return polkit.Result.YES;
-      }
-    });
-  '';
+  environment.systemPackages = [
+    # Phones over USB cable (MTP): android-file-transfer (GUI), or
+    # `aft-mtp-mount ~/phone` / `fusermount -u ~/phone`
+    pkgs.android-file-transfer
+    # Partition table, LUKS and file system in one dialog
+    pkgs.gnome-disk-utility
+  ];
 
   system.stateVersion = "26.05";
 }

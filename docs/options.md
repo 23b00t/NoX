@@ -1006,6 +1006,40 @@ attribute set of string matching the pattern \[0-9a-fA-F]{6}
 
 
 
+### nox\.desktop\.theme\.labels
+
+
+
+Overrides of the trust label colors (hex without ‘\#’): the border and focus ring of each VM’s windows in dom0 (registry ` label `)\. Labels: dom0, unknown, sys, dev, personal, social, untrusted, vault, anon\.
+
+
+
+*Type:*
+attribute set of string matching the pattern \[0-9a-fA-F]{6}
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  social = "d1bfff";
+}
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
 ### nox\.desktop\.theme\.lock
 
 
@@ -1737,7 +1771,7 @@ Trust label: the window border color in dom0\. Default: untrusted\.
 
 
 *Type:*
-null or one of “sys”, “dev”, “personal”, “untrusted”, “vault”, “anon”
+null or one of “sys”, “dev”, “personal”, “social”, “untrusted”, “vault”, “anon”
 
 
 
@@ -2324,6 +2358,40 @@ attribute set of string matching the pattern \[0-9a-fA-F]{6}
 
 
 
+### nox\.theme\.labels
+
+
+
+Overrides of the trust label colors (hex without ‘\#’): the border and focus ring of each VM’s windows in dom0 (registry ` label `)\. Labels: dom0, unknown, sys, dev, personal, social, untrusted, vault, anon\.
+
+
+
+*Type:*
+attribute set of string matching the pattern \[0-9a-fA-F]{6}
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  social = "d1bfff";
+}
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.theme\.lock
 
 
@@ -2560,8 +2628,6 @@ module
 
 ### nox\.vms
 
-
-
 NixOS guests (microvm\.nix on Xen)\.
 
 
@@ -2695,6 +2761,8 @@ null
 
 
 ### nox\.vms\.\<name>\.apps\.\<name>\.args
+
+
 
 Arguments for every start (desktop entry and tray)\.
 
@@ -3471,7 +3539,7 @@ Trust label: the window border color in dom0\. Default: untrusted\.
 
 
 *Type:*
-null or one of “sys”, “dev”, “personal”, “untrusted”, “vault”, “anon”
+null or one of “sys”, “dev”, “personal”, “social”, “untrusted”, “vault”, “anon”
 
 
 

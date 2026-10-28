@@ -48,6 +48,7 @@ rec {
     sys = palette.red;
     dev = palette.purple;
     personal = palette.green;
+    social = palette.pink;
     untrusted = palette.yellow;
     vault = palette.cyan;
     anon = palette.orange;

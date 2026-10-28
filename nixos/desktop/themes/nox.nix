@@ -15,6 +15,7 @@ rec {
     teal = "b4f9f8";
     magenta = "bb9af7";
     lavender = "d1bfff";
+    purple = "9d7cd8";
     pink = "ff79c6";
     red = "f7768e";
     yellow = "e0af68";
@@ -46,6 +47,7 @@ rec {
     sys = palette.red;
     dev = palette.magenta;
     personal = palette.green;
+    social = palette.purple;
     untrusted = palette.yellow;
     vault = palette.cyan;
     anon = palette.blue;
