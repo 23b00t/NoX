@@ -1,18 +1,24 @@
 //! nox: one command for the NoX tools in dom0.
 //!
 //! Moving from scripts to Rust tool by tool (xen-migration.md, nox-cli
-//! spec): `doctor` runs here (src/doctor.rs, also as `vm-doctor` by
+//! spec): `doctor`, `vm-run` and `manage-vms` run here (src/doctor.rs,
+//! src/run.rs, src/manage.rs; their old names are links to nox, picked by
 //! argv[0]); every other subcommand execs the script that does the work
-//! (manage-vms, vm-run, vm-clip, nox-copy, dom0-update, update-all, vm-usb),
-//! found on PATH, so its output and exit code are the script's own.
+//! (vm-clip, nox-copy, dom0-update, update-all, vm-usb, …), found on PATH,
+//! so its output and exit code are the script's own.
 
 use std::ffi::OsString;
-use std::os::unix::process::CommandExt;
-use std::process::{Command, ExitCode};
+use std::process::ExitCode;
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 
 mod doctor;
+mod manage;
+mod registry;
+mod run;
+mod sys;
+
+use sys::exec;
 
 #[derive(Parser)]
 #[command(
@@ -503,18 +509,6 @@ enum Input {
     },
 }
 
-/// Replaces this process with `prog args…`; returns only if that fails.
-fn exec<I, S>(prog: &str, args: I) -> ExitCode
-where
-    I: IntoIterator<Item = S>,
-    S: Into<OsString>,
-{
-    let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
-    let err = Command::new(prog).args(&args).exec();
-    eprintln!("nox: cannot run {prog}: {err}");
-    ExitCode::from(127)
-}
-
 fn vm_action(action: &str, sel: Select, fresh: bool) -> ExitCode {
     let mut a: Vec<OsString> = vec![action.into()];
     if fresh {
@@ -522,7 +516,7 @@ fn vm_action(action: &str, sel: Select, fresh: bool) -> ExitCode {
     }
     a.extend(sel.filter.args());
     a.extend(sel.vms.into_iter().map(OsString::from));
-    exec("manage-vms", a)
+    manage::main(&a)
 }
 
 /// Where `nox xen|nix|root` read their entries (NixOS module programs.nox)
@@ -633,22 +627,27 @@ fn main() -> ExitCode {
         .first()
         .and_then(|a| std::path::Path::new(a).file_name())
         .map(|n| n.to_string_lossy().into_owned());
-    if name.as_deref() == Some("vm-doctor") {
-        let rest: Vec<String> = args[1..]
-            .iter()
-            .map(|a| a.to_string_lossy().into_owned())
-            .collect();
-        return doctor::run_doctor(&rest);
+    match name.as_deref() {
+        Some("vm-doctor") => {
+            let rest: Vec<String> = args[1..]
+                .iter()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect();
+            return doctor::run_doctor(&rest);
+        }
+        Some("vm-run") => return run::main(&args[1..]),
+        Some("manage-vms") => return manage::main(&args[1..]),
+        _ => {}
     }
     let cli = Cli::parse_from(help_word(args));
     let Some(cmd) = cli.command else {
-        return exec("manage-vms", ["status", "--running"]);
+        return manage::main(&["status".into(), "--running".into()]);
     };
     match cmd {
         Cmd::List { filter } => {
             let mut a: Vec<OsString> = vec!["status".into()];
             a.extend(filter.args());
-            exec("manage-vms", a)
+            manage::main(&a)
         }
         Cmd::Start { sel, fresh } => vm_action("start", sel, fresh.fresh),
         Cmd::Stop(sel) => vm_action("stop", sel, false),
@@ -663,12 +662,12 @@ fn main() -> ExitCode {
         Cmd::Run { vm, cmd } => {
             let mut a: Vec<OsString> = vec![vm.into()];
             a.extend(cmd);
-            exec("vm-run", a)
+            run::main(&a)
         }
         Cmd::Exec { vm, cmd } => {
             let mut a: Vec<OsString> = vec!["-c".into(), vm.into()];
             a.extend(cmd);
-            exec("vm-run", a)
+            run::main(&a)
         }
         Cmd::Ssh { vm, args } => {
             let mut a: Vec<OsString> = vec![vm.into()];

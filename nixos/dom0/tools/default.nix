@@ -1,6 +1,7 @@
-# dom0 tools (NoX modules step 2: out of home-manager): vm-run, vm-gui,
+# dom0 tools (NoX modules step 2: out of home-manager): vm-run and
+# manage-vms (links to nox), vm-gui,
 # vm-doctor, vm-backup, vm-rollback, nox printers, the desktop entries for VM apps, the
-# GitHub agent, manage-vms, explorer and vm-disp, all in the
+# GitHub agent, explorer and vm-disp, all in the
 # system profile.
 { pkgs, vmRegistry, ... }:
 {
@@ -17,7 +18,6 @@
   ];
 
   environment.systemPackages = [
-    (import ./manage-vms.nix { inherit pkgs vmRegistry; })
     # nox disp: start the ad-hoc disposable (empty on every start, registry
     # `disposable`) and open a program in it, foot by default; `nox stop
     # disp` throws it away

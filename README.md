@@ -223,19 +223,21 @@ hardware-configuration; without it nothing changes.
 
 ## nox (CLI)
 
-One command for dom0. For now a thin wrapper: each subcommand runs the
-script that does the work (from the system configuration, on PATH) and
-passes its output and exit code through.
+One command for dom0. `doctor`, `manage-vms` and `vm-run` are built in
+(their old names are links to nox); the other subcommands run the script
+that does the work (from the system configuration, on PATH) and pass its
+output and exit code through. The built-in tools read their data from
+`/etc/nox/registry.json`, which Nix writes.
 
 | Command | Runs |
 |---|---|
-| `nox` | `manage-vms status --running` |
+| `nox` | `manage-vms status --running` (built in: src/manage.rs) |
 | `nox list\|ls [--running] [--stale] [--group g]` | `manage-vms status …` |
 | `nox start\|stop\|restart [vm…] [--running] [--stale] [--group g]` | `manage-vms <action> …` |
 | `nox start\|restart --fresh <vm…>` | `manage-vms <action> --fresh …`: disposable VMs (registry `disposable`) with their volume images set aside (`*.pre-fresh`) |
 | `nox disp [cmd…]` | `vm-disp`: start the ad-hoc disposable `disp`, open `cmd` (default foot) in it |
 | `nox backup <vm…>\|--all`, `--full [--level n] <target…>\|--all`, `restore [--full] [--from gen] …`, `disks`, `list`, `prune home\|full --keep n [-n] [vm…]` | `vm-backup …` (arguments checked by nox; external LUKS disk on `disp-backup`, `nox backup help`) |
-| `nox run <vm> <program> [args]` | `vm-run <vm> …` (GUI over wprs) |
+| `nox run <vm> <program> [args]` | `vm-run <vm> …` (GUI over wprs; built in: src/run.rs) |
 | `nox exec <vm> <cmd> [args]` | `vm-run -c <vm> …` (a terminal window in the VM runs the command and stays open; the builder: SSH in this terminal) |
 | `nox ssh builder [ssh args]` | `ssh builder …` (only the builder has sshd; the other VMs: `nox exec`) |
 | `nox clip copy\|paste` | `vm-clip copy\|paste` |

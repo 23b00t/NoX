@@ -29,7 +29,7 @@ rustPlatform.buildRustPackage {
   '';
 
   meta = {
-    description = "One command for the NoX tools in dom0 (thin wrapper over the scripts)";
+    description = "One command for the NoX tools in dom0";
     mainProgram = "nox";
     license = lib.licenses.mit;
     platforms = lib.platforms.linux;
