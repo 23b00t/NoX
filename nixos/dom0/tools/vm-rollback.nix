@@ -49,6 +49,7 @@ let
            vm-rollback <vm> --gen <n>   run <vm> from generation <n> (restarts it)
            vm-rollback <vm> --reset     back to the running system's runner
            vm-rollback --data <vm>      images back from the snapshot (vm-snapshot)
+    --gen/--reset ask for sudo themselves: run vm-rollback as yourself, not with sudo
     EOF
       exit 2
     }
@@ -123,17 +124,19 @@ let
         [ -e "$g" ] || { echo "no generation $2" >&2; exit 1; }
         r="$(runner_of "$g" "$vm")"
         [ -n "$r" ] || { echo "generation $2 has no $vm" >&2; exit 1; }
+        # $state/<vm> belongs to the microvm user: the link needs root
+        sudo ln -sTf "$r" "$state/$vm/current"
         # GC root: the generation can be deleted (vm-gc) while the VM runs it
+        # (after the link: a failed sudo leaves no root behind)
         root="''${XDG_STATE_HOME:-$HOME/.local/state}/vm-rollback"
         mkdir -p "$root"
         nix-store --realise "$r" --add-root "$root/$vm" >/dev/null
-        ln -sTf "$r" "$state/$vm/current"
         echo "$vm: current = generation $2 (until a switch installs a new $vm or --reset)"
         restart "$vm"
         ;;
       --reset)
         [ $# -eq 1 ] || usage
-        ln -sTf "$sys" "$state/$vm/current"
+        sudo ln -sTf "$sys" "$state/$vm/current"
         rm -f "''${XDG_STATE_HOME:-$HOME/.local/state}/vm-rollback/$vm"
         echo "$vm: current = running system"
         restart "$vm"

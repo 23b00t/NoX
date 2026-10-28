@@ -175,15 +175,16 @@ NetworkManager (`nmtui`); the kernel boots with the IOMMU on, so
 `nox-hwcheck` sees the IOMMU groups. Build it one of two ways:
 
 - **On a NoX machine** (dom0 builds nothing, the builder does):
-  `dom0-update --iso <vm>`, e.g. `dom0-update --iso disp`. The builder
+  `nox update --iso <vm>`, e.g. `nox update --iso disp`. The builder
   builds the config's `installer-iso` (NoX as pinned in the config's
   flake.lock, from the branch's signed HEAD like a system; `--branch b` for
-  another one), and `nox copy` moves it straight from the builder to the
-  VM: `~/Incoming/builder/nox-installer.iso` there. Nothing goes into
-  dom0's store, and nothing stays in the builder: the ISO leaves its store
-  right after the build, its copy in the builder's `~/outbox` goes with the
-  move (if the copy fails it stays there until the next `--iso`); the
-  build inputs are left to the builder's GC. The builder's copy rule is
+  another one) and streams it from its store through the broker straight
+  to the VM, like `nox copy builder <vm>` (the VM is started if it is off
+  and stays running): `~/Incoming/builder/nox-installer.iso` there.
+  Nothing goes into dom0's store or onto a disk on the way, and the builder
+  deletes the ISO once the VM has it (if the copy fails it stays in the
+  builder's store until its GC, so another `--iso` doesn't build it again);
+  the build inputs are left to the builder's GC. The builder's copy rule is
   `outgoing = "ask"`; dom0's own call needs no question.
 - **On a plain NixOS (or any Nix) machine:**
   `nix build github:23b00t/NoX#installer-iso`, the ISO is in
@@ -241,6 +242,7 @@ passes its output and exit code through.
 | `nox copy [-m] [-n] [--max b] [<from-vm>] <to-vm> <paths…>` | `nox-copy …` (lands in `~/Incoming/<source>` in the target, merging into folders already there; never overwrites) |
 | `nox printers [--menu]` | `nox-printers`: IPP printers in the local network (sys-print scans what sys-net names); `--menu`: rofi, the chosen address to the clipboard |
 | `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update …` (`--all`: `update-all …`) |
+| `nox update --iso <vm> [--branch b]` | `dom0-update --iso <vm> …` (installer ISO from the builder straight to the VM, see "Installer") |
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
 | `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
 | `nox doctor` | built in (src/doctor.rs; `vm-doctor` is a link to nox): smoke test of the running system |

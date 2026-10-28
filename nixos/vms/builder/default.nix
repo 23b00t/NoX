@@ -14,9 +14,9 @@ let
   inherit (config.nox.builder) repoUrl;
 
   # builder-build <machine> [branch]: fetch, build, sign; prints the toplevel.
-  # builder-build --iso <branch>: builds the config's installer-iso, leaves
-  # it as ~/outbox/nox-installer.iso (dom0-update --iso <vm> copies it out)
-  # and deletes it from the store; prints that path, relative to the home
+  # builder-build --iso <branch>: builds the config's installer-iso and
+  # prints its store path, without GC root or signature: dom0-update
+  # --iso <vm> streams it from here to the VM and then deletes it
   builderBuild = pkgs.writeShellScriptBin "builder-build" ''
     set -euo pipefail
     machine="''${1:?usage: builder-build <machine> [branch] | --iso <branch>}"
@@ -70,12 +70,9 @@ let
         2>&1 1>&3 | ${pkgs.nix-output-monitor}/bin/nom --json >&2
     } 3>&1 )"
 
-    # The ISO leaves as a file, not into a store: no signature, no GC root.
-    # Its build inputs stay until the GC needs the space (min-free)
+    # The ISO leaves as a file stream, not into a store: no signature
     if [ "$machine" = installer-iso ]; then
-      ${pkgs.coreutils}/bin/install -m 644 "$out"/iso/*.iso "$HOME/outbox/nox-installer.iso"
-      ${config.nix.package}/bin/nix store delete "$out" >&2
-      echo "outbox/nox-installer.iso"
+      echo "$out"
       exit 0
     fi
 
@@ -160,24 +157,10 @@ in
       "d ${stateDir} 0755 user users -"
       "d ${stateDir}/systems 0755 user users -"
       "d ${stateDir}/build 0755 root root -"
-      "d ${stateDir}/outbox 0755 user users -"
       # Out-links survive reboots, /nix/var does not: re-register them as GC
       # roots so the persistent store overlay keeps the last builds in its DB
       "L+ /nix/var/nix/gcroots/builder-hp - - - - ${stateDir}/systems/hp"
       "L+ /nix/var/nix/gcroots/builder-xmg - - - - ${stateDir}/systems/xmg"
-    ];
-
-    # ~/outbox (nox copy takes files from the home only) on the volume: the
-    # home is on the RAM-backed root, too small for the installer ISO
-    mounts = [
-      {
-        what = "${stateDir}/outbox";
-        where = "/home/user/outbox";
-        type = "none";
-        options = "bind";
-        after = [ "systemd-tmpfiles-setup.service" ];
-        wantedBy = [ "multi-user.target" ];
-      }
     ];
 
     services = {

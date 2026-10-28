@@ -174,7 +174,8 @@ enum Cmd {
         #[arg(long)]
         menu: bool,
     },
-    /// Update dom0 from the builder VM; --all: then the Whonix domains too
+    /// Update dom0 from the builder VM; --all: then the Whonix domains too;
+    /// --iso: the installer ISO instead, from the builder straight to a VM
     Update {
         /// Also update the image domains (Whonix, apt over Tor)
         #[arg(long)]
@@ -182,6 +183,9 @@ enum Cmd {
         /// Activate right away instead of on the next boot
         #[arg(long)]
         switch: bool,
+        /// Build the installer ISO and move it to this VM's ~/Incoming/builder
+        #[arg(long, value_name = "VM", conflicts_with_all = ["all", "switch", "machine"])]
+        iso: Option<String>,
         /// nixosConfiguration to build (default: the script's)
         #[arg(long, value_name = "NAME")]
         machine: Option<String>,
@@ -703,12 +707,17 @@ fn main() -> ExitCode {
         Cmd::Update {
             all,
             switch,
+            iso,
             machine,
             branch,
         } => {
             let mut a: Vec<OsString> = Vec::new();
             if switch {
                 a.push("--switch".into());
+            }
+            if let Some(vm) = iso {
+                a.push("--iso".into());
+                a.push(vm.into());
             }
             if let Some(m) = machine {
                 a.push("--machine".into());
@@ -800,6 +809,17 @@ mod tests {
             panic!("not input back")
         };
         assert_eq!(vm, None);
+    }
+
+    #[test]
+    fn update_iso() {
+        let cli = Cli::try_parse_from(["nox", "update", "--iso", "disp", "--branch", "b"]).unwrap();
+        let Some(Cmd::Update { iso, branch, .. }) = cli.command else {
+            panic!("not update")
+        };
+        assert_eq!(iso.as_deref(), Some("disp"));
+        assert_eq!(branch.as_deref(), Some("b"));
+        assert!(Cli::try_parse_from(["nox", "update", "--iso", "disp", "--switch"]).is_err());
     }
 
     #[test]

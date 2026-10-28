@@ -21,6 +21,7 @@ sudo xenstore-ls -f /local/domain/<id> | less # xenstore of a domain
 
 ## nix
 nixos-rebuild list-generations # System generations
+sudo nixos-rebuild switch --rollback # Back to the previous system generation, no reboot (no build)
 nix flake update <input> # Update one flake input
 nix flake metadata # Inputs and their revisions
 nix build .#nixosConfigurations.<host>.config.system.build.toplevel # Build the system

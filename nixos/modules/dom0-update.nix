@@ -30,7 +30,7 @@ let
     activates it for the next boot (default) or right away (--switch).
     --iso <vm>: builds the config's installer ISO instead and copies it
     from the builder straight to <vm> (~/Incoming/builder/nox-installer.iso
-    there), nothing goes through dom0's store.
+    there; started if it is off), nothing goes through dom0's store.
     Defaults: --machine ${cfg.machine} --branch ${cfg.branch}
     EOF
       exit 1
@@ -75,23 +75,44 @@ let
       sudo systemctl start microvm@builder
       started_builder=1
     fi
+    # The ISO's target VM: started now, so it boots while the builder builds;
+    # it stays running afterwards (the ISO is in it)
+    if [ "$action" = iso ] && ! systemctl is-active --quiet "microvm@$iso_vm"; then
+      echo "dom0-update: starting $iso_vm" >&2
+      sudo systemctl start "microvm@$iso_vm"
+    fi
     for _ in $(seq 120); do
       ssh -o ConnectTimeout=5 ${builderIp} true 2>/dev/null && break
       sleep 2
     done
 
-    # The installer ISO: the builder leaves it in its ~/outbox, nox copy
-    # moves it to the VM (dom0's own call: the copy policy doesn't ask)
+    # The installer ISO: built in the builder's store, streamed from there
+    # through the broker to the VM like `nox copy builder <vm>` (dom0's own
+    # call: the copy policy doesn't ask), then deleted in the builder. The
+    # broker gives the manifest 10 s, so the stream starts only after the build
     if [ "$action" = iso ]; then
-      iso="$(ssh ${builderIp} builder-build --iso "$branch" | tail -n 1)"
-      if [ "$iso" != outbox/nox-installer.iso ]; then
-        echo "dom0-update: unexpected builder output: $iso" >&2
+      out="$(ssh ${builderIp} builder-build --iso "$branch" | tail -n 1)"
+      case "$out" in
+        /nix/store/*-nox-installer.iso) ;;
+        *) echo "dom0-update: unexpected builder output: $out" >&2; exit 1 ;;
+      esac
+      # The VM may still be booting: wait until its rpc side answers (a
+      # side-effect-free `send list` of a missing path answers "error: …
+      # not found"; while booting the relay drops the call without one)
+      for _ in $(seq 120); do
+        [ -n "$(printf 'list\n%s\0' .nox-ready | nox-rpc --dom0 send "$iso_vm" 2>/dev/null)" ] && break
+        sleep 1
+      done
+      echo "dom0-update: copying the ISO to $iso_vm" >&2
+      answer="$(ssh ${builderIp} "nox-pack $out/iso/*.iso" |
+        nox-rpc --broker copy "$iso_vm" as=builder)" || true
+      echo "$answer"
+      if [[ "$answer" != ok* ]]; then
+        echo "dom0-update: copy to $iso_vm failed; the ISO stays in the builder's store until its GC (another --iso doesn't build it again)" >&2
         exit 1
       fi
-      if ! nox-copy -m builder "$iso_vm" "$iso"; then
-        echo "dom0-update: copy to $iso_vm failed, the ISO stays in the builder's ~/$iso" >&2
-        exit 1
-      fi
+      ssh ${builderIp} nix store delete "$out" 2>/dev/null ||
+        echo "dom0-update: could not delete $out in the builder, its GC takes it" >&2
       echo "dom0-update: ISO in $iso_vm: ~/Incoming/builder/nox-installer.iso" >&2
     else
       # Runs as the calling user (ssh config/key for ${builderIp}); the nix-daemon
