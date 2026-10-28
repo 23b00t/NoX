@@ -150,7 +150,9 @@ let
   # Clipboard between domains (Qubes model): each VM keeps its own clipboard
   # (wprsd without selection sync, vms/modules/wprs.nix). `copy` takes the
   # text clipboard of the focused window's domain into a store in dom0,
-  # `paste` hands it to the focused window's domain and empties the store.
+  # `paste` hands it to the focused window's domain and empties the store;
+  # `put` stores stdin from dom0 itself (emoji/glyph pickers, also into
+  # dom0's clipboard).
   # Rules from the registry (`clipboard`); notifications never show content
   clipPolicy = vm: vm.clipboard or (if lib.hasPrefix "sys-" vm.name then "deny" else "allow");
   clipCases = lib.concatMapStrings (vm: "    ${vm.name}) echo ${clipPolicy vm} ;;\n") (
@@ -167,7 +169,7 @@ let
       { printf 'set\n'; cat; } | timeout 20 nox-rpc --dom0 clip "$1" >/dev/null
     }
     notify() {
-      ${pkgs.libnotify}/bin/notify-send -a vm-clip "Zwischenablage" "$1" || true
+      ${pkgs.libnotify}/bin/notify-send -a vm-clip "Clipboard" "$1" || true
     }
     fail() {
       notify "$1"
@@ -180,12 +182,12 @@ let
     focused_domain() {
       local pid args dom
       pid="$(niri msg --json focused-window | ${pkgs.jq}/bin/jq -r '.pid // empty')"
-      [ -n "$pid" ] || fail "Kein fokussiertes Fenster"
-      args="$(tr '\0' '\n' <"/proc/$pid/cmdline")" || fail "Fensterprozess $pid nicht gefunden"
+      [ -n "$pid" ] || fail "No focused window"
+      args="$(tr '\0' '\n' <"/proc/$pid/cmdline")" || fail "Window process $pid not found"
       case "$args" in
         */wprsc*)
           dom="$(sed -n 's|^--socket=/run/nox-relay/\(.*\)-wprs\.sock$|\1|p' <<<"$args")"
-          [ -n "$dom" ] || fail "VM des Fensters unbekannt (wprsc ohne nox-relay)"
+          [ -n "$dom" ] || fail "Unknown VM of the window (wprsc without nox-relay)"
           ;;
         *) dom=dom0 ;;
       esac
@@ -208,42 +210,52 @@ let
       copy)
         src="$(focused_domain)"
         case "$(policy "$src")" in
-          deny) fail "$src ist für die Zwischenablage gesperrt" ;;
+          deny) fail "$src is blocked for the clipboard" ;;
           ask)
-            answer="$(printf 'Nein\nJa\n' | rofi -dmenu -i -no-custom \
-              -p "Zwischenablage aus $src kopieren?" \
+            answer="$(printf 'No\nYes\n' | rofi -dmenu -i -no-custom \
+              -p "Copy the clipboard of $src?" \
               -theme /etc/xdg/rofi/config.rasi)" || answer=""
-            [ "$answer" = Ja ] || fail "Kopieren aus $src abgebrochen"
+            [ "$answer" = Yes ] || fail "Copy from $src cancelled"
             ;;
         esac
         if [ "$src" = dom0 ]; then
           ${pkgs.wl-clipboard}/bin/wl-paste --no-newline --type text >"$store/new" 2>/dev/null \
-            || { rm -f "$store/new"; fail "dom0: keine Text-Zwischenablage"; }
+            || { rm -f "$store/new"; fail "dom0: no text in the clipboard"; }
         else
           clip_get "$src" >"$store/new" 2>/dev/null \
-            || { rm -f "$store/new"; fail "$src: keine Text-Zwischenablage"; }
+            || { rm -f "$store/new"; fail "$src: no text in the clipboard"; }
         fi
         mv "$store/new" "$store/data"
         echo "$src" >"$store/source"
-        notify "Aus $src kopiert ($(wc -c <"$store/data") Bytes), einfügen mit Mod+Alt+V"
+        notify "Copied from $src ($(wc -c <"$store/data") bytes), paste with Mod+Alt+V"
         ;;
       paste)
-        [ -f "$store/data" ] || fail "Ablage leer, erst mit Mod+Alt+C kopieren"
+        [ -f "$store/data" ] || fail "Store empty, copy with Mod+Alt+C first"
         dst="$(focused_domain)"
-        [ "$(policy "$dst")" != deny ] || fail "$dst ist für die Zwischenablage gesperrt"
+        [ "$(policy "$dst")" != deny ] || fail "$dst is blocked for the clipboard"
         src="$(cat "$store/source")"
         size="$(wc -c <"$store/data")"
         if [ "$dst" = dom0 ]; then
           # wl-copy forks and keeps serving the selection
           ${pkgs.wl-clipboard}/bin/wl-copy --type text/plain <"$store/data" >/dev/null 2>&1
         else
-          clip_set "$dst" <"$store/data" || fail "Einfügen in $dst fehlgeschlagen"
+          clip_set "$dst" <"$store/data" || fail "Paste into $dst failed"
         fi
         rm -f "$store/data" "$store/source"
-        notify "$src → $dst ($size Bytes), einfügen mit Strg+V"
+        notify "$src → $dst ($size bytes), paste with Ctrl+V"
+        ;;
+      put)
+        # Text from dom0 itself (the emoji/glyph pickers): into the store
+        # and dom0's clipboard; nothing chosen = nothing to do
+        cat >"$store/new"
+        [ -s "$store/new" ] || { rm -f "$store/new"; exit 0; }
+        mv "$store/new" "$store/data"
+        echo dom0 >"$store/source"
+        ${pkgs.wl-clipboard}/bin/wl-copy --type text/plain <"$store/data" >/dev/null 2>&1
+        notify "Copied ($(wc -c <"$store/data") bytes), paste with Mod+Alt+V (VM) or Ctrl+V (dom0)"
         ;;
       *)
-        echo "usage: vm-clip copy|paste" >&2
+        echo "usage: vm-clip copy|paste|put" >&2
         exit 2
         ;;
     esac

@@ -523,7 +523,7 @@ let
       done
     }
     show_disks() { # show_disks <target>…
-      local t d line
+      local t d line used total=0
       for t in "$@"; do
         [ -n "$(kind_of "$t")" ] || die "unknown target: $t (see nox backup disks --all)"
         line=""
@@ -531,10 +531,14 @@ let
           case "$(kind_of "$t")" in
             vm | image) [ -e "$(path_of "$t" "$d")" ] || { line="$line   $d (not created yet)"; continue; } ;;
           esac
-          line="$line   $d $(human "$(used_of "$t" "$d")") of $(human "$(size_of "$t" "$d")")"
+          used="$(used_of "$t" "$d")"
+          total=$((total + ''${used:-0}))
+          line="$line   $d $(human "$used") of $(human "$(size_of "$t" "$d")")"
         done
         printf '%-20s%s\n' "$t" "$line"
       done
+      # What a full run of these targets reads (before compression)
+      [ $# -lt 2 ] || printf '%-20s%s\n' total "   $(human "$total") used"
     }
 
     # ---------- arguments ----------

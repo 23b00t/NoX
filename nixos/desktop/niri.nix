@@ -283,7 +283,7 @@ let
     "Mod+Comma" = {
       _props."hotkey-overlay-title" = "Emoji Picker";
       "spawn-sh" =
-        "rofimoji --max-recent 10 --action copy --selector-args='-theme /etc/xdg/rofi/config.rasi'";
+        "rofimoji --max-recent 10 --action print --selector-args='-theme /etc/xdg/rofi/config.rasi' | vm-clip put";
     };
 
     "Mod+Alt+C" = {
@@ -457,7 +457,7 @@ let
     "Mod+Period" = {
       _props."hotkey-overlay-title" = "Glyph Picker (Nerd Font)";
       "spawn-sh" =
-        "rofimoji --files nerd_font --max-recent 10 --action copy --selector-args='-theme /etc/xdg/rofi/config.rasi'";
+        "rofimoji --files nerd_font --max-recent 10 --action print --selector-args='-theme /etc/xdg/rofi/config.rasi' | vm-clip put";
     };
 
     Print.screenshot = { };

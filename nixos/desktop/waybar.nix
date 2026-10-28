@@ -359,6 +359,13 @@ in
     partOf = [ "graphical-session.target" ];
     after = [ "graphical-session.target" ];
     wantedBy = [ "graphical-session.target" ];
+    # The modules' on-click/on-scroll commands (wpctl, brightnessctl,
+    # swaync-client, pavucontrol, bt-manager) come from the system profile;
+    # a NixOS unit's PATH would only hold coreutils & co.
+    path = [
+      "/run/wrappers"
+      "/run/current-system/sw"
+    ];
     serviceConfig = {
       ExecStart = "${pkgs.waybar}/bin/waybar";
       Restart = "on-failure";
