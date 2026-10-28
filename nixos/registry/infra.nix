@@ -102,8 +102,12 @@ let
       githubAgent = false;
       dbus = false;
       memPriority = 10;
-      # nothing in or out by nox-rpc copy (the build VM sees untrusted code)
-      copy = noCopy;
+      # nothing in by nox-rpc copy (the build VM sees untrusted code); out
+      # asks, for the installer ISO (dom0-update --iso <vm>: dom0's own
+      # call, no question)
+      copy = noCopy // {
+        outgoing = "ask";
+      };
     };
   };
   core = [

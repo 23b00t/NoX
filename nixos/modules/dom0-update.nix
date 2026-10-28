@@ -24,20 +24,26 @@ let
     usage() {
       cat <<EOF >&2
     Usage: dom0-update [--switch] [--machine <name>] [--branch <branch>]
+           dom0-update --iso <vm> [--branch <branch>]
 
     Builds the system on the builder VM, copies the signed closure and
     activates it for the next boot (default) or right away (--switch).
+    --iso <vm>: builds the config's installer ISO instead and copies it
+    from the builder straight to <vm> (~/Incoming/builder/nox-installer.iso
+    there), nothing goes through dom0's store.
     Defaults: --machine ${cfg.machine} --branch ${cfg.branch}
     EOF
       exit 1
     }
 
     action=boot
+    iso_vm=""
     machine=${lib.escapeShellArg cfg.machine}
     branch=${lib.escapeShellArg cfg.branch}
     while [ $# -gt 0 ]; do
       case "$1" in
         --switch) action=switch ;;
+        --iso) [ $# -ge 2 ] || usage; action=iso; iso_vm="$2"; shift ;;
         --machine) [ $# -ge 2 ] || usage; machine="$2"; shift ;;
         --branch) [ $# -ge 2 ] || usage; branch="$2"; shift ;;
         -h|--help) usage ;;
@@ -74,20 +80,35 @@ let
       sleep 2
     done
 
-    # Runs as the calling user (ssh config/key for ${builderIp}); the nix-daemon
-    # verifies the builder signature when the paths are added
-    out="$(ssh ${builderIp} builder-build "$machine" "$branch" | tail -n 1)"
-    case "$out" in
-      /nix/store/*-nixos-system-*) ;;
-      *) echo "dom0-update: unexpected builder output: $out" >&2; exit 1 ;;
-    esac
+    # The installer ISO: the builder leaves it in its ~/outbox, nox copy
+    # moves it to the VM (dom0's own call: the copy policy doesn't ask)
+    if [ "$action" = iso ]; then
+      iso="$(ssh ${builderIp} builder-build --iso "$branch" | tail -n 1)"
+      if [ "$iso" != outbox/nox-installer.iso ]; then
+        echo "dom0-update: unexpected builder output: $iso" >&2
+        exit 1
+      fi
+      if ! nox-copy -m builder "$iso_vm" "$iso"; then
+        echo "dom0-update: copy to $iso_vm failed, the ISO stays in the builder's ~/$iso" >&2
+        exit 1
+      fi
+      echo "dom0-update: ISO in $iso_vm: ~/Incoming/builder/nox-installer.iso" >&2
+    else
+      # Runs as the calling user (ssh config/key for ${builderIp}); the nix-daemon
+      # verifies the builder signature when the paths are added
+      out="$(ssh ${builderIp} builder-build "$machine" "$branch" | tail -n 1)"
+      case "$out" in
+        /nix/store/*-nixos-system-*) ;;
+        *) echo "dom0-update: unexpected builder output: $out" >&2; exit 1 ;;
+      esac
 
-    echo "dom0-update: copying $out" >&2
-    ${config.nix.package}/bin/nix copy --from ssh-ng://${builderIp} "$out"
+      echo "dom0-update: copying $out" >&2
+      ${config.nix.package}/bin/nix copy --from ssh-ng://${builderIp} "$out"
 
-    sudo ${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set "$out"
-    sudo "$out/bin/switch-to-configuration" "$action"
-    echo "dom0-update: $action done ($out)" >&2
+      sudo ${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set "$out"
+      sudo "$out/bin/switch-to-configuration" "$action"
+      echo "dom0-update: $action done ($out)" >&2
+    fi
 
     if [ "$started_builder" = 1 ]; then
       echo "dom0-update: stopping the builder VM again" >&2

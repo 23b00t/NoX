@@ -169,10 +169,27 @@ the complete picture.
 
 ## Installer
 
-`nix build github:23b00t/NoX#installer-iso` builds a NixOS minimal live ISO
-with `nox-install`, `nox-hwcheck`, disko, git/ssh, neovim/helix/nano,
-cryptsetup and NetworkManager (`nmtui`); the kernel boots with the IOMMU on,
-so `nox-hwcheck` sees the IOMMU groups. Write it to a stick (`dd`), boot it,
+The installer ISO is a NixOS minimal live system with `nox-install`,
+`nox-hwcheck`, disko, git/ssh, neovim/helix/nano, cryptsetup and
+NetworkManager (`nmtui`); the kernel boots with the IOMMU on, so
+`nox-hwcheck` sees the IOMMU groups. Build it one of two ways:
+
+- **On a NoX machine** (dom0 builds nothing, the builder does):
+  `dom0-update --iso <vm>`, e.g. `dom0-update --iso disp`. The builder
+  builds the config's `installer-iso` (NoX as pinned in the config's
+  flake.lock, from the branch's signed HEAD like a system; `--branch b` for
+  another one), and `nox copy` moves it straight from the builder to the
+  VM: `~/Incoming/builder/nox-installer.iso` there. Nothing goes into
+  dom0's store, and nothing stays in the builder: the ISO leaves its store
+  right after the build, its copy in the builder's `~/outbox` goes with the
+  move (if the copy fails it stays there until the next `--iso`); the
+  build inputs are left to the builder's GC. The builder's copy rule is
+  `outgoing = "ask"`; dom0's own call needs no question.
+- **On a plain NixOS (or any Nix) machine:**
+  `nix build github:23b00t/NoX#installer-iso`, the ISO is in
+  `result/iso/`.
+
+Write it to a stick (`dd`, in the VM the stick is attached to), boot it,
 then `sudo nox-install`. It guides through eight steps, Ctrl-C aborts any
 time:
 

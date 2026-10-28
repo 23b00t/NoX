@@ -17,7 +17,8 @@
 #                   commit signers (dom0-update), null without a builder
 #
 # Returns { nixosConfigurations; packages; registry; vmSystems; }:
-# `packages` holds the VMs' runners (packages.<system>.<vm>).
+# `packages` holds the VMs' runners (packages.<system>.<vm>) and NoX's
+# installer-iso, so the builder builds it from the config (dom0-update --iso).
 { self }:
 {
   inputs,
@@ -90,7 +91,9 @@ in
 {
   inherit registry vmSystems;
   nixosConfigurations = vmSystems // lib.mapAttrs mkMachine machines;
-  packages.${system} = builtins.mapAttrs (
-    _: vmSystem: vmSystem.config.microvm.declaredRunner
-  ) vmSystems;
+  packages.${system} =
+    builtins.mapAttrs (_: vmSystem: vmSystem.config.microvm.declaredRunner) vmSystems
+    // {
+      inherit (self.packages.${system}) installer-iso;
+    };
 }

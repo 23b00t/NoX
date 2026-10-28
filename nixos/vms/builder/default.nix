@@ -13,11 +13,23 @@ let
   stateDir = "/var/lib/builder";
   inherit (config.nox.builder) repoUrl;
 
-  # builder-build <machine> [branch]: fetch, build, sign; prints the toplevel
+  # builder-build <machine> [branch]: fetch, build, sign; prints the toplevel.
+  # builder-build --iso <branch>: builds the config's installer-iso, leaves
+  # it as ~/outbox/nox-installer.iso (dom0-update --iso <vm> copies it out)
+  # and deletes it from the store; prints that path, relative to the home
   builderBuild = pkgs.writeShellScriptBin "builder-build" ''
     set -euo pipefail
-    machine="''${1:?usage: builder-build <machine> [branch]}"
+    machine="''${1:?usage: builder-build <machine> [branch] | --iso <branch>}"
     branch="''${2:-$machine}"
+    attr="nixosConfigurations.$machine.config.system.build.toplevel"
+    # The out-link is the GC root of the last build per machine
+    link=(--out-link "${stateDir}/systems/$machine")
+    if [ "$machine" = --iso ]; then
+      branch="''${2:?usage: builder-build --iso <branch>}"
+      machine=installer-iso
+      attr=installer-iso
+      link=(--no-link)
+    fi
     repo="${stateDir}/repo"
     key="${stateDir}/signing-key"
 
@@ -47,17 +59,25 @@ let
       exit 1
     fi
 
-    # The out-link is the GC root of the last build per machine
     # Progress through nom (nix-output-monitor) on stderr, which ssh brings
     # to dom0's terminal; the store path stays on stdout for dom0-update.
     # pipefail: a failed build fails here although nom exits 0
     out="$( {
       ${config.nix.package}/bin/nix build --print-out-paths \
-        --out-link "${stateDir}/systems/$machine" \
+        "''${link[@]}" \
         --log-format internal-json -v \
-        "$repo#nixosConfigurations.$machine.config.system.build.toplevel" \
+        "$repo#$attr" \
         2>&1 1>&3 | ${pkgs.nix-output-monitor}/bin/nom --json >&2
     } 3>&1 )"
+
+    # The ISO leaves as a file, not into a store: no signature, no GC root.
+    # Its build inputs stay until the GC needs the space (min-free)
+    if [ "$machine" = installer-iso ]; then
+      ${pkgs.coreutils}/bin/install -m 644 "$out"/iso/*.iso "$HOME/outbox/nox-installer.iso"
+      ${config.nix.package}/bin/nix store delete "$out" >&2
+      echo "outbox/nox-installer.iso"
+      exit 0
+    fi
 
     # Re-sign the whole closure: substituted paths only carry the cache's
     # signature, dom0 trusts nothing but this key
@@ -140,10 +160,24 @@ in
       "d ${stateDir} 0755 user users -"
       "d ${stateDir}/systems 0755 user users -"
       "d ${stateDir}/build 0755 root root -"
+      "d ${stateDir}/outbox 0755 user users -"
       # Out-links survive reboots, /nix/var does not: re-register them as GC
       # roots so the persistent store overlay keeps the last builds in its DB
       "L+ /nix/var/nix/gcroots/builder-hp - - - - ${stateDir}/systems/hp"
       "L+ /nix/var/nix/gcroots/builder-xmg - - - - ${stateDir}/systems/xmg"
+    ];
+
+    # ~/outbox (nox copy takes files from the home only) on the volume: the
+    # home is on the RAM-backed root, too small for the installer ISO
+    mounts = [
+      {
+        what = "${stateDir}/outbox";
+        where = "/home/user/outbox";
+        type = "none";
+        options = "bind";
+        after = [ "systemd-tmpfiles-setup.service" ];
+        wantedBy = [ "multi-user.target" ];
+      }
     ];
 
     services = {
