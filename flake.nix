@@ -1,10 +1,21 @@
 {
   description = "NoX (NixOS on Xen): tools, modules and VM templates for a Qubes-like NixOS";
 
-  inputs.nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+  inputs = {
+    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    # Partitioning of a machine with nox.disk (and the installer)
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+  };
 
   outputs =
-    { self, nixpkgs }:
+    {
+      self,
+      nixpkgs,
+      disko,
+    }:
     let
       systems = [ "x86_64-linux" ];
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f nixpkgs.legacyPackages.${system});
@@ -20,6 +31,9 @@
         # part (machines/xen-dom0.nix)
         dom0-base = ./nixos/dom0/base.nix;
         xen-dom0 = ./nixos/dom0/xen-dom0.nix;
+        # nox.disk: standard disk layout (disko), set by machines installed
+        # with nox-install
+        disk = import ./nixos/modules/disk.nix { inherit self; };
         default = self.nixosModules.relay;
       };
 
@@ -56,6 +70,12 @@
         pkgs:
         let
           nox = pkgs.extend self.overlays.default;
+          inherit (pkgs.stdenv.hostPlatform) system;
+          nox-hwcheck = pkgs.callPackage ./nix/nox-hwcheck.nix { };
+          nox-install = pkgs.callPackage ./nix/nox-install.nix {
+            inherit nox-hwcheck;
+            inherit (disko.packages.${system}) disko;
+          };
         in
         {
           inherit (nox)
@@ -66,7 +86,19 @@
             ;
           options-doc = pkgs.callPackage ./nix/options-doc.nix { };
           # Hardware check for a NoX machine (report, --nix: machines/hardware.nix)
-          nox-hwcheck = pkgs.callPackage ./nix/nox-hwcheck.nix { };
+          inherit nox-hwcheck;
+          # Guided installation from the installer ISO (sudo nox-install)
+          inherit nox-install;
+          # Installer ISO: NixOS minimal live system with nox-install
+          installer-iso =
+            (nixpkgs.lib.nixosSystem {
+              inherit system;
+              specialArgs = {
+                inherit nox-hwcheck nox-install;
+                inherit (disko.packages.${system}) disko;
+              };
+              modules = [ ./nixos/installer/iso.nix ];
+            }).config.system.build.isoImage;
           # Logo, icon, wallpaper and lock screen of the default theme (nox,
           # organic, dark, moon and stars); a config builds its own from
           # nox.desktop.theme

@@ -53,7 +53,12 @@ let
         inherit inputs vmDefinitions;
         vmRegistry = registry.forHost host;
       };
-      modules = [ self.nixosModules.dom0-base ] ++ modules ++ (machine.modules or [ ]);
+      modules = [
+        self.nixosModules.dom0-base
+        self.nixosModules.disk
+      ]
+      ++ modules
+      ++ (machine.modules or [ ]);
     };
 
   mkVmSystem =

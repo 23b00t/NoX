@@ -167,6 +167,42 @@ info`, `xl dmesg`); dom0 sees neither the IOMMU groups nor the P/E cores
 nor the USB devices' classes (they are in sys-usb), so a live system gives
 the complete picture.
 
+## Installer
+
+`nix build github:23b00t/NoX#installer-iso` builds a NixOS minimal live ISO
+with `nox-install`, `nox-hwcheck`, disko, git/ssh, neovim/helix/nano,
+cryptsetup and NetworkManager (`nmtui`); the kernel boots with the IOMMU on,
+so `nox-hwcheck` sees the IOMMU groups. Write it to a stick (`dd`), boot it,
+then `sudo nox-install`. It guides through eight steps, Ctrl-C aborts any
+time:
+
+1. network (`nmtui` if there is none)
+2. the `nox-hwcheck` report
+3. the config: its git URL and branch; for an SSH URL a key from the stick
+   or a new one, whose public part you register at GitHub before it clones
+   to `/tmp/nixos-config`
+4. the host: one of `machines/*`, or a new name: then it writes
+   `machines/<host>/hardware-configuration.nix` (without file systems) and
+   `machines/<host>/hwcheck.nix` (`nox-hwcheck --nix`), opens the editor
+   (flake.nix, hardware.nix, `nox.disk.device`) and commits + pushes
+   unsigned: sign it again later, else a builder doesn't take it
+5. the disk from the host's `nox.disk.device`: type its name, disko erases
+   it and asks the LUKS passphrase
+6. `nixos-install` (builds the whole machine locally)
+7. the user's password (`passwd` in the new system; none is in the config)
+8. the config clone into `/home/<user>/nixos-config` (and, if you like, the
+   SSH key), then reboot
+
+`nox-install --dry-run` runs steps 1-4 and prints the commands of 5-8;
+`--config URL`, `--branch B` and `--host H` skip those questions.
+
+The disk layout is NoX's module `nox.disk`: `nox.disk.device =
+"/dev/disk/by-id/…"` gives GPT, ESP 1 GB (`/boot`), the rest LUKS2 with
+ext4 (`/`, waits for the passphrase without a timeout), no swap (zram).
+disko derives `fileSystems` and the LUKS device from it, so set it only on a
+machine installed this way and leave those out of its
+hardware-configuration; without it nothing changes.
+
 ## nox (CLI)
 
 One command for dom0. For now a thin wrapper: each subcommand runs the
