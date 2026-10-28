@@ -43,7 +43,6 @@ in
       "vt.global_cursor_default=0"
     ];
     consoleLogLevel = lib.mkDefault 3;
-    initrd.verbose = lib.mkDefault false;
   };
 
   # Keep the last splash frame until sddm draws (no text console in between)

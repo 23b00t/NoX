@@ -95,7 +95,6 @@ in
     };
     plymouth.enable = true;
     initrd = {
-      systemd.enable = true;
       kernelModules = lib.mkAfter (
         [
           "nvme"
