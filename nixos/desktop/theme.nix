@@ -22,6 +22,17 @@ rec {
   inherit name;
   inherit (data) palette icons;
 
+  # GTK/Qt apps dark or light, and the cursor (nox.theme.dark/cursor; the
+  # package is a pkgs attribute name, pick it with cursorPackage pkgs)
+  dark = theme.dark or true;
+  cursor = {
+    name = "Bibata-Modern-Ice";
+    size = 24;
+    package = "bibata-cursors";
+  }
+  // theme.cursor or { };
+  cursorPackage = pkgs: lib.getAttrFromPath (lib.splitString "." cursor.package) pkgs;
+
   # Semantic roles, hex without '#' (swaylock wants it that way)
   raw = data.raw // theme.colors or { };
 

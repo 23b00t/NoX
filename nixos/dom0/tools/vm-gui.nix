@@ -11,6 +11,16 @@
   ...
 }:
 let
+  # nox.theme.cursor: wprsc draws the VMs' shape cursors with it, set
+  # here instead of inherited (a caller started before niri knew the theme
+  # passed XCURSOR_THEME=default)
+  inherit
+    (import ../../desktop/theme.nix {
+      inherit lib;
+      inherit (vmRegistry) theme;
+    })
+    cursor
+    ;
 
   # Sandbox of dom0's wprsc (user unit wprsc@<vm>, xen-migration.md night
   # run 2026-10-21): no network (own namespace, only AF_UNIX), no home, no
@@ -112,7 +122,9 @@ let
             -p BindReadOnlyPaths="$wayland" -p BindReadOnlyPaths="$sock" \
             -p RuntimeDirectory="wprsc/$VM" -p BindPaths="$run/wprsc/$VM" \
             -E WAYLAND_DISPLAY="$wayland" -E XDG_RUNTIME_DIR="$run" \
-            -E XCURSOR_THEME -E XCURSOR_SIZE -E XCURSOR_PATH \
+            -E XCURSOR_THEME=${lib.escapeShellArg cursor.name} \
+            -E XCURSOR_SIZE=${toString cursor.size} \
+            -E XCURSOR_PATH=/run/current-system/sw/share/icons \
             ${pkgs.wprs}/bin/wprsc --socket="$sock" \
             --control-socket="$run/wprsc/$VM/ctrl.sock" \
             --title-prefix="[$VM] " --app-id-prefix="[$VM] " --deny-fullscreen true \
@@ -124,7 +136,7 @@ let
 
     # Same environment the wprs launcher sets for remote apps; over RPC the
     # VM sets it (apps.environment), only the cursor size comes from here
-    cursor="XCURSOR_SIZE=''${XCURSOR_SIZE:-24}"
+    cursor="XCURSOR_SIZE=${toString cursor.size}"
     [ -S "$rpc" ] || fail "$rpc missing (is nox-relay-$VM up?)"
     # wprsc first: an app that comes up before any wprsc is attached gets no
     # output from wprsd and ends (the first app after a VM boot never showed

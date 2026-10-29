@@ -13,6 +13,13 @@
     "prefer-no-csd" = { };
     "hotkey-overlay"."skip-at-startup" = { };
 
+    # nox.theme.cursor. niri sets XCURSOR_THEME/SIZE for what it spawns
+    # (wprsc too, which draws the VMs' shape cursors), "default" without this
+    cursor = {
+      "xcursor-theme" = theme.cursor.name;
+      "xcursor-size" = theme.cursor.size;
+    };
+
     # No hot corner (top left of each monitor opened the overview)
     gestures."hot-corners".off = { };
 

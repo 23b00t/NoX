@@ -921,6 +921,110 @@ attribute set of string matching the pattern \[0-9a-fA-F]{6}
 
 
 
+### nox\.desktop\.theme\.cursor\.package
+
+
+
+Attribute name in pkgs of the package with the cursor theme (a name: the fleet’s theme is evaluated without pkgs)\. Installed in dom0 and every VM\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"bibata-cursors"
+```
+
+
+
+*Example:*
+
+```nix
+"adwaita-icon-theme"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.cursor\.name
+
+
+
+Cursor theme (XCursor) of niri, the login screen, GTK/Qt apps in dom0 and the VMs’ apps over wprs\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"Bibata-Modern-Ice"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.cursor\.size
+
+
+
+Cursor size in px\.
+
+
+
+*Type:*
+positive integer, meaning >0
+
+
+
+*Default:*
+
+```nix
+24
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.theme\.dark
+
+
+
+GTK and Qt apps in their dark variant (dom0 and the VMs: GTK theme, color-scheme, Qt style)\. false = the light variant; the desktop’s own colors come from the theme\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
 ### nox\.desktop\.theme\.decor
 
 
@@ -2273,6 +2377,110 @@ attribute set of string matching the pattern \[0-9a-fA-F]{6}
 
 
 
+### nox\.theme\.cursor\.package
+
+
+
+Attribute name in pkgs of the package with the cursor theme (a name: the fleet’s theme is evaluated without pkgs)\. Installed in dom0 and every VM\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"bibata-cursors"
+```
+
+
+
+*Example:*
+
+```nix
+"adwaita-icon-theme"
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.cursor\.name
+
+
+
+Cursor theme (XCursor) of niri, the login screen, GTK/Qt apps in dom0 and the VMs’ apps over wprs\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"Bibata-Modern-Ice"
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.cursor\.size
+
+
+
+Cursor size in px\.
+
+
+
+*Type:*
+positive integer, meaning >0
+
+
+
+*Default:*
+
+```nix
+24
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.theme\.dark
+
+
+
+GTK and Qt apps in their dark variant (dom0 and the VMs: GTK theme, color-scheme, Qt style)\. false = the light variant; the desktop’s own colors come from the theme\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.theme\.decor
 
 
@@ -2417,8 +2625,6 @@ submodule
 
 
 ### nox\.theme\.lock\.decor
-
-
 
 Sky behind the logo: a crescent moon, stars, both or none\.
 
@@ -2627,6 +2833,8 @@ module
 
 
 ### nox\.vms
+
+
 
 NixOS guests (microvm\.nix on Xen)\.
 
@@ -3724,6 +3932,30 @@ Short alias for the command line tools\.
 
 *Type:*
 null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.vms\.\<name>\.store\.size
+
+
+
+Size of the persistent store overlay in MB (new store paths built or fetched in the VM)\. Read by the builder (default 100000, registry/infra\.nix)\. The image is created once: a bigger value needs the existing image grown by hand (truncate, e2fsck -f, resize2fs) or deleted (empty cache)\.
+
+
+
+*Type:*
+null or (positive integer, meaning >0)
 
 
 

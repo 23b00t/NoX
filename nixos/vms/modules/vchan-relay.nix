@@ -27,6 +27,11 @@ let
   wprs = config.systemd.user.services ? wprsd;
   ssh = config.services.openssh.enable;
   sshSocket = "/run/sshd-vchan.sock";
+  # The fleet's theme: dark/light and the cursor of apps over RPC
+  theme = import ../../desktop/theme.nix {
+    inherit lib;
+    inherit (vmRegistry) theme;
+  };
   # uid/gid of `user` in the VMs
   owner = "1000:100";
 
@@ -272,11 +277,16 @@ in
               DISPLAY = ":100";
               XDG_SESSION_TYPE = "wayland";
               PULSE_SERVER = "unix:/tmp/wprs-pulse";
-              # Dark: GTK3 by theme; libadwaita reads the color scheme from
-              # the settings portal, which VMs lack (dconf's default in
-              # common-config.nix did not reach Bottles in win)
-              GTK_THEME = "Adwaita:dark";
-              ADW_DEBUG_COLOR_SCHEME = "prefer-dark";
+              # Dark (nox.theme.dark): GTK3 by theme; libadwaita reads the
+              # color scheme from the settings portal, which VMs lack
+              # (dconf's default in common-config.nix did not reach Bottles
+              # in win)
+              GTK_THEME = if theme.dark then "Adwaita:dark" else "Adwaita";
+              ADW_DEBUG_COLOR_SCHEME = if theme.dark then "prefer-dark" else "prefer-light";
+              # nox.theme.cursor for apps that draw their own cursor (without
+              # it they fell back to "default", smaller than dom0's); the
+              # size comes from dom0 (vm-gui)
+              XCURSOR_THEME = theme.cursor.name;
               # dom0's filtered bus where forwarded, else the VM's own
               # session bus: without one dconf can't save (Bottles closed
               # every bottle it opened, win 2026-10-16)

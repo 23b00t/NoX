@@ -62,6 +62,15 @@ let
       exit 1
     fi
 
+    # The previous system of this machine stops being a GC root before the
+    # build (dom0 keeps it as a generation): otherwise old and new closure
+    # have to fit side by side, and the store overlay ran full (xmg
+    # 2026-10-29). Nix collects its paths during the build only when space
+    # runs low (min-free below); paths the new system shares stay
+    if [ "$machine" != installer-iso ]; then
+      rm -f "${stateDir}/systems/$machine"
+    fi
+
     # Progress through nom (nix-output-monitor) on stderr, which ssh brings
     # to dom0's terminal; the store path stays on stdout for dom0-update.
     # pipefail: a failed build fails here although nom exits 0
@@ -122,7 +131,8 @@ in
 
     persistentStoreOverlay = {
       enable = true;
-      overlaySize = 100000;
+      # registry `store.size` (registry/infra.nix, vms.nix may change it)
+      overlaySize = reg.storeSize;
     };
   };
 
@@ -160,11 +170,13 @@ in
       "d ${stateDir} 0755 user users -"
       "d ${stateDir}/systems 0755 user users -"
       "d ${stateDir}/build 0755 root root -"
-      # Out-links survive reboots, /nix/var does not: re-register them as GC
-      # roots so the persistent store overlay keeps the last builds in its DB
-      "L+ /nix/var/nix/gcroots/builder-hp - - - - ${stateDir}/systems/hp"
-      "L+ /nix/var/nix/gcroots/builder-xmg - - - - ${stateDir}/systems/xmg"
-    ];
+    ]
+    # Out-links survive reboots, /nix/var does not: re-register this
+    # machine's as GC root so the persistent store overlay keeps its last
+    # build (a build for another machine keeps its root until a reboot)
+    ++
+      lib.optional (vmRegistry.host or null != null)
+        "L+ /nix/var/nix/gcroots/builder-${vmRegistry.host} - - - - ${stateDir}/systems/${vmRegistry.host}";
 
     services = {
       # Signing key, generated in the VM on first boot; only the public part
@@ -211,10 +223,11 @@ in
     # (default /nix/var/nix/b is on the 2 GB tmpfs). Lix uses build-dir, not
     # the daemon's TMPDIR (the daemon is socket-activated per connection).
     build-dir = "${stateDir}/build";
-    # The store overlay holds the last hp closure; after each build the
-    # previous one is garbage. GC during builds when space runs low.
-    min-free = 5 * 1024 * 1024 * 1024;
-    max-free = 15 * 1024 * 1024 * 1024;
+    # The store overlay holds this machine's last closure; builder-build
+    # unroots it before the next build, so GC during builds when space runs
+    # low frees its paths. Room for the big store images (several GB each)
+    min-free = 15 * 1024 * 1024 * 1024;
+    max-free = 30 * 1024 * 1024 * 1024;
     # Over HTTP/2 the many .narinfo queries share a few connections; on xmg
     # (2026-10-11) one stalled connection hung all of them for 300 s each
     # ("Operation too slow"). Separate HTTP/1.1 connections don't.

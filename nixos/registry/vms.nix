@@ -201,6 +201,11 @@ let
       default = null;
       description = "Size of the /home/user volume in MB.";
     };
+    store.size = mkOption {
+      type = types.nullOr types.ints.positive;
+      default = null;
+      description = "Size of the persistent store overlay in MB (new store paths built or fetched in the VM). Read by the builder (default 100000, registry/infra.nix). The image is created once: a bigger value needs the existing image grown by hand (truncate, e2fsck -f, resize2fs) or deleted (empty cache).";
+    };
     home.image = mkOption {
       type = types.nullOr types.str;
       default = null;
@@ -329,6 +334,7 @@ let
       "module"
       "apps"
       "home"
+      "store"
     ]
   );
   vmType = types.submodule (
@@ -347,6 +353,7 @@ let
       options = vmOptions;
       config = lib.genAttrs defaultable fromRole // {
         home.size = lib.mkIf (defaults ? home.size) (lib.mkDefault defaults.home.size);
+        store.size = lib.mkIf (defaults ? store.size) (lib.mkDefault defaults.store.size);
       };
     }
   );

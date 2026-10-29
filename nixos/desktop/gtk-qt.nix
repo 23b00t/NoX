@@ -1,6 +1,6 @@
-# GTK/Qt theme, default applications and session variables of dom0 (was
-# home-manager's gtk, qt, dconf, xdg.mimeApps; now /etc and the system
-# dconf database)
+# GTK/Qt theme, cursor, default applications and session variables of dom0
+# (was home-manager's gtk, qt, dconf, xdg.mimeApps; now /etc and the system
+# dconf database). Dark and cursor follow nox.theme.dark / nox.theme.cursor
 {
   pkgs,
   lib,
@@ -12,7 +12,10 @@ let
     inherit lib;
     inherit (config.nox.desktop) theme;
   };
+  inherit (theme) cursor dark;
   iconTheme = pkgs.tela-circle-icon-theme.override { colorVariants = [ theme.icons.variant ]; };
+  gtkTheme = if dark then "adw-gtk3-dark" else "adw-gtk3";
+  preferDark = if dark then "1" else "0";
   video = "chromium-browser.desktop";
 in
 {
@@ -20,29 +23,38 @@ in
     systemPackages = [
       pkgs.adw-gtk3
       iconTheme
+      (theme.cursorPackage pkgs)
     ];
 
     etc = {
       "xdg/gtk-3.0/settings.ini".text = ''
         [Settings]
-        gtk-application-prefer-dark-theme=1
+        gtk-application-prefer-dark-theme=${preferDark}
         gtk-icon-theme-name=${theme.icons.name}
-        gtk-theme-name=adw-gtk3-dark
+        gtk-theme-name=${gtkTheme}
+        gtk-cursor-theme-name=${cursor.name}
+        gtk-cursor-theme-size=${toString cursor.size}
       '';
       "xdg/gtk-4.0/settings.ini".text = ''
         [Settings]
-        gtk-application-prefer-dark-theme=1
+        gtk-application-prefer-dark-theme=${preferDark}
         gtk-icon-theme-name=${theme.icons.name}
+        gtk-cursor-theme-name=${cursor.name}
+        gtk-cursor-theme-size=${toString cursor.size}
       '';
       "gtk-2.0/gtkrc".text = ''
         gtk-icon-theme-name = "${theme.icons.name}"
-        gtk-theme-name = "adw-gtk3-dark"
+        gtk-theme-name = "${gtkTheme}"
+        gtk-cursor-theme-name = "${cursor.name}"
+        gtk-cursor-theme-size = ${toString cursor.size}
       '';
     };
 
     sessionVariables = {
       GTK2_RC_FILES = "/etc/gtk-2.0/gtkrc";
       QT_QPA_PLATFORMTHEME = "gtk3";
+      XCURSOR_THEME = cursor.name;
+      XCURSOR_SIZE = toString cursor.size;
       LESSHISTFILE = "/tmp/less-hist";
       PARALLEL_HOME = "$HOME/.config/parallel";
 
@@ -56,20 +68,23 @@ in
       XDG_VIDEOS_DIR = "$HOME/Videos";
     };
 
-    # GTK apps started from a shell: dark Adwaita. Login shells only, as under
-    # home-manager: in the session (systemd user units) GTK_THEME overrides
-    # swaync's style.css with Adwaita's opaque background
+    # GTK apps started from a shell: Adwaita (dark unless nox.theme.dark is
+    # false). Login shells only, as under home-manager: in the session
+    # (systemd user units) GTK_THEME overrides swaync's style.css with
+    # Adwaita's opaque background
     loginShellInit = ''
-      export GTK_THEME=Adwaita:dark
+      export GTK_THEME=${if dark then "Adwaita:dark" else "Adwaita"}
     '';
   };
 
   programs.dconf.profiles.user.databases = [
     {
       settings."org/gnome/desktop/interface" = {
-        color-scheme = "prefer-dark";
-        gtk-theme = "adw-gtk3-dark";
+        color-scheme = if dark then "prefer-dark" else "default";
+        gtk-theme = gtkTheme;
         icon-theme = theme.icons.name;
+        cursor-theme = cursor.name;
+        cursor-size = lib.gvariant.mkInt32 cursor.size;
       };
     }
   ];

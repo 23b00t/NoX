@@ -11,6 +11,12 @@ with lib;
 let
   cfg = config.services.common-config;
   defaultPkgs = import ../default-pkgs.nix { inherit pkgs; };
+  # The fleet's theme (nox.theme): dark/light apps and the cursor
+  theme = import ../../desktop/theme.nix {
+    inherit lib;
+    inherit (vmRegistry) theme;
+  };
+  inherit (theme) cursor dark;
   hostName = config.networking.hostName or "";
   vmName = if hasSuffix "-vm" hostName then removeSuffix "-vm" hostName else hostName;
   currentVm =
@@ -206,10 +212,17 @@ in
     programs = {
       # dconf on the VM's own session bus (apps started over RPC use it,
       # vchan-relay.nix); dark by default for GTK4/libadwaita apps
+      # (nox.theme.dark), cursor from nox.theme.cursor
       dconf = {
         enable = true;
         profiles.user.databases = [
-          { settings."org/gnome/desktop/interface".color-scheme = "prefer-dark"; }
+          {
+            settings."org/gnome/desktop/interface" = {
+              color-scheme = if dark then "prefer-dark" else "default";
+              cursor-theme = cursor.name;
+              cursor-size = lib.gvariant.mkInt32 cursor.size;
+            };
+          }
         ];
       };
 
@@ -223,14 +236,34 @@ in
       };
     };
 
-    environment.sessionVariables = {
-      TERM = "xterm-256color";
-      GTK_THEME = "Adwaita:dark";
-      QT_QPA_PLATFORMTHEME = "gtk2";
-      QT_STYLE_OVERRIDE = "Adwaita-Dark";
-      GTK_CURSORS_THEME = "Bibata-Modern-Ice";
-      XCURSOR_THEME = "Bibata-Modern-Ice";
-      WAYLAND_CURSOR_THEME = "Bibata-Modern-Ice";
+    environment = {
+      sessionVariables = {
+        TERM = "xterm-256color";
+        GTK_THEME = if dark then "Adwaita:dark" else "Adwaita";
+        QT_QPA_PLATFORMTHEME = "gtk2";
+        QT_STYLE_OVERRIDE = if dark then "Adwaita-Dark" else "Adwaita";
+        GTK_CURSORS_THEME = cursor.name;
+        XCURSOR_THEME = cursor.name;
+        WAYLAND_CURSOR_THEME = cursor.name;
+      };
+
+      # GTK apps without the session's variables or dconf (Xwayland apps in
+      # FHS sandboxes, X11 GTK): the same dark\/light and cursor from the
+      # system-wide settings
+      etc = {
+        "xdg/gtk-3.0/settings.ini".text = ''
+          [Settings]
+          gtk-application-prefer-dark-theme=${if dark then "1" else "0"}
+          gtk-cursor-theme-name=${cursor.name}
+          gtk-cursor-theme-size=${toString cursor.size}
+        '';
+        "xdg/gtk-4.0/settings.ini".text = ''
+          [Settings]
+          gtk-application-prefer-dark-theme=${if dark then "1" else "0"}
+          gtk-cursor-theme-name=${cursor.name}
+          gtk-cursor-theme-size=${toString cursor.size}
+        '';
+      };
     };
 
     fonts.packages = with pkgs; [
@@ -263,8 +296,12 @@ in
 
     environment.systemPackages = mkMerge [
       (mkIf cfg.withDefaultPkgs (mkBefore defaultPkgs))
-      # xdg-open itself (yazi, file dialogs); every VM has a GUI over wprs
-      [ pkgs.xdg-utils ]
+      # xdg-open itself (yazi, file dialogs) and the cursor theme
+      # (nox.theme.cursor); every VM has a GUI over wprs
+      [
+        pkgs.xdg-utils
+        (theme.cursorPackage pkgs)
+      ]
     ];
   };
 }

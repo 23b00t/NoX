@@ -7,7 +7,6 @@ with pkgs;
   file
   tree
   lsof
-  bibata-cursors
 
   nerd-fonts.fira-code
   # 7-Zip (7zz, used by yazi to extract): zip, 7z, tar.*; the free build

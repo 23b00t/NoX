@@ -9,6 +9,7 @@
 //! the tools it asks (systemctl, nox-rpc, journalctl, xl, wl-clipboard, df)
 //! run as processes.
 
+use std::cell::RefCell;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -83,7 +84,8 @@ impl Stat {
 
 /// The table: one line per check, counted as it is printed. Level 0 (the
 /// default) prints only FAIL/WARN rows with their details, 1 (`-v`) every
-/// row, 2 (`-vv`) every row with its details
+/// row, 2 (`-vv`) every row with its details and the commands behind it
+/// (input, output, exit code)
 #[derive(Default)]
 pub struct Table {
     pub pass: u32,
@@ -111,8 +113,15 @@ impl Table {
                     println!("      {}", cut(l, 150));
                 }
             }
+            if self.verbose >= 2 {
+                for l in take_trace() {
+                    println!("      | {}", cut(&l, 150));
+                }
+            }
             let _ = std::io::stdout().flush();
         }
+        // the next row shows only its own commands
+        take_trace();
         match stat {
             Stat::Pass => self.pass += 1,
             Stat::Fail => self.fail += 1,
@@ -132,39 +141,97 @@ fn run(prog: &str, args: &[&str], input: Option<&[u8]>) -> Option<String> {
     } else {
         Stdio::null()
     });
-    let mut child = cmd.spawn().ok()?;
+    let Ok(mut child) = cmd.spawn() else {
+        trace(prog, args, input, "", None);
+        return None;
+    };
     if let Some(data) = input {
         let mut stdin = child.stdin.take()?;
         let _ = stdin.write_all(data);
     }
     let out = child.wait_with_output().ok()?;
-    if !out.status.success() {
-        return None;
-    }
     let mut s = String::from_utf8_lossy(&out.stdout).into_owned();
     while s.ends_with('\n') {
         s.pop();
+    }
+    trace(prog, args, input, &s, out.status.code());
+    if !out.status.success() {
+        return None;
     }
     Some(s)
 }
 
 /// Like `run`, but the output also on failure (empty if it could not start)
 fn output(prog: &str, args: &[&str]) -> String {
-    Command::new(prog)
+    match Command::new(prog)
         .args(args)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string())
-        .unwrap_or_default()
+    {
+        Ok(o) => {
+            let s = String::from_utf8_lossy(&o.stdout).trim_end().to_string();
+            trace(prog, args, None, &s, o.status.code());
+            s
+        }
+        Err(_) => {
+            trace(prog, args, None, "", None);
+            String::new()
+        }
+    }
 }
 
 fn active(unit: &str) -> bool {
-    Command::new("systemctl")
-        .args(["is-active", "--quiet", &format!("{unit}.service")])
+    let service = format!("{unit}.service");
+    let args = ["is-active", "--quiet", service.as_str()];
+    let code = Command::new("systemctl")
+        .args(args)
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+        .ok()
+        .and_then(|s| s.code());
+    trace("systemctl", &args, None, "", code);
+    code == Some(0)
+}
+
+// `-vv`: every command a check runs, with its input, output and exit code,
+// printed under the check's row (Table::row_more) and then cleared
+thread_local! {
+    static TRACE: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Notes one command for `-vv`. Clipboard contents (wl-paste/wl-copy, the
+/// `clip` rpc) show only their size: the user's clipboard stays off screen
+fn trace(prog: &str, args: &[&str], input: Option<&[u8]>, out: &str, code: Option<i32>) {
+    let secret = matches!(prog, "wl-paste" | "wl-copy") || args.contains(&"clip");
+    let mut lines = vec![format!("$ {prog} {}", args.join(" "))];
+    if let Some(data) = input.filter(|d| !d.is_empty()) {
+        if secret {
+            lines.push(format!("< ({} bytes)", data.len()));
+        } else {
+            let text = String::from_utf8_lossy(data).replace('\0', " ");
+            lines.extend(text.trim_end().lines().map(|l| format!("< {l}")));
+        }
+    }
+    if secret {
+        if !out.is_empty() {
+            lines.push(format!("({} bytes)", out.len()));
+        }
+    } else {
+        let all: Vec<&str> = out.lines().collect();
+        lines.extend(all.iter().take(20).map(|l| (*l).to_string()));
+        if all.len() > 20 {
+            lines.push(format!("... {} more lines", all.len() - 20));
+        }
+    }
+    lines.push(match code {
+        Some(c) => format!("(exit {c})"),
+        None => "(did not start or was killed)".to_string(),
+    });
+    TRACE.with(|t| t.borrow_mut().extend(lines));
+}
+
+fn take_trace() -> Vec<String> {
+    TRACE.with(|t| std::mem::take(&mut *t.borrow_mut()))
 }
 
 /// `nox-rpc --dom0 <service> <vm>` under `timeout`
@@ -448,6 +515,8 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
         .filter(|d| active(&d.unit))
         .cloned()
         .collect();
+    // which domains run is setup, not a check of its own
+    take_trace();
 
     // --- rpc and relay per running VM
     for d in &running {
@@ -489,6 +558,9 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
     {
         Some(d) => {
             let code = probe(&d.name, "net");
+            // the public IP (compared with sys-vpn clients below), before the
+            // row so -vv shows it here
+            direct_ip = probe(&d.name, "ip");
             let check = format!("net via sys-firewall ({})", d.name);
             if code == "200" {
                 t.row(Stat::Pass, &check, "DNS + HTTPS");
@@ -500,7 +572,6 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
                 };
                 t.row(Stat::Fail, &check, detail);
             }
-            direct_ip = probe(&d.name, "ip");
         }
         None => t.row(
             Stat::Skip,
@@ -550,6 +621,7 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
                     }
                     c.wait_with_output()
                 });
+            let code = out.as_ref().ok().and_then(|o| o.status.code());
             let answer = out
                 .map(|o| {
                     let mut s = String::from_utf8_lossy(&o.stdout).into_owned();
@@ -557,6 +629,13 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
                     s.trim_end().to_string()
                 })
                 .unwrap_or_default();
+            trace(
+                "timeout",
+                &["20", "nox-rpc", "--dom0", "app", &d.name],
+                Some(b"true\0"),
+                &answer,
+                code,
+            );
             let check = format!("rpc app ({})", d.name);
             if answer.starts_with("ok") {
                 t.row(Stat::Pass, &check, &answer);
@@ -835,12 +914,19 @@ fn wl_copy(text: Option<&str>) {
     } else {
         Stdio::null()
     });
+    let args: &[&str] = if text.is_some() {
+        &["--type", "text/plain"]
+    } else {
+        &["--clear"]
+    };
+    let mut code = None;
     if let Ok(mut child) = cmd.spawn() {
         if let (Some(data), Some(mut stdin)) = (text, child.stdin.take()) {
             let _ = stdin.write_all(data.as_bytes());
         }
-        let _ = child.wait();
+        code = child.wait().ok().and_then(|s| s.code());
     }
+    trace("wl-copy", args, text.map(str::as_bytes), "", code);
 }
 
 #[cfg(test)]

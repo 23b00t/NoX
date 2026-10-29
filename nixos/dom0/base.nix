@@ -215,11 +215,6 @@ in
     variables = {
       NIXOS_OZONE_WL = "1";
     };
-
-    sessionVariables = {
-      XCURSOR_THEME = "Bibata-Modern-Ice";
-      XCURSOR_SIZE = "24";
-    };
   };
 
   programs = {
@@ -344,8 +339,9 @@ in
       ];
       settings = {
         Theme = {
-          CursorTheme = "Bibata-Modern-Ice";
-          CursorSize = "24";
+          # nox.theme.cursor (desktop/gtk-qt.nix installs the package)
+          CursorTheme = config.nox.desktop.theme.cursor.name;
+          CursorSize = toString config.nox.desktop.theme.cursor.size;
         };
         General = {
           # Set default session globally

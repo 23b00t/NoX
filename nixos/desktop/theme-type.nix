@@ -65,6 +65,29 @@ types.submodule (
         default = "nox";
         description = "Theme (desktop/themes/<name>.nix): colors for niri, waybar, rofi, swaync, swaylock, foot, GTK/Qt, logo and wallpaper; icon theme.";
       };
+      dark = mkOption {
+        type = types.bool;
+        default = true;
+        description = "GTK and Qt apps in their dark variant (dom0 and the VMs: GTK theme, color-scheme, Qt style). false = the light variant; the desktop's own colors come from the theme.";
+      };
+      cursor = {
+        name = mkOption {
+          type = types.str;
+          default = "Bibata-Modern-Ice";
+          description = "Cursor theme (XCursor) of niri, the login screen, GTK/Qt apps in dom0 and the VMs' apps over wprs.";
+        };
+        size = mkOption {
+          type = types.ints.positive;
+          default = 24;
+          description = "Cursor size in px.";
+        };
+        package = mkOption {
+          type = types.str;
+          default = "bibata-cursors";
+          example = "adwaita-icon-theme";
+          description = "Attribute name in pkgs of the package with the cursor theme (a name: the fleet's theme is evaluated without pkgs). Installed in dom0 and every VM.";
+        };
+      };
       colors = mkOption {
         type = types.attrsOf hex;
         default = { };
