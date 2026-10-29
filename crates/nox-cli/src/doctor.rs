@@ -336,6 +336,14 @@ pub fn backup_days(last: u64, now: u64) -> Option<u64> {
     (last != 0).then(|| now.saturating_sub(last) / 86400)
 }
 
+/// nox backup's `last`: the end time of the last finished `--all` run, then
+/// `ok` or `partial` (older records have only the time) → (time, partial)
+pub fn backup_last(s: &str) -> (u64, bool) {
+    let mut l = s.lines();
+    let t = l.next().and_then(|t| t.trim().parse().ok()).unwrap_or(0);
+    (t, l.next().is_some_and(|w| w.trim() == "partial"))
+}
+
 const XEN_ERR: &str = r"^\(XEN\).*\b(err(or)?|fail(ed|ure)?|fault|panic)\b";
 
 /// Lines of `text` matching `XEN_ERR` (grep -Ei, as the shell version)
@@ -706,17 +714,22 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
         }
     }
 
-    // --- backup (nox backup records the last W1 run)
-    let last: u64 = fs::read_to_string(state_dir("nox-backup").join("last"))
-        .ok()
-        .and_then(|s| s.trim().parse().ok())
-        .unwrap_or(0);
+    // --- backup (nox backup records the last finished --all run)
+    let (last, partial) =
+        backup_last(&fs::read_to_string(state_dir("nox-backup").join("last")).unwrap_or_default());
     match backup_days(last, now()) {
-        None => t.row(Stat::Warn, "backup", "none yet (nox backup)"),
+        None => t.row(Stat::Warn, "backup", "none yet (nox backup --all)"),
         Some(age) if age > 7 => t.row(
             Stat::Warn,
             "backup",
-            &format!("{age} days ago (nox backup)"),
+            &format!("{age} days ago (nox backup --all)"),
+        ),
+        Some(age) if partial => t.row(
+            Stat::Warn,
+            "backup",
+            &format!(
+                "{age} days ago, partial: a target failed (its log in ~/.local/state/nox-backup)"
+            ),
         ),
         Some(age) => t.row(Stat::Pass, "backup", &format!("{age} days ago")),
     }
@@ -966,6 +979,10 @@ mod tests {
     fn backup_age() {
         assert_eq!(backup_days(0, 1_000_000), None);
         assert_eq!(backup_days(1_000_000 - 3 * 86400 - 5, 1_000_000), Some(3));
+        assert_eq!(backup_last("1700000000\npartial\n"), (1_700_000_000, true));
+        assert_eq!(backup_last("1700000000\nok\n"), (1_700_000_000, false));
+        assert_eq!(backup_last("1700000000\n"), (1_700_000_000, false));
+        assert_eq!(backup_last(""), (0, false));
     }
 
     #[test]

@@ -240,7 +240,7 @@ output and exit code through. The built-in tools read their data from
 | `nox start\|stop\|restart [vm…] [--running] [--stale] [--group g]` | `manage-vms <action> …` |
 | `nox start\|restart --fresh <vm…>` | `manage-vms <action> --fresh …`: disposable VMs (registry `disposable`) with their volume images set aside (`*.pre-fresh`) |
 | `nox disp [--from <vm>] [cmd…]` | `vm-disp`: start the ad-hoc disposable `disp` (with `--from`: the VM's own disposable `disp-<vm>`, registry `hasDisposable`), open `cmd` (default foot) in it; a disposable that is down starts only if Xen has its boot memory free |
-| `nox backup <vm…>\|--all`, `--full [--level n] <target…>\|--all`, `restore [--full] [--from gen] …`, `disks`, `list`, `prune home\|full --keep n [-n] [vm…]` | in nox (crates/nox-cli/src/backup.rs; external LUKS disk on `disp-backup`, `nox backup help`) |
+| `nox backup [--level n] <target…>\|--all`, `restore [--from gen] <target…>\|--all`, `disks`, `list`, `prune --keep n [-n] [target…]` (whole disks; `--all` = registry `backup` + dom0) | in nox (crates/nox-cli/src/backup.rs; external LUKS disk on `disp-backup`, `nox backup help`) |
 | `nox run <vm> <program> [args]` | `vm-run <vm> …` (GUI over wprs; built in: src/run.rs) |
 | `nox exec <vm> <cmd> [args]` | `vm-run -c <vm> …` (a terminal window in the VM runs the command and stays open; the builder: SSH in this terminal) |
 | `nox ssh builder [ssh args]` | `ssh builder …` (only the builder has sshd; the other VMs: `nox exec`) |

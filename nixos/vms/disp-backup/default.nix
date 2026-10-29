@@ -5,44 +5,18 @@
 # drives it over the rpc service `backup` below; the disk is LUKS, opened
 # with the passphrase dom0 sends. Layout on the disk, <gen> = start time
 # YYYY-MM-DD_HHMMSS of the run, unfinished runs are <gen>.partial (removed
-# on failure, never used):
-#   nox/home/<vm>/<gen>/                      /home/user, hard links to the previous gen
+# on failure, never used); old rsync generations in nox/home/ are left alone:
 #   nox/full/<target>/<gen>/<disk>.tar.zst    one disk (sparse tar), .sha256 and
 #                                             .used (bytes of data) next to it;
 #                                             the builder's key is key.zst
 {
   lib,
   pkgs,
-  config,
   vmRegistry,
   ...
 }:
 let
   mnt = "/mnt/backup";
-  noxRpc = "${config.services.nox-rpc.package}/bin/nox-rpc";
-  # rsync's remote shell: `<rsh> <vm> rsync --server …` becomes a call of
-  # the VM's backup-send/backup-recv with that command as the first line.
-  # `cat` (rsync's data after that line) is killed when nox-rpc ends: it
-  # would wait on rsync's stdin while rsync waits for this script to exit,
-  # so every run hung after its last byte (hp, 2026-10-21 night)
-  rsh =
-    service:
-    pkgs.writeShellScript "backup-rsh-${service}" ''
-      host="$1"
-      shift
-      ${noxRpc} ${service} "$host" < <(printf '%s\n' "$*"; exec ${pkgs.coreutils}/bin/cat)
-      rc=$?
-      kill $! 2>/dev/null
-      exit $rc
-    '';
-  # --timeout: rsync gives up after 120 s without data instead of hanging
-  # (the first W1 test on the xmg hung forever, 2026-10-21);
-  # --no-inc-recursive: progress2 knows the total before it starts; stats2:
-  # "Total transferred file size" for the summary (stats1 lacks it);
-  # --no-msgs2stderr: the VM's errors ("opendir … Permission denied") come
-  # through the protocol, its stderr only reaches the VM's journal
-  rsyncOpts = "-aHS --numeric-ids --timeout=120 --no-inc-recursive --no-msgs2stderr --info=progress2,stats2";
-
   # Root part of the service (sudo from the handler). Names are checked:
   # they end up in paths
   helper = pkgs.writeShellScript "backup-helper" ''
@@ -53,21 +27,17 @@ let
         pkgs.util-linux
         pkgs.cryptsetup
         pkgs.e2fsprogs
-        pkgs.rsync
         pkgs.findutils
         pkgs.gnugrep
         pkgs.gawk
         pkgs.gnused
-        pkgs.procps
       ]
     }
-    # rsync's numbers as dom0's nox backup parses them ("1,234,567", "0.00kB/s");
-    # the VMs' LC_NUMERIC is German
+    # numbers as dom0's nox backup parses them (the VMs' LC_NUMERIC is German)
     export LC_ALL=C
     name_ok() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]]; }
     disk_ok() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]]; }
     gen_ok() { [[ "$1" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}$ ]]; }
-    home="${mnt}/nox/home"
     full="${mnt}/nox/full"
     # Generations of <dir>, oldest first (no .partial)
     gens() { find "$1" -mindepth 1 -maxdepth 1 -type d -regextype egrep -regex '.*/[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{6}' -printf '%f\n' 2>/dev/null | sort; }
@@ -155,43 +125,20 @@ let
         fi
         mkdir -p ${mnt}
         mount /dev/mapper/noxbackup ${mnt} || { cryptsetup close noxbackup; exit 1; }
-        mkdir -p "$home" "$full"
+        mkdir -p "$full"
         echo "opened $dev"
         ;;
       close)
         sync
-        # After Ctrl+C in dom0 an rsync here may still write: end it, retry
+        # After Ctrl+C in dom0 a stream here may still write: retry
         for _ in $(seq 10); do
           mountpoint -q ${mnt} || break
           umount ${mnt} 2>/dev/null && break
-          pkill -x rsync
           sleep 1
         done
         if mountpoint -q ${mnt}; then umount ${mnt} || exit 1; fi
         if [ -e /dev/mapper/noxbackup ]; then cryptsetup close noxbackup || exit 1; fi
         echo "closed"
-        ;;
-      home-backup) # <vm> <gen>
-        name_ok "$2" && gen_ok "$3" || exit 2
-        prev="$(gens "$home/$2" | tail -n 1)"
-        mkdir -p "$home/$2"
-        rm -rf "$home/$2/$3.partial"
-        if rsync ${rsyncOpts} --exclude=/.cache --exclude=/lost+found \
-          ''${prev:+--link-dest="$home/$2/$prev"} \
-          -e ${rsh "backup-send"} "$2:/home/user/" "$home/$2/$3.partial/"; then
-          mv "$home/$2/$3.partial" "$home/$2/$3"
-        else
-          rc=$?
-          rm -rf "$home/$2/$3.partial"
-          exit "$rc"
-        fi
-        ;;
-      home-restore) # <vm> <gen|latest>
-        name_ok "$2" || exit 2
-        g="$(resolve "$home/$2" "$3")" || exit 1
-        echo "generation $g"
-        rsync ${rsyncOpts} --update \
-          -e ${rsh "backup-recv"} "$home/$2/$g/" "$2:/home/user/"
         ;;
       full-put) # <target> <gen> <disk> <file name> <used bytes>; stdin = the stream
         name_ok "$2" && gen_ok "$3" && disk_ok "$4" && [[ "$5" =~ ^[A-Za-z0-9._-]+$ ]] && [[ "$6" =~ ^[0-9]+$ ]] || exit 2
@@ -236,13 +183,7 @@ let
         exec cat "$d/$f"
         ;;
       list)
-        echo "home - /home/user                 restore: nox backup restore [--from <generation>] <vm>"
-        for d in "$home"/*/; do
-          # none left (a failed run, prune --keep 0): no row
-          [ -d "$d" ] && [ -n "$(gens "$d")" ] || continue
-          printf '  %-10s %s (newest)\n' "$(basename "$d")" "$(gens "$d" | tr '\n' ' ' | sed 's/ $//')"
-        done
-        echo "full - whole disks                restore: nox backup restore --full [--from <generation>] <target>"
+        echo "restore: nox backup restore [--from <generation>] <target>"
         for d in "$full"/*/; do
           [ -d "$d" ] || continue
           first=1
@@ -263,13 +204,12 @@ let
           echo "disk: $(human "$a") free of $(human "$s")"
         done
         ;;
-      prune) # home|full <keep> -n|- [vm…]
-        kind="$2" keep="$3" dry="$4"
-        [ "$kind" = home ] || [ "$kind" = full ] || exit 2
+      prune) # <keep> -n|- [target…]
+        keep="$2" dry="$3"
         # keep 0: all of them (nox backup asks first)
         [[ "$keep" =~ ^[0-9]+$ ]] || exit 2
-        base="${mnt}/nox/$kind"
-        shift 4
+        base="$full"
+        shift 3
         if [ $# -eq 0 ]; then
           mapfile -t dirs < <(find "$base" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
           set -- "''${dirs[@]}"
@@ -280,9 +220,9 @@ let
           for g in $(gens "$base/$vm" | head -n -"$keep"); do
             n=$((n + 1))
             if [ "$dry" = -n ]; then
-              echo "would delete $kind $vm $g"
+              echo "would delete $vm $g"
             else
-              echo "delete $kind $vm $g"
+              echo "delete $vm $g"
               rm -rf "''${base:?}/''${vm:?}/''${g:?}"
             fi
           done
@@ -343,10 +283,7 @@ in
     '';
   };
 
-  environment.systemPackages = with pkgs; [
-    cryptsetup
-    rsync
-  ];
+  environment.systemPackages = [ pkgs.cryptsetup ];
 
   system.stateVersion = "26.05";
 }

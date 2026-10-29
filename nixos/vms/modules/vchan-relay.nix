@@ -37,36 +37,6 @@ let
   # uid/gid of `user` in the VMs
   owner = "1000:100";
 
-  # `check-rsync send|recv rsync --server …`: the rsync server command of a
-  # home backup/restore (handlers backup-send/backup-recv below) may only
-  # carry these words
-  checkRsync = pkgs.writeShellScript "check-rsync" ''
-    mode="$1"
-    shift
-    [ "$1" = rsync ] && [ "$2" = --server ] || exit 1
-    shift 2
-    if [ "$mode" = send ]; then
-      [ "$1" = --sender ] || exit 1
-      shift
-    fi
-    # The path part: exactly ". /home/user/"
-    [ $# -ge 3 ] && [ "''${*: -2:1}" = . ] && [ "''${*: -1}" = /home/user/ ] || exit 1
-    set -- "''${@:1:$#-2}"
-    upd=0
-    for w in "$@"; do
-      case "$w" in
-        -[A-Za-z]*)
-          # Short flags plus rsync's capability string (after the dot)
-          [[ "$w" =~ ^-[A-Za-z]+(\.[A-Za-z]*)?$ ]] || exit 1
-          [[ "''${w%%.*}" == *u* ]] && upd=1
-          ;;
-        --numeric-ids | --no-msgs2stderr | --timeout=[0-9]* | --info=[A-Z0-9,]*) ;;
-        *) exit 1 ;;
-      esac
-    done
-    [ "$mode" = send ] || [ "$upd" = 1 ]
-  '';
-
   # `vm-print <printer-ip> <file>` (C2): the document goes to sys-print over
   # RPC (dom0 asks), which prints it on the given IPP Everywhere printer
   vmPrint = pkgs.writeShellScriptBin "vm-print" ''
@@ -198,42 +168,6 @@ in
                   ;;
                 *) echo "error: probe net|ip|wprsd|dbus"; exit 1 ;;
               esac
-            '';
-
-            # home backup (dom0's nox backup, README "Backup"): only disp-backup
-            # calls (nox-rpcd policy too). First line: the rsync server command
-            # its rsync sends, checked word by word: only known rsync options,
-            # /home/user as the only path; send = read-only sender, recv must
-            # be --update (-u: never deletes, newer files stay). A rejected
-            # line answers with the reason (rsync then stops and shows it)
-            # instead of failing silently (2026-10-21: rsync 3.5 sends
-            # --info=STATS, the old check refused it and rsync hung)
-            backup-send = ''
-              if [ "$source" != disp-backup ]; then
-                echo "error: only disp-backup"
-                exit 1
-              fi
-              IFS= read -r line || exit 1
-              read -ra args <<<"$line"
-              if ! ${checkRsync} send "''${args[@]}"; then
-                echo "error: backup-send refused: $line"
-                exit 1
-              fi
-              cd /home/user && exec ${pkgs.rsync}/bin/rsync "''${args[@]:1}"
-            '';
-
-            backup-recv = ''
-              if [ "$source" != disp-backup ]; then
-                echo "error: only disp-backup"
-                exit 1
-              fi
-              IFS= read -r line || exit 1
-              read -ra args <<<"$line"
-              if ! ${checkRsync} recv "''${args[@]}"; then
-                echo "error: backup-recv refused: $line"
-                exit 1
-              fi
-              cd /home/user && exec ${pkgs.rsync}/bin/rsync "''${args[@]:1}"
             '';
 
             # One-time copy into dom0 (dom0's `vm-pull` / `nox pull`, Qubes

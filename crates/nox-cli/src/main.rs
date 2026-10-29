@@ -120,8 +120,8 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<OsString>,
     },
-    /// Back up VMs onto the external LUKS backup disk (src/backup.rs): home =
-    /// /home/user of NixOS VMs, --full = whole disks; restore, list, prune
+    /// Back up VMs onto the external LUKS backup disk (src/backup.rs): whole
+    /// disks per VM, image domain, dom0's ~/.ssh; restore, list, prune
     #[command(long_about = BACKUP_ABOUT)]
     Backup(Backup),
     /// Copy a file once from a VM's ~/outbox into dom0 (~/Incoming/<vm>/,
@@ -272,12 +272,10 @@ enum Cmd {
     Root(Pick),
 }
 
-/// `nox backup --help`: the two kinds and the generations
+/// `nox backup --help`: what a target is and the generations
 const BACKUP_ABOUT: &str =
     "Back up VMs onto the external LUKS backup disk (README \"Backup\").\n\n\
-    Two kinds:\n  \
-      home  /home/user of NixOS VMs (the default)\n  \
-      full  whole disks: a VM's disks, an image domain's image, dom0's ~/.ssh, the builder's key\n\
+    Whole disks: a VM's disks, an image domain's image, dom0's ~/.ssh, the builder's key.\n\
     Every run is a generation named by its start time, e.g. 2026-10-21_201500.";
 
 /// `nox backup`: the arguments are checked here, the work is src/backup.rs
@@ -288,30 +286,24 @@ const BACKUP_ABOUT: &str =
     subcommand_negates_reqs = true,
     arg_required_else_help = true,
     after_long_help = "Examples:\n  \
-      nox backup nvim chat                  home of nvim and chat\n  \
-      nox backup --all                      home of the VMs with registry `backup`\n  \
-      nox backup --full coding nvim         all disks of coding and nvim\n  \
-      nox backup --full coding:home,var     only these disks of coding\n  \
-      nox backup --full whonix-workstation  an image domain (its disk: image)\n  \
-      nox backup --full dom0 builder        dom0's ~/.ssh, the builder's key\n  \
-      nox backup --full --level 9 coding    smaller files, much slower\n  \
-      nox backup --full --all               everything\n  \
-      nox backup restore nvim               see: nox backup restore help\n  \
-      nox backup disks --all                what --full can back up\n  \
+      nox backup coding chat                all disks of coding and chat\n  \
+      nox backup coding:home,var            only these disks of coding\n  \
+      nox backup whonix-workstation         an image domain (its disk: image)\n  \
+      nox backup dom0 builder               dom0's ~/.ssh, the builder's key\n  \
+      nox backup --level 9 coding           smaller files, much slower\n  \
+      nox backup --all                      the VMs with registry `backup` and dom0\n  \
+      nox backup restore coding             see: nox backup restore help\n  \
+      nox backup disks --all                every target with its disks\n  \
       nox backup list                       all generations, free space\n  \
-      nox backup prune home --keep 5 -n     see: nox backup prune help"
+      nox backup prune --keep 2 -n          see: nox backup prune help"
 )]
 struct Backup {
     #[command(subcommand)]
     action: Option<BackupCmd>,
     #[command(flatten)]
     sel: BackupSel,
-    /// Whole disks instead of /home/user. TARGET: a VM (all its disks),
-    /// VM:DISK,DISK, an image domain, dom0, builder (`nox backup disks --all`)
-    #[arg(long)]
-    full: bool,
-    /// zstd level for --full: 1 (fast, big) .. 19 (slow, small), default 3
-    #[arg(long, value_name = "N", requires = "full", value_parser = clap::value_parser!(u8).range(1..=19))]
+    /// zstd level: 1 (fast, big) .. 19 (slow, small), default 3
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u8).range(1..=19))]
     level: Option<u8>,
 }
 
@@ -319,36 +311,33 @@ struct Backup {
 #[derive(Args)]
 #[group(required = true, multiple = false)]
 struct BackupSel {
-    /// VMs (home) or targets (--full)
+    /// A VM (all its disks), VM:DISK,DISK, an image domain, dom0, builder
+    /// (`nox backup disks --all`)
     #[arg(value_name = "TARGET")]
     targets: Vec<String>,
-    /// home: the VMs with registry `backup`; --full: every target
+    /// The VMs with registry `backup` (not sys-*, disposables, steam) and
+    /// dom0; for disks: every target
     #[arg(long)]
     all: bool,
 }
 
 #[derive(Subcommand)]
 enum BackupCmd {
-    /// Put a backup back: home adds files (deletes nothing, newer files in
-    /// the VM stay); --full replaces the disks (asks first, VM stopped)
+    /// Put a backup back: replaces the disks (asks first, VM stopped)
     #[command(after_long_help = "Examples:\n  \
-      nox backup restore nvim chat                       home, newest generation\n  \
-      nox backup restore --all                           home of the VMs with registry `backup`\n  \
-      nox backup restore --from 2026-10-21_201500 nvim   a specific generation\n  \
-      nox backup restore --full coding                   all disks of coding\n  \
-      nox backup restore --full coding:home              one disk\n  \
-      nox backup restore --full dom0 builder             only unpacked to ~/nox-restore; prints how to put them back")]
+      nox backup restore coding chat                       all disks, newest generation\n  \
+      nox backup restore coding:home                       one disk\n  \
+      nox backup restore --from 2026-10-21_201500 coding   a specific generation\n  \
+      nox backup restore --all                             the VMs with registry `backup` and dom0\n  \
+      nox backup restore dom0 builder                      only unpacked to ~/nox-restore; prints how to put them back")]
     Restore {
-        /// Whole disks (a full generation) instead of /home/user
-        #[arg(long)]
-        full: bool,
         /// Generation to restore (default: the newest; names: nox backup list)
         #[arg(long, value_name = "GEN", value_parser = generation)]
         from: Option<String>,
         #[command(flatten)]
         sel: BackupSel,
     },
-    /// The disks --full can back up, with size and used space
+    /// The disks a backup takes, with size and used space
     #[command(after_long_help = "Examples:\n  \
       nox backup disks coding\n  \
       nox backup disks --all")]
@@ -356,24 +345,21 @@ enum BackupCmd {
         #[command(flatten)]
         sel: BackupSel,
     },
-    /// All generations on the disk (home and full) and the free space
+    /// All generations on the disk and the free space
     List,
-    /// Delete old generations: all but the newest KEEP per VM/target
+    /// Delete old generations: all but the newest KEEP per target
     #[command(after_long_help = "Examples:\n  \
-      nox backup prune home --keep 5 -n          only show what would go\n  \
-      nox backup prune home --keep 5             all VMs\n  \
-      nox backup prune full --keep 2 coding      only coding")]
+      nox backup prune --keep 2 -n          only show what would go\n  \
+      nox backup prune --keep 2             all targets\n  \
+      nox backup prune --keep 1 coding      only coding")]
     Prune {
-        /// home or full
-        #[arg(value_parser = ["home", "full"])]
-        kind: String,
-        /// Generations to keep per VM/target (0: all go, asks first)
+        /// Generations to keep per target (0: all go, asks first)
         #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32))]
         keep: u32,
         /// Only show what would be deleted
         #[arg(short = 'n', long)]
         dry_run: bool,
-        /// Only these VMs/targets (default: all)
+        /// Only these targets (default: all)
         #[arg(value_name = "TARGET")]
         targets: Vec<String>,
     },
@@ -405,25 +391,18 @@ fn backup_req(b: Backup) -> backup::Req {
         }
     };
     match b.action {
-        None if b.full => Req::Full {
+        None => Req::Backup {
             sel: sel(b.sel),
             level: b.level.unwrap_or(3),
         },
-        None => Req::Home(sel(b.sel)),
-        Some(BackupCmd::Restore { full, from, sel: s }) => Req::Restore {
-            full,
-            from,
-            sel: sel(s),
-        },
+        Some(BackupCmd::Restore { from, sel: s }) => Req::Restore { from, sel: sel(s) },
         Some(BackupCmd::Disks { sel: s }) => Req::Disks(sel(s)),
         Some(BackupCmd::List) => Req::List,
         Some(BackupCmd::Prune {
-            kind,
             keep,
             dry_run,
             targets,
         }) => Req::Prune {
-            kind,
             keep,
             dry_run,
             targets,
@@ -1032,32 +1011,35 @@ mod tests {
     }
 
     #[test]
-    fn backup_home_and_full() {
+    fn backup_targets() {
         use backup::{Req, Sel};
         let names = |v: &[&str]| Sel::Names(v.iter().map(|s| s.to_string()).collect());
         assert_eq!(
-            backup(&["nvim", "chat"]).unwrap(),
-            Req::Home(names(&["nvim", "chat"]))
-        );
-        assert_eq!(backup(&["--all"]).unwrap(), Req::Home(Sel::All));
-        assert_eq!(
-            backup(&["--full", "coding:home,var", "nvim"]).unwrap(),
-            Req::Full {
-                sel: names(&["coding:home,var", "nvim"]),
+            backup(&["coding:home,var", "chat"]).unwrap(),
+            Req::Backup {
+                sel: names(&["coding:home,var", "chat"]),
                 level: 3
             }
         );
         assert_eq!(
-            backup(&["coding", "--level", "9", "--full"]).unwrap(),
-            Req::Full {
+            backup(&["--all"]).unwrap(),
+            Req::Backup {
+                sel: Sel::All,
+                level: 3
+            }
+        );
+        assert_eq!(
+            backup(&["coding", "--level", "9"]).unwrap(),
+            Req::Backup {
                 sel: names(&["coding"]),
                 level: 9
             }
         );
         assert!(backup(&[]).is_err());
-        assert!(backup(&["--all", "nvim"]).is_err());
-        assert!(backup(&["--level", "9", "coding"]).is_err());
-        assert!(backup(&["--full", "--level", "20", "coding"]).is_err());
+        assert!(backup(&["--all", "chat"]).is_err());
+        assert!(backup(&["--level", "20", "coding"]).is_err());
+        // the home mode is gone
+        assert!(backup(&["--full", "coding"]).is_err());
     }
 
     #[test]
@@ -1065,38 +1047,36 @@ mod tests {
         use backup::{Req, Sel};
         let names = |v: &[&str]| Sel::Names(v.iter().map(|s| s.to_string()).collect());
         assert_eq!(
-            backup(&["restore", "--from", "2026-10-21_201500", "nvim"]).unwrap(),
+            backup(&["restore", "--from", "2026-10-21_201500", "chat"]).unwrap(),
             Req::Restore {
-                full: false,
                 from: Some("2026-10-21_201500".into()),
-                sel: names(&["nvim"])
+                sel: names(&["chat"])
             }
         );
         assert_eq!(
-            backup(&["restore", "coding", "--full"]).unwrap(),
+            backup(&["restore", "--all"]).unwrap(),
             Req::Restore {
-                full: true,
                 from: None,
-                sel: names(&["coding"])
+                sel: Sel::All
             }
         );
-        assert!(backup(&["restore", "--from", "yesterday", "nvim"]).is_err());
+        assert!(backup(&["restore", "--from", "yesterday", "chat"]).is_err());
         assert!(backup(&["restore"]).is_err());
+        assert!(backup(&["restore", "--full", "coding"]).is_err());
         assert_eq!(backup(&["disks", "--all"]).unwrap(), Req::Disks(Sel::All));
         assert_eq!(backup(&["list"]).unwrap(), Req::List);
         assert_eq!(
-            backup(&["prune", "home", "--keep", "5", "-n", "nvim"]).unwrap(),
+            backup(&["prune", "--keep", "5", "-n", "chat"]).unwrap(),
             Req::Prune {
-                kind: "home".into(),
                 keep: 5,
                 dry_run: true,
-                targets: vec!["nvim".into()]
+                targets: vec!["chat".into()]
             }
         );
         // --keep 0: everything goes (asks first)
-        assert!(backup(&["prune", "home", "--keep", "0"]).is_ok());
-        assert!(backup(&["prune", "all", "--keep", "2"]).is_err());
-        assert!(backup(&["list", "nvim"]).is_err());
+        assert!(backup(&["prune", "--keep", "0"]).is_ok());
+        assert!(backup(&["prune", "chat"]).is_err());
+        assert!(backup(&["list", "chat"]).is_err());
     }
 
     #[test]

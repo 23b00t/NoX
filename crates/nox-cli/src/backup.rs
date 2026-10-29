@@ -2,18 +2,16 @@
 //! xen-migration.md "2. Backup"): backups onto an external LUKS disk that
 //! hangs on the disposable disp-backup (USB/IP from sys-usb; NoX
 //! nixos/vms/disp-backup has the disk side, its rpc service `backup`).
-//! dom0 mounts no guest file system and has no SSH into the VMs:
-//! - home: /home/user of NixOS VMs, one generation per run with hard links
-//!   to the previous one (rsync in disp-backup against the VM's rpc
-//!   services `backup-send` / `backup-recv`).
-//! - full: whole disks (a VM's volumes, an image domain's raw image, dom0's
-//!   ~/.ssh, the builder's key) as sparse tar + zstd streams from dom0 into
-//!   disp-backup, one generation per run. A restore checks the checksum
-//!   while it streams into a staging copy; the disk is replaced only then.
+//! dom0 mounts no guest file system and has no SSH into the VMs. A backup
+//! is whole disks (a VM's volumes, an image domain's raw image, dom0's
+//! ~/.ssh, the builder's key) as sparse tar + zstd streams from dom0 into
+//! disp-backup, one generation per run. A restore checks the checksum while
+//! it streams into a staging copy; the disk is replaced only then. (The
+//! rsync home backup is gone, 2026-10-29: too fragile.)
 //!
 //! Data: /etc/nox/registry.json `backup` (NoX nixos/dom0/tools/vm-backup.nix)
-//! and `domains` (units). Rust orchestrates; tar, zstd, sha256sum, rsync
-//! (in disp-backup) and nox-rpc do the bytes.
+//! and `domains` (units). Rust orchestrates; tar, zstd, sha256sum and
+//! nox-rpc do the bytes.
 //! NOX_BACKUP_TEST_DISK=<file> (hidden, for tests on the hp): a disk image
 //! file instead of the USB disk, formatted on first use.
 
@@ -36,20 +34,17 @@ use crate::sys;
 /// What `nox backup …` asks for (main.rs builds it from the clap tree)
 #[derive(Debug, PartialEq)]
 pub enum Req {
-    Home(Sel),
-    Full {
+    Backup {
         sel: Sel,
         level: u8,
     },
     Restore {
-        full: bool,
         from: Option<String>,
         sel: Sel,
     },
     Disks(Sel),
     List,
     Prune {
-        kind: String,
         keep: u32,
         dry_run: bool,
         targets: Vec<String>,
@@ -67,15 +62,13 @@ pub enum Sel {
 #[derive(Deserialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Data {
-    /// NixOS VMs home takes (all of this machine but disp-backup)
+    /// Every target in its order
     #[serde(default)]
-    pub home: Vec<String>,
-    /// `--all` of home: registry `backup` (not sys-*, not disposables)
+    pub targets: Vec<Target>,
+    /// `--all`: the VMs with registry `backup` (not sys-*, not disposables,
+    /// not steam) and dom0; image domains only by name
     #[serde(default)]
-    pub home_default: Vec<String>,
-    /// full targets in their order; `--all` = all of them
-    #[serde(default)]
-    pub full: Vec<Target>,
+    pub all: Vec<String>,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -330,8 +323,8 @@ fn wait_rpc(vm: &str) -> bool {
     false
 }
 
-/// Starts <vm> if it is down (for a home backup); true in `started` means
-/// it is stopped again afterwards
+/// Starts <vm> if it is down (the builder, for its key); true in `started`
+/// means it is stopped again afterwards
 fn start_for(doms: &Doms, vm: &str) -> (bool, bool) {
     if doms.running(vm) {
         // a running VM may still be booting: wait for its rpc too
@@ -347,8 +340,6 @@ fn start_for(doms: &Doms, vm: &str) -> (bool, bool) {
 struct Answer {
     /// `exit N`, the last line (None: no answer)
     rc: Option<i32>,
-    /// rsync's "Total transferred file size"
-    amount: Option<u64>,
     /// full-put: compressed size on the disk
     stored: Option<u64>,
     /// the other lines when captured
@@ -365,12 +356,7 @@ impl Answer {
 #[derive(Debug, PartialEq)]
 enum Rec {
     Exit(i32),
-    /// rsync progress2: bytes, percent, rate, ETA
-    Progress(u64, String, String, String),
-    Amount(u64),
     Stored(u64),
-    /// rsync's other statistics lines
-    Skip,
     Text(String),
 }
 
@@ -385,39 +371,6 @@ fn parse_rec(line: &str) -> Rec {
             return Rec::Stored(n);
         }
     }
-    if let Some(rest) = line.strip_prefix("Total transferred file size: ") {
-        let digits: String = rest
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .chars()
-            .filter(|c| *c != ',')
-            .collect();
-        if let Ok(n) = digits.parse() {
-            return Rec::Amount(n);
-        }
-    }
-    let w: Vec<&str> = line.split_whitespace().collect();
-    if w.len() >= 4
-        && w[0].chars().all(|c| c.is_ascii_digit() || c == ',')
-        && w[1].ends_with('%')
-        && w[1][..w[1].len() - 1].chars().all(|c| c.is_ascii_digit())
-    {
-        let b = w[0].replace(',', "").parse().unwrap_or(0);
-        return Rec::Progress(b, w[1].into(), w[2].into(), w[3].into());
-    }
-    const STATS: [&str; 7] = [
-        "Number of",
-        "Total ",
-        "Literal ",
-        "Matched ",
-        "File list",
-        "sent ",
-        "total size",
-    ];
-    if STATS.iter().any(|p| line.starts_with(p)) {
-        return Rec::Skip;
-    }
     Rec::Text(line.to_string())
 }
 
@@ -427,10 +380,9 @@ fn rpc_backup() -> Command {
     c
 }
 
-/// Calls the service: `line` first, then `input` as its stdin. rsync's
-/// progress is drawn in place under `label`; the other lines are printed
-/// (or kept in `text` with `capture`)
-fn call(line: &str, input: Option<Box<dyn Read + Send>>, label: &str, capture: bool) -> Answer {
+/// Calls the service: `line` first, then `input` as its stdin. Its lines
+/// are printed (or kept in `text` with `capture`)
+fn call(line: &str, input: Option<Box<dyn Read + Send>>, capture: bool) -> Answer {
     let mut child = match rpc_backup()
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -454,29 +406,11 @@ fn call(line: &str, input: Option<Box<dyn Read + Send>>, label: &str, capture: b
     });
     let mut ans = Answer::default();
     let out = child.stdout.take().unwrap();
-    let mut drawn = false;
     for rec in records(out) {
         match parse_rec(&rec) {
             Rec::Exit(n) => ans.rc = Some(n),
-            Rec::Progress(b, pct, rate, eta) => {
-                eprint!(
-                    "\r\x1b[2K  {:<20} {:>9} {:>4} {:>11}  ETA {}",
-                    label,
-                    hum_short(b as f64),
-                    pct,
-                    rate,
-                    eta
-                );
-                drawn = true;
-            }
-            Rec::Amount(n) => ans.amount = Some(n),
             Rec::Stored(n) => ans.stored = Some(n),
-            Rec::Skip => {}
             Rec::Text(t) => {
-                if drawn {
-                    eprintln!();
-                    drawn = false;
-                }
                 if capture {
                     ans.text.push(t);
                 } else {
@@ -484,9 +418,6 @@ fn call(line: &str, input: Option<Box<dyn Read + Send>>, label: &str, capture: b
                 }
             }
         }
-    }
-    if drawn {
-        eprintln!();
     }
     let _ = feeder.join();
     let _ = child.wait();
@@ -581,7 +512,7 @@ impl Session {
                 return Err("no passphrase".into());
             };
             let input: Box<dyn Read + Send> = Box::new(io::Cursor::new(format!("{pw}\n")));
-            let a = call(open, Some(input), "", false);
+            let a = call(open, Some(input), false);
             match a.rc {
                 Some(0) => return Ok(s),
                 Some(3) if attempt < 3 => continue,
@@ -594,7 +525,7 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        let closed = call("close", None, "", false).ok();
+        let closed = call("close", None, false).ok();
         self.doms.systemctl("stop", "disp-backup");
         if closed {
             warn("disk locked, disp-backup stopped");
@@ -790,7 +721,7 @@ fn waited_ok(c: &mut Child) -> bool {
 // ---------- targets ----------
 
 fn target<'a>(data: &'a Data, name: &str) -> Option<&'a Target> {
-    data.full.iter().find(|t| t.name == name)
+    data.targets.iter().find(|t| t.name == name)
 }
 
 /// "<target>[:<disk>,…]" → (target, disks); every name checked
@@ -893,60 +824,14 @@ fn show_disks(data: &Data, names: &[String]) -> Result<(), String> {
         }
         println!("{:<20}{line}", t.name);
     }
-    // What a full run of these targets reads (before compression)
+    // What a backup of these targets reads (before compression)
     if names.len() > 1 {
         println!("{:<20}   {} used", "total", human(total));
     }
     Ok(())
 }
 
-// ---------- home ----------
-
-fn home_names(data: &Data, sel: &Sel) -> Result<Vec<String>, String> {
-    match sel {
-        Sel::All => Ok(data.home_default.clone()),
-        Sel::Names(v) => {
-            for n in v {
-                if !data.home.contains(n) {
-                    return Err(format!(
-                        "{n}: not a NixOS VM of this machine (home takes: {})",
-                        data.home.join(" ")
-                    ));
-                }
-            }
-            Ok(v.clone())
-        }
-    }
-}
-
-fn home_run(doms: &Doms, vms: &[String], gen: &str, sum: &mut Summary) {
-    for (i, vm) in vms.iter().enumerate() {
-        if interrupted() {
-            sum.note(vm, "SKIPPED: interrupted", "-", "-");
-            continue;
-        }
-        say(&format!("[{}/{}] {vm}", i + 1, vms.len()));
-        let t = Instant::now();
-        let (up, started) = start_for(doms, vm);
-        if !up {
-            sum.note(vm, "FAILED: does not start or answer", "-", "-");
-        } else {
-            let a = call(&format!("home-backup {vm} {gen}"), None, vm, false);
-            let time = clock(t.elapsed().as_secs());
-            if a.ok() {
-                let amount = a.amount.map(human).unwrap_or_else(|| "-".into());
-                sum.note(vm, "OK", &amount, &time);
-            } else {
-                sum.note(vm, "FAILED: see the output above", "-", &time);
-            }
-        }
-        if started {
-            doms.systemctl("stop", vm);
-        }
-    }
-}
-
-// ---------- full ----------
+// ---------- backup ----------
 
 /// File name of a disk on the backup disk
 fn file_of(t: &Target, d: &str) -> String {
@@ -1026,7 +911,7 @@ fn full_put_one(put: &Put, t: &Target, d: &str, used: u64, before: u64) -> Answe
         put.gen,
         file_of(t, d)
     );
-    let mut a = call(&line, Some(Box::new(z_out)), "", false);
+    let mut a = call(&line, Some(Box::new(z_out)), false);
     let pumped = pump.join().is_ok_and(|r| r.is_ok());
     let src_ok = waited_ok(&mut src);
     let z_ok = waited_ok(&mut z);
@@ -1099,7 +984,7 @@ fn full_backup(
         total += disks.iter().map(|d| used_of(t, d)).sum::<u64>();
     }
     say(&format!(
-        "full backup: {} to read (used blocks, stored compressed)",
+        "backup: {} to read (used blocks, stored compressed)",
         human(total)
     ));
     let put = Put {
@@ -1168,11 +1053,11 @@ fn full_backup(
             }
         }
         if failed {
-            call(&format!("full-abort {name} {gen}"), None, "", false);
+            call(&format!("full-abort {name} {gen}"), None, false);
             say(&format!(
                 "  {name}: nothing kept from this run (a disk failed)"
             ));
-        } else if stored_any && !call(&format!("full-commit {name} {gen}"), None, "", false).ok() {
+        } else if stored_any && !call(&format!("full-commit {name} {gen}"), None, false).ok() {
             sum.note(name, "FAILED: generation not committed", "-", "-");
         }
         // no disk existed yet: nothing to commit, the rows say SKIPPED
@@ -1464,7 +1349,7 @@ fn full_restore(
     let mut list = Vec::new();
     let mut total = 0;
     for (name, disks) in sel {
-        let a = call(&format!("full-info {name} {from}"), None, "", true);
+        let a = call(&format!("full-info {name} {from}"), None, true);
         if !a.ok() {
             let what = if from == "latest" { "at all" } else { from };
             sum.note(
@@ -1599,15 +1484,15 @@ pub fn main(req: Req) -> ExitCode {
         Err(e) => return fail(&format!("{e:#}")),
     };
     let gen = generation_now();
-    let all_full: Vec<String> = data.full.iter().map(|t| t.name.clone()).collect();
-    let pick_full = |sel: &Sel| match sel {
-        Sel::All => expand(&data, &all_full),
+    let pick = |sel: &Sel| match sel {
+        Sel::All => expand(&data, &data.all),
         Sel::Names(v) => expand(&data, v),
     };
     match req {
         Req::Disks(sel) => {
+            // --all here: every target, what can be backed up at all
             let names = match &sel {
-                Sel::All => all_full.clone(),
+                Sel::All => data.targets.iter().map(|t| t.name.clone()).collect(),
                 Sel::Names(v) => v.clone(),
             };
             match show_disks(&data, &names) {
@@ -1616,122 +1501,89 @@ pub fn main(req: Req) -> ExitCode {
             }
         }
         Req::List => run_session(&doms, &format!("{gen}-list"), |_, _| {
-            call("list", None, "", false).ok()
+            call("list", None, false).ok()
         }),
         Req::Prune {
-            kind,
             keep,
             dry_run,
             targets,
         } => {
+            // the old `prune home|full …`: no target is called so
+            if targets.iter().any(|t| t == "home" || t == "full") {
+                return fail("prune takes targets only: nox backup prune --keep N [target…]");
+            }
             if keep == 0 && !dry_run {
                 let whom = if targets.is_empty() {
-                    "every VM".to_string()
+                    "every target".to_string()
                 } else {
                     targets.join(" ")
                 };
                 if !ask(&format!(
-                    "--keep 0 deletes all {kind} generations of {whom}. Sure?"
+                    "--keep 0 deletes all generations of {whom}. Sure?"
                 )) {
                     return fail("aborted");
                 }
             }
             let dry = if dry_run { "-n" } else { "-" };
-            let line = format!("prune {kind} {keep} {dry} {}", targets.join(" "));
+            let line = format!("prune {keep} {dry} {}", targets.join(" "));
             run_session(&doms, &format!("{gen}-prune"), |_, _| {
-                call(line.trim_end(), None, "", false).ok()
+                call(line.trim_end(), None, false).ok()
             })
         }
-        Req::Home(sel) => {
-            let vms = match home_names(&data, &sel) {
-                Ok(v) => v,
-                Err(e) => return fail(&e),
-            };
-            let st = run_session(&doms, &gen, |log, t0| {
-                let mut sum = Summary::default();
-                home_run(&doms, &vms, &gen, &mut sum);
-                sum.print("home backup", Some(&gen), log, t0)
-            });
-            if st == ExitCode::SUCCESS {
-                let _ = fs::write(
-                    state_dir().join("last"),
-                    format!(
-                        "{}\n",
-                        sys::output("date", ["+%s"]).unwrap_or_default().trim()
-                    ),
-                );
-            }
-            st
-        }
-        Req::Full { sel, level } => {
-            let sel = match pick_full(&sel) {
+        Req::Backup { sel, level } => {
+            let all = sel == Sel::All;
+            let sel = match pick(&sel) {
                 Ok(s) => s,
                 Err(e) => return fail(&e),
             };
-            run_session(&doms, &gen, |log, t0| {
+            // A finished --all run (not one interrupted or aborted): its
+            // result, for nox doctor and the reminder
+            let mut finished = None;
+            let st = run_session(&doms, &gen, |log, t0| {
                 let mut sum = Summary::default();
                 if let Err(e) = full_backup(&doms, &data, &sel, &gen, level, &mut sum) {
                     warn(&e);
                     return false;
                 }
-                sum.print("full backup", Some(&gen), log, t0)
-            })
-        }
-        Req::Restore { full, from, sel } => {
-            let from = from.unwrap_or_else(|| "latest".into());
-            if full {
-                let sel = match pick_full(&sel) {
-                    Ok(s) => s,
-                    Err(e) => return fail(&e),
-                };
-                run_session(&doms, &format!("{gen}-restore-full"), |log, t0| {
-                    let mut sum = Summary::default();
-                    if let Err(e) = full_restore(&doms, &data, &sel, &from, &mut sum) {
-                        warn(&e);
-                        return false;
-                    }
-                    sum.print("full restore", None, log, t0)
-                })
-            } else {
-                let vms = match home_names(&data, &sel) {
-                    Ok(v) => v,
-                    Err(e) => return fail(&e),
-                };
-                run_session(&doms, &format!("{gen}-restore"), |log, t0| {
-                    let mut sum = Summary::default();
-                    home_run_restore(&doms, &vms, &from, &mut sum);
-                    sum.print("home restore", None, log, t0)
-                })
+                let ok = sum.print("backup", Some(&gen), log, t0);
+                if !interrupted() {
+                    finished = Some(ok);
+                }
+                ok
+            });
+            if let (true, Some(ok)) = (all, finished) {
+                record_last(ok);
             }
+            st
+        }
+        Req::Restore { from, sel } => {
+            let from = from.unwrap_or_else(|| "latest".into());
+            let sel = match pick(&sel) {
+                Ok(s) => s,
+                Err(e) => return fail(&e),
+            };
+            run_session(&doms, &format!("{gen}-restore"), |log, t0| {
+                let mut sum = Summary::default();
+                if let Err(e) = full_restore(&doms, &data, &sel, &from, &mut sum) {
+                    warn(&e);
+                    return false;
+                }
+                sum.print("restore", None, log, t0)
+            })
         }
     }
 }
 
-fn home_run_restore(doms: &Doms, vms: &[String], from: &str, sum: &mut Summary) {
-    for (i, vm) in vms.iter().enumerate() {
-        if interrupted() {
-            sum.note(vm, "SKIPPED: interrupted", "-", "-");
-            continue;
-        }
-        say(&format!("[{}/{}] {vm}", i + 1, vms.len()));
-        let t = Instant::now();
-        let (up, started) = start_for(doms, vm);
-        if !up {
-            sum.note(vm, "FAILED: does not start or answer", "-", "-");
-        } else if call(&format!("home-restore {vm} {from}"), None, vm, false).ok() {
-            sum.note(vm, "OK", "-", &clock(t.elapsed().as_secs()));
-        } else {
-            sum.note(
-                vm,
-                "FAILED: see the output above",
-                "-",
-                &clock(t.elapsed().as_secs()),
-            );
-        }
-        if started {
-            doms.systemctl("stop", vm);
-        }
-    }
+/// `last` in the state dir: the end time of the last finished `--all` run,
+/// then `ok` or `partial` (a target failed); nox doctor and the reminder
+/// read it
+fn record_last(ok: bool) {
+    let now = sys::output("date", ["+%s"]).unwrap_or_default();
+    let stat = if ok { "ok" } else { "partial" };
+    let _ = fs::write(
+        state_dir().join("last"),
+        format!("{}\n{stat}\n", now.trim()),
+    );
 }
 
 /// Log, sudo, Ctrl+C, the session around `work`; exit 1 if it fails
@@ -1770,8 +1622,8 @@ mod tests {
 
     fn data() -> Data {
         serde_json::from_str(
-            r#"{"home":["nvim","chat","vanilla"],"homeDefault":["nvim","chat","vanilla"],
-              "full":[
+            r#"{"all":["coding","builder","dom0"],
+              "targets":[
                 {"name":"coding","kind":"vm","disks":[{"name":"home","path":"/var/lib/microvms/coding/home.img"},{"name":"var","path":"/var/lib/microvms/coding/var.img"}]},
                 {"name":"sys-net","kind":"vm","disposable":true,"disks":[{"name":"networkmanager","path":"/var/lib/microvms/sys-net/networkmanager.img"}]},
                 {"name":"kali","kind":"image","disks":[{"name":"image","path":"/home/nx/vm-images/kali/kali.qcow2"}]},
@@ -1815,17 +1667,15 @@ mod tests {
     }
 
     #[test]
-    fn home_selection() {
+    fn all_selection() {
+        // --all: the registry's list, all disks each; sys-net and the image
+        // domain only by name
         let d = data();
-        assert_eq!(
-            home_names(&d, &Sel::All).unwrap(),
-            ["nvim", "chat", "vanilla"]
-        );
-        assert!(home_names(&d, &Sel::Names(vec!["steam".into()])).is_err());
-        assert_eq!(
-            home_names(&d, &Sel::Names(vec!["chat".into()])).unwrap(),
-            ["chat"]
-        );
+        let e = expand(&d, &d.all).unwrap();
+        let names: Vec<&str> = e.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["coding", "builder", "dom0"]);
+        assert_eq!(e[0].1, ["home", "var"]);
+        assert!(expand(&d, &["sys-net".into(), "kali".into()]).is_ok());
     }
 
     #[test]
@@ -1833,21 +1683,6 @@ mod tests {
         assert_eq!(parse_rec("exit 0"), Rec::Exit(0));
         assert_eq!(parse_rec("exit 23"), Rec::Exit(23));
         assert_eq!(parse_rec("stored-bytes 114"), Rec::Stored(114));
-        assert_eq!(
-            parse_rec("Total transferred file size: 1,234,567 bytes"),
-            Rec::Amount(1_234_567)
-        );
-        assert_eq!(
-            parse_rec("    5,000,000  42%   12.34MB/s    0:00:03"),
-            Rec::Progress(
-                5_000_000,
-                "42%".into(),
-                "12.34MB/s".into(),
-                "0:00:03".into()
-            )
-        );
-        assert_eq!(parse_rec("Number of files: 3"), Rec::Skip);
-        assert_eq!(parse_rec("sent 1 bytes  received 2 bytes"), Rec::Skip);
         assert_eq!(
             parse_rec("opened /dev/xvdz"),
             Rec::Text("opened /dev/xvdz".into())

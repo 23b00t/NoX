@@ -104,7 +104,7 @@ let
       natIPs = map (vm: vm.ip) (builtins.filter (vm: vm.nat or false) hostVms);
       autostartNames = map (vm: vm.name) (builtins.filter (vm: vm.autostart or false) hostVms);
       dbusForwardParticipants = builtins.filter (vm: vm.enableHostDbusForward or true) hostVms;
-      # W1 backup (nox backup --all) takes these; field `backup`, default false
+      # nox backup --all takes these; field `backup`, default false
       # for sys-* and disposables
       backupVms = builtins.filter (
         vm: vm.backup or (!(builtins.substring 0 4 vm.name == "sys-" || (vm.disposable or false)))

@@ -502,22 +502,6 @@ in
       in
       rules "deny"
       ++ rules "warn"
-      # home backup (nox backup): only disp-backup reads /home/user of the
-      # VMs and writes it back; any NixOS VM can be named (README "Backup")
-      ++ lib.concatMap (
-        vm:
-        map
-          (service: {
-            inherit service;
-            source = "disp-backup";
-            target = vm.name;
-            action = "allow";
-          })
-          [
-            "backup-send"
-            "backup-recv"
-          ]
-      ) (builtins.filter (vm: vm.name != "disp-backup") vmRegistry.vms)
       # sys-print is optional (nox.infra.sys-print.enable)
       ++ lib.optional (vmRegistry.byName ? sys-print) {
         service = "print";

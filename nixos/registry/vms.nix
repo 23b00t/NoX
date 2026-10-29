@@ -292,7 +292,7 @@ let
     backup = mkOption {
       type = types.nullOr types.bool;
       default = null;
-      description = "/home in the home backup (nox backup --all). Default: true except sys-* VMs and disposables.";
+      description = "In `nox backup --all` (whole disks). Default: true except sys-* VMs and disposables.";
     };
     dbus = mkOption {
       type = types.nullOr types.bool;
