@@ -1,11 +1,17 @@
 {
   lib,
   pkgs,
+  config,
   inputs,
   vmRegistry,
   ...
 }:
 let
+  vmName = lib.removeSuffix "-vm" (config.networking.hostName or "");
+  # Window pixels through grant-shared memory from nox-relay's broker
+  # (vms/modules/vchan-relay.nix), registry `wprsSharedMemory`
+  grants =
+    config.microvm.hypervisor == "xen" && (vmRegistry.byName.${vmName}.wprsSharedMemory or true);
   # The fleet's theme (registry nox.theme), the same as dom0's desktop
   theme = import ../../desktop/theme.nix {
     inherit lib;
@@ -32,7 +38,9 @@ in
       # commit, default 60): Firefox got ~50 fps and dropped a third of a
       # 60 fps video; with 120 about 10-20 % (xmg 2026-10-18, README Known issues)
       # No clipboard sync with dom0, explicit copy/paste via vm-clip
-      ExecStart = "/run/current-system/sw/bin/wprsd --framerate 120 --selection-sync false";
+      ExecStart =
+        "/run/current-system/sw/bin/wprsd --framerate 120 --selection-sync false"
+        + lib.optionalString grants " --xen-grant-socket /run/wprs-grants.sock";
     };
     wantedBy = [ "default.target" ];
   };

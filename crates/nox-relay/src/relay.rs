@@ -518,7 +518,7 @@ fn pollfd(fd: i32, events: libc::c_short) -> libc::pollfd {
     }
 }
 
-fn bind(rule: &Listen) -> io::Result<UnixListener> {
+pub fn bind(rule: &Listen) -> io::Result<UnixListener> {
     match fs::symlink_metadata(&rule.path) {
         Ok(m) if m.file_type().is_socket() => fs::remove_file(&rule.path)?,
         Ok(_) => {

@@ -423,6 +423,7 @@ in
           let
             vm = vmRegistry.byName.${name} or { };
             wprs = guest.config.config.systemd.user.services ? wprsd;
+            wprsGrants = wprs && (vm.wprsSharedMemory or true);
           in
           {
             domain = "${name}-vm";
@@ -448,6 +449,13 @@ in
                   owner = "1000:100";
                 };
               };
+            # wprsc maps this guest's pixel buffers through it (nox-relay
+            # grants.rs: only this guest's grants, wprsc never opens
+            # /dev/xen/gntdev); vm-gui passes it when the socket exists
+            grants = lib.mkIf wprsGrants {
+              path = "/run/nox-relay/${name}-grants.sock";
+              owner = "1000:100";
+            };
           }
         ) (lib.filterAttrs (_: vm: vm.config.config.microvm.hypervisor == "xen") config.microvm.vms)
       );

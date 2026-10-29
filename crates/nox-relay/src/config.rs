@@ -3,11 +3,13 @@
 //! ```text
 //! listen <service> <socket-path> [mode=0600] [owner=<uid>:<gid>]
 //! serve  <service> <socket-path>
+//! grants <socket-path> [mode=0600] [owner=<uid>:<gid>]
 //! ```
 //!
 //! `listen`: create a local socket; each connection opens `<service>` at the
 //! peer. `serve`: the peer may open `<service>`; it is connected to the local
-//! socket. A peer can only reach services listed under `serve`.
+//! socket. A peer can only reach services listed under `serve`. `grants`:
+//! the grant broker for wprs' pixel buffers (grants.rs), at most one.
 
 use crate::proto::valid_service;
 use std::path::PathBuf;
@@ -30,6 +32,8 @@ pub struct Serve {
 pub struct Config {
     pub listen: Vec<Listen>,
     pub serve: Vec<Serve>,
+    /// The broker's socket (`service` is "grants").
+    pub grants: Option<Listen>,
 }
 
 pub fn parse(text: &str) -> Result<Config, String> {
@@ -40,7 +44,11 @@ pub fn parse(text: &str) -> Result<Config, String> {
         if line.is_empty() {
             continue;
         }
-        let words: Vec<&str> = line.split_whitespace().collect();
+        let mut words: Vec<&str> = line.split_whitespace().collect();
+        // `grants <path> ...` has no service: read it as `grants grants <path> ...`
+        if words.first() == Some(&"grants") {
+            words.insert(1, "grants");
+        }
         let (kind, service, path) = match words.as_slice() {
             [k, s, p, ..] => (*k, *s, *p),
             _ => return Err(err("expected: listen|serve <service> <path> ...")),
@@ -53,13 +61,14 @@ pub fn parse(text: &str) -> Result<Config, String> {
         }
         let duplicate = match kind {
             "listen" => cfg.listen.iter().any(|l| l.service == service),
+            "grants" => cfg.grants.is_some(),
             _ => cfg.serve.iter().any(|s| s.service == service),
         };
         if duplicate {
             return Err(err("service listed twice"));
         }
         match kind {
-            "listen" => {
+            "listen" | "grants" => {
                 let mut rule = Listen {
                     service: service.into(),
                     path: path.into(),
@@ -77,14 +86,18 @@ pub fn parse(text: &str) -> Result<Config, String> {
                         return Err(err("unknown option"));
                     }
                 }
-                cfg.listen.push(rule);
+                if kind == "grants" {
+                    cfg.grants = Some(rule);
+                } else {
+                    cfg.listen.push(rule);
+                }
             }
             "serve" if words.len() == 3 => cfg.serve.push(Serve {
                 service: service.into(),
                 path: path.into(),
             }),
             "serve" => return Err(err("serve takes no options")),
-            _ => return Err(err("expected listen or serve")),
+            _ => return Err(err("expected listen, serve or grants")),
         }
     }
     Ok(cfg)
@@ -116,6 +129,22 @@ mod tests {
                 path: "/run/user/1000/wprsd.sock".into()
             }]
         );
+    }
+
+    #[test]
+    fn parses_grants() {
+        let cfg = parse("grants /run/nox-relay/grants.sock owner=1000:100\n").unwrap();
+        assert_eq!(
+            cfg.grants,
+            Some(Listen {
+                service: "grants".into(),
+                path: "/run/nox-relay/grants.sock".into(),
+                mode: 0o600,
+                owner: Some((1000, 100)),
+            })
+        );
+        assert!(cfg.listen.is_empty());
+        assert!(parse("grants /a\ngrants /b").is_err());
     }
 
     #[test]

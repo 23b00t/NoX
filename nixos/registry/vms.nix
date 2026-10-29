@@ -299,6 +299,11 @@ let
       default = null;
       description = "Filtered session bus to dom0 (notifications, tray). Default: true.";
     };
+    wprsSharedMemory = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "wprs sends window pixels through Xen grant-shared memory instead of the stream (much less CPU in dom0 and the VM), falling back to the stream when that fails. Default: true.";
+    };
     githubAgent = mkOption {
       type = types.nullOr types.bool;
       default = null;

@@ -8,6 +8,9 @@
 # Rules per side: `listen.<service>` creates a local socket whose connections
 # open <service> at the peer; `serve.<service>` lets the peer open <service>,
 # connected to a local socket. A peer reaches nothing but its `serve` list.
+# `grants`: the grant broker for wprs' pixel buffers (crates/nox-relay
+# grants.rs): guest side shares pages read-only with dom0, host side maps that
+# guest's grants; clients get only the fd, never the Xen devices.
 { self }:
 {
   config,
@@ -49,6 +52,11 @@ let
       default = { };
       description = "Services the peer may open, mapped to local sockets.";
     };
+    grants = lib.mkOption {
+      type = lib.types.nullOr (lib.types.submodule listenOpts);
+      default = null;
+      description = "Socket of the grant broker for wprs' pixel buffers (guest: wprsd, host: wprsc), null: none.";
+    };
   };
 
   configFile =
@@ -62,6 +70,11 @@ let
           + "\n"
         ) rules.listen
         ++ lib.mapAttrsToList (service: path: "serve ${service} ${path}\n") rules.serve
+        ++ lib.optional (rules.grants != null) (
+          "grants ${rules.grants.path} mode=${rules.grants.mode}"
+          + lib.optionalString (rules.grants.owner != null) " owner=${rules.grants.owner}"
+          + "\n"
+        )
       )
     );
 

@@ -25,6 +25,8 @@ let
   githubAgent = vm.allowGitHubAgent or false;
   dbus = vm != { } && (vm.enableHostDbusForward or true);
   wprs = config.systemd.user.services ? wprsd;
+  # Pixels over grant-shared memory (registry `wprsSharedMemory`, vms/modules/wprs.nix)
+  wprsGrants = wprs && (vm.wprsSharedMemory or true);
   ssh = config.services.openssh.enable;
   sshSocket = "/run/sshd-vchan.sock";
   # The fleet's theme: dark/light and the cursor of apps over RPC
@@ -111,7 +113,19 @@ in
           serve =
             lib.optionalAttrs wprs { wprs = "/run/user/1000/wprs.sock"; }
             // lib.optionalAttrs ssh { ssh = sshSocket; };
+          # wprsd gets pages granted read-only to dom0 here (nox-relay
+          # grants.rs), never /dev/xen/gntalloc itself
+          grants = lib.mkIf wprsGrants {
+            path = "/run/wprs-grants.sock";
+            inherit owner;
+          };
         };
+
+        # gntalloc's limit is 1024 pages (4 MB, not even one 1080p buffer).
+        # Half of the VM's grant table (Xen's default 64 frames = 32768
+        # grants): the rest stays for the vchans, net and disks. Beyond it
+        # wprsd sends the pixels of further windows over the stream.
+        boot.kernelParams = lib.mkIf wprsGrants [ "xen_gntalloc.limit=16384" ];
 
         # wprsd has to run without an SSH login (GUI over vchan)
         users.users.user.linger = lib.mkIf wprs true;

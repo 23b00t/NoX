@@ -6,5 +6,8 @@
 _final: prev: {
   wprs = prev.wprs.overrideAttrs {
     src = inputs.wprs;
+    # Pixels through Xen grant-shared memory (wprs src/xen_shm.rs), switched
+    # on per VM by the registry field `wprsSharedMemory`
+    cargoBuildFeatures = [ "xen" ];
   };
 }

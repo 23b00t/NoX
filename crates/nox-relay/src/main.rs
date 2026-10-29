@@ -6,6 +6,7 @@
 //! the service manager restarts them.
 
 mod config;
+mod grants;
 mod proto;
 mod relay;
 mod vchan;
@@ -85,6 +86,14 @@ fn main() -> ExitCode {
     // Sockets we create start private; listen rules set their mode
     // SAFETY: umask has no memory effects
     unsafe { libc::umask(0o077) };
+
+    // Independent of the vchan: the fds it hands out outlive a reconnect
+    if let Some(rule) = &cfg.grants {
+        match relay::bind(rule).and_then(|l| grants::Broker::new(l, args.peer, args.server)) {
+            Ok(broker) => broker.spawn(),
+            Err(e) => eprintln!("grants: {e}"),
+        }
+    }
 
     let vchan = if args.server {
         match vchan::Vchan::server(args.peer, &args.path, args.ring) {

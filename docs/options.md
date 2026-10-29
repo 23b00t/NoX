@@ -4041,3 +4041,27 @@ null
  - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
 
 
+
+### nox\.vms\.\<name>\.wprsSharedMemory
+
+
+
+wprs sends window pixels through Xen grant-shared memory instead of the stream (much less CPU in dom0 and the VM), falling back to the stream when that fails\. Default: true\.
+
+
+
+*Type:*
+null or boolean
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+

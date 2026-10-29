@@ -73,6 +73,7 @@ let
       uplink = if v.uplink == "sys-firewall" then null else v.uplink;
       allowGitHubAgent = v.githubAgent;
       enableHostDbusForward = v.dbus;
+      inherit (v) wprsSharedMemory;
       copy =
         if v.copy == null then
           null

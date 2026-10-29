@@ -45,6 +45,8 @@ let
     "NoNewPrivileges=yes"
     "CapabilityBoundingSet="
     "SystemCallFilter=@system-service"
+    # wprsc forbids itself the grant ioctls (wprs xen_shm), only narrows it
+    "SystemCallFilter=seccomp"
     "SystemCallArchitectures=native"
     "RestrictNamespaces=yes"
     "LockPersonality=yes"
@@ -95,6 +97,15 @@ let
 
     run="''${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
     unit="wprsc@$VM"
+    # Pixels through grant-shared memory (registry `wprsSharedMemory`): the
+    # relay's grant broker for this VM, if it has one
+    grants="/run/nox-relay/$VM-grants.sock"
+    grantBind=()
+    grantArg=()
+    if [ -S "$grants" ]; then
+      grantBind=(-p BindReadOnlyPaths="$grants")
+      grantArg=(--xen-grant-socket="$grants")
+    fi
     case "''${WAYLAND_DISPLAY:-wayland-0}" in
       /*) wayland="$WAYLAND_DISPLAY" ;;
       *) wayland="$run/''${WAYLAND_DISPLAY:-wayland-0}" ;;
@@ -120,6 +131,7 @@ let
           systemd-run --user --quiet --collect --unit="$unit" \
             ${wprscSandbox} \
             -p BindReadOnlyPaths="$wayland" -p BindReadOnlyPaths="$sock" \
+            "''${grantBind[@]}" \
             -p RuntimeDirectory="wprsc/$VM" -p BindPaths="$run/wprsc/$VM" \
             -E WAYLAND_DISPLAY="$wayland" -E XDG_RUNTIME_DIR="$run" \
             -E XCURSOR_THEME=${lib.escapeShellArg cursor.name} \
@@ -127,7 +139,7 @@ let
             -E XCURSOR_PATH=/run/current-system/sw/share/icons \
             ${pkgs.wprs}/bin/wprsc --socket="$sock" \
             --control-socket="$run/wprsc/$VM/ctrl.sock" \
-            --title-prefix="[$VM] " --app-id-prefix="[$VM] " --deny-fullscreen true \
+            --title-prefix="[$VM] " --app-id-prefix="[$VM] " --deny-fullscreen true "''${grantArg[@]}" \
             9>&- || true
           sleep 1
         done
