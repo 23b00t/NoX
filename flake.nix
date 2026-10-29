@@ -109,16 +109,34 @@
         }
       );
 
-      devShells = forAllSystems (pkgs: {
-        default = pkgs.mkShell {
-          packages = with pkgs; [
-            cargo
-            rustc
-            clippy
-            rustfmt
-          ];
-          buildInputs = [ (pkgs.callPackage ./nix/vchan-libs.nix { }) ];
-        };
-      });
+      devShells = forAllSystems (
+        pkgs:
+        let
+          vchanLibs = pkgs.callPackage ./nix/vchan-libs.nix { };
+        in
+        {
+          default = pkgs.mkShell {
+            packages = with pkgs; [
+              cargo
+              rustc
+              clippy
+              rustfmt
+            ];
+            buildInputs = [ vchanLibs ];
+          };
+          # Only the libraries, Rust from rustup (it follows a repo's
+          # rust-toolchain.toml and has nightly): for direnv in a dev VM,
+          # `use flake <NoX>#libs` in NoX, `use flake <NoX>#wprs` in the wprs
+          # fork (its build inputs as in nixpkgs, without nixpkgs' Rust)
+          libs = pkgs.mkShell {
+            packages = [ pkgs.pkg-config ];
+            buildInputs = [ vchanLibs ];
+          };
+          wprs = pkgs.mkShell {
+            packages = [ pkgs.pkg-config ];
+            inherit (pkgs.wprs) buildInputs;
+          };
+        }
+      );
     };
 }

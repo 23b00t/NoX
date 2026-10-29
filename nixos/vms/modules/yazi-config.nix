@@ -10,7 +10,7 @@
     etc = {
       "yazi/init.lua".text = ''
         require("full-border"):setup {
-          type = ui.Border.ROUNDED,
+          set = "rounded",
         }
 
         require("git"):setup {
