@@ -55,4 +55,24 @@ in
     pkgs.procps
     pkgs.wl-clipboard
   ];
+
+  # Two read-only xl calls of nox without a password for the wheel group,
+  # exactly these: Xen's log for the doctor's check `xl dmesg`, the free
+  # memory nox disp checks before a start. The rest of xl still asks where
+  # sudo asks (xmg)
+  security.sudo.extraRules = [
+    {
+      groups = [ "wheel" ];
+      commands =
+        map
+          (command: {
+            inherit command;
+            options = [ "NOPASSWD" ];
+          })
+          [
+            "/run/current-system/sw/bin/xl dmesg"
+            "/run/current-system/sw/bin/xl info free_memory"
+          ];
+    }
+  ];
 }

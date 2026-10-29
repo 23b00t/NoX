@@ -1,7 +1,7 @@
 # disp-backup: disposable for `nox backup` (README "Backup", spec in
 # xen-migration.md "2. Backup"): holds the backup disk (USB/IP from sys-usb),
 # no network, empty home on every start (registry `disposable`,
-# machines/xen-dom0.nix). dom0's vm-backup (home/vm-management/vm-backup.nix)
+# nixos/dom0/xen-dom0.nix). dom0's nox backup (nox-cli src/backup.rs)
 # drives it over the rpc service `backup` below; the disk is LUKS, opened
 # with the passphrase dom0 sends. Layout on the disk, <gen> = start time
 # YYYY-MM-DD_HHMMSS of the run, unfinished runs are <gen>.partial (removed
@@ -58,9 +58,10 @@ let
         pkgs.gnugrep
         pkgs.gawk
         pkgs.gnused
+        pkgs.procps
       ]
     }
-    # rsync's numbers as dom0's `show` parses them ("1,234,567", "0.00kB/s");
+    # rsync's numbers as dom0's nox backup parses them ("1,234,567", "0.00kB/s");
     # the VMs' LC_NUMERIC is German
     export LC_ALL=C
     name_ok() { [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,31}$ ]]; }
@@ -81,7 +82,7 @@ let
 
     case "$1" in
       open | open-test)
-        # The disk is the only sd* here (own disks are xvd*); vm-backup's
+        # The disk is the only sd* here (own disks are xvd*); nox backup's
         # test disk (NOX_BACKUP_TEST_DISK) comes as xvdz. LUKS on the whole
         # disk or on any partition. Any LUKS volume can be the backup volume:
         # one listed in the registry (`backupLuksUuids`) is taken right away,
@@ -142,7 +143,7 @@ let
           dev=/dev/xvdz
         fi
         [ -n "$dev" ] || { echo "error: no LUKS disk found (attached? formatted?)"; exit 1; }
-        # cryptsetup exits 2 on a wrong passphrase: 3 tells vm-backup to ask again
+        # cryptsetup exits 2 on a wrong passphrase: 3 tells nox backup to ask again
         printf '%s' "$pw" | cryptsetup open --key-file=- "$dev" noxbackup
         rc=$?
         if [ "$rc" = 2 ]; then
@@ -159,6 +160,13 @@ let
         ;;
       close)
         sync
+        # After Ctrl+C in dom0 an rsync here may still write: end it, retry
+        for _ in $(seq 10); do
+          mountpoint -q ${mnt} || break
+          umount ${mnt} 2>/dev/null && break
+          pkill -x rsync
+          sleep 1
+        done
         if mountpoint -q ${mnt}; then umount ${mnt} || exit 1; fi
         if [ -e /dev/mapper/noxbackup ]; then cryptsetup close noxbackup || exit 1; fi
         echo "closed"
@@ -214,21 +222,24 @@ let
           echo "disk $n $f $(cat "$full/$2/$g/$n.used" 2>/dev/null || echo 0)"
         done
         ;;
-      full-get) # <target> <gen> <disk>: checks the checksum, then the stream
-        # (first line `ok` or `error: …`, no status line)
+      full-get) # <target> <gen> <disk>: first line `ok <sha256>` (or
+        # `error: …`), then the stream, no status line. dom0 checks the
+        # checksum while it unpacks (one read; checking here first read the
+        # whole file silently before the first byte, steam looked hung)
         name_ok "$2" && gen_ok "$3" && disk_ok "$4" || { echo "error: bad arguments"; exit 2; }
         d="$full/$2/$3"
         f="$(cd "$d" 2>/dev/null && ls "$4".tar.zst "$4".zst 2>/dev/null | head -n 1)"
         [ -n "$f" ] || { echo "error: $2/$3 has no disk $4"; exit 1; }
-        [ "$(sha256sum "$d/$f" | cut -d' ' -f1)" = "$(cat "$d/$4.sha256")" ] \
-          || { echo "error: checksum of $2/$3/$f wrong, not restored"; exit 1; }
-        echo ok
+        sum="$(cat "$d/$4.sha256" 2>/dev/null)"
+        [[ "$sum" =~ ^[0-9a-f]{64}$ ]] || { echo "error: $2/$3/$4 has no checksum"; exit 1; }
+        echo "ok $sum"
         exec cat "$d/$f"
         ;;
       list)
         echo "home - /home/user                 restore: nox backup restore [--from <generation>] <vm>"
         for d in "$home"/*/; do
-          [ -d "$d" ] || continue
+          # none left (a failed run, prune --keep 0): no row
+          [ -d "$d" ] && [ -n "$(gens "$d")" ] || continue
           printf '  %-10s %s (newest)\n' "$(basename "$d")" "$(gens "$d" | tr '\n' ' ' | sed 's/ $//')"
         done
         echo "full - whole disks                restore: nox backup restore --full [--from <generation>] <target>"
@@ -255,7 +266,8 @@ let
       prune) # home|full <keep> -n|- [vm…]
         kind="$2" keep="$3" dry="$4"
         [ "$kind" = home ] || [ "$kind" = full ] || exit 2
-        [[ "$keep" =~ ^[0-9]+$ ]] && [ "$keep" -ge 1 ] || exit 2
+        # keep 0: all of them (nox backup asks first)
+        [[ "$keep" =~ ^[0-9]+$ ]] || exit 2
         base="${mnt}/nox/$kind"
         shift 4
         if [ $# -eq 0 ]; then
@@ -314,7 +326,7 @@ in
       withDefaultPkgs = false;
     };
 
-    # dom0's vm-backup: first line `<command> [args]`, the output, then
+    # dom0's nox backup: first line `<command> [args]`, the output, then
     # `exit <rc>`; full-get streams without a status line
     nox-rpc.guest.handlers.backup = ''
       if [ "$source" != dom0 ]; then

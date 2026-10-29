@@ -1,4 +1,3 @@
-| `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
 # NoX – NixOS on Xen
 
 Tools, NixOS modules and roles for a Qubes-like NixOS on Xen: dom0 without
@@ -228,7 +227,7 @@ hardware-configuration; without it nothing changes.
 
 ## nox (CLI)
 
-One command for dom0. `doctor`, `manage-vms` and `vm-run` are built in
+One command for dom0. `doctor`, `backup`, `manage-vms` and `vm-run` are built in
 (their old names are links to nox); the other subcommands run the script
 that does the work (from the system configuration, on PATH) and pass its
 output and exit code through. The built-in tools read their data from
@@ -240,8 +239,8 @@ output and exit code through. The built-in tools read their data from
 | `nox list\|ls [--running] [--stale] [--group g]` | `manage-vms status …` |
 | `nox start\|stop\|restart [vm…] [--running] [--stale] [--group g]` | `manage-vms <action> …` |
 | `nox start\|restart --fresh <vm…>` | `manage-vms <action> --fresh …`: disposable VMs (registry `disposable`) with their volume images set aside (`*.pre-fresh`) |
-| `nox disp [--from <vm>] [cmd…]` | `vm-disp`: start the ad-hoc disposable `disp` (with `--from`: the VM's own disposable `disp-<vm>`, registry `hasDisposable`), open `cmd` (default foot) in it |
-| `nox backup <vm…>\|--all`, `--full [--level n] <target…>\|--all`, `restore [--full] [--from gen] …`, `disks`, `list`, `prune home\|full --keep n [-n] [vm…]` | `vm-backup …` (arguments checked by nox; external LUKS disk on `disp-backup`, `nox backup help`) |
+| `nox disp [--from <vm>] [cmd…]` | `vm-disp`: start the ad-hoc disposable `disp` (with `--from`: the VM's own disposable `disp-<vm>`, registry `hasDisposable`), open `cmd` (default foot) in it; a disposable that is down starts only if Xen has its boot memory free |
+| `nox backup <vm…>\|--all`, `--full [--level n] <target…>\|--all`, `restore [--full] [--from gen] …`, `disks`, `list`, `prune home\|full --keep n [-n] [vm…]` | in nox (crates/nox-cli/src/backup.rs; external LUKS disk on `disp-backup`, `nox backup help`) |
 | `nox run <vm> <program> [args]` | `vm-run <vm> …` (GUI over wprs; built in: src/run.rs) |
 | `nox exec <vm> <cmd> [args]` | `vm-run -c <vm> …` (a terminal window in the VM runs the command and stays open; the builder: SSH in this terminal) |
 | `nox ssh builder [ssh args]` | `ssh builder …` (only the builder has sshd; the other VMs: `nox exec`) |
@@ -252,7 +251,9 @@ output and exit code through. The built-in tools read their data from
 | `nox update --iso <vm> [--branch b]` | `dom0-update --iso <vm> …` (installer ISO from the builder straight to the VM, see "Installer") |
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
 | `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
-| `nox doctor` | built in (src/doctor.rs; `vm-doctor` is a link to nox): smoke test of the running system |
+| `nox lab list\|attach\|detach [vm]` | `vm-lab status\|attach\|detach …`: a labTarget VM on sys-firewall's lab bridge while kali tests it |
+| `nox doctor [-v\|-vv]` | built in (src/doctor.rs; `vm-doctor` is a link to nox): smoke test of the running system; prints the result line and the failures with their details, `-v` every check, `-vv` every check with details |
+| `nox doctor --ack` | the kernel / `xl dmesg` errors the runs reported become known noise of this machine (no longer a failure; list in `~/.local/state/vm-doctor/errors-known`, delete a line to forget it) |
 | `nox rollback <vm> [--gen n\|--reset]` | `vm-rollback …`: runner of an older system generation as the VM's `current` |
 | `nox rollback --data <vm>`, `nox snapshot <vm>` | `vm-rollback --data`, `vm-snapshot` (copy of a stopped VM's images) |
 | `nox gc [--keep n] [-n]` | `vm-gc …` (old system generations, then GC; default keeps 3) |

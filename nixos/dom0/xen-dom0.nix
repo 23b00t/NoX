@@ -164,10 +164,22 @@ let
     rpc_up() {
       [ "$(timeout 5 nox-rpc --dom0 ping "$1" </dev/null 2>/dev/null)" = ok ]
     }
+    # Up to 2 min for a domain that is still booting (ensure_running just
+    # started it: kali failed right away on the xmg, 2026-10-28)
+    wait_rpc() {
+      local t0=$SECONDS
+      rpc_up "$1" && return 0
+      echo "update-all: waiting for $1 to answer over rpc (boot)" >&2
+      while [ $((SECONDS - t0)) -lt 120 ]; do
+        sleep 2
+        rpc_up "$1" && return 0
+      done
+      return 1
+    }
     # apt-get --update full-upgrade as root in the guest, interactive
     apt_upgrade() {
-      if ! rpc_up "$1"; then
-        echo "update-all: $1 does not answer over rpc (xen-image-setup $1 run?)" >&2
+      if ! wait_rpc "$1"; then
+        echo "update-all: $1 does not answer over rpc after 2 min: look at its console (nox xen), or set up its rpc service once: xen-image-setup $1" >&2
         return 1
       fi
       nox-rpc --dom0 apt-upgrade "$1"
@@ -482,7 +494,7 @@ in
       in
       rules "deny"
       ++ rules "warn"
-      # home backup (vm-backup): only disp-backup reads /home/user of the
+      # home backup (nox backup): only disp-backup reads /home/user of the
       # VMs and writes it back; any NixOS VM can be named (README "Backup")
       ++ lib.concatMap (
         vm:

@@ -54,6 +54,9 @@ pub struct Domain {
     /// registry `disposable` (manage-vms --fresh)
     #[serde(default)]
     pub disposable: bool,
+    /// Boot memory in MiB (nox disp checks Xen's free memory first)
+    #[serde(default)]
+    pub memory: Option<u64>,
 }
 
 impl Domain {

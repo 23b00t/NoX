@@ -20,6 +20,18 @@ pub fn default_sigpipe() {
     }
 }
 
+/// SIGPIPE ignored again (Rust's own default): for runs that write into
+/// pipes of other processes (nox backup), a reader that ends early is an
+/// error to report, not the end of nox
+pub fn ignore_sigpipe() {
+    const SIGPIPE: i32 = 13;
+    const SIG_IGN: usize = 1;
+    // SAFETY: called before the threads of the run start
+    unsafe {
+        signal(SIGPIPE, SIG_IGN);
+    }
+}
+
 /// Replaces this process with `prog args…`; returns only if that fails.
 pub fn exec<I, S>(prog: &str, args: I) -> ExitCode
 where

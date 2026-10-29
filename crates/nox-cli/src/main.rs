@@ -1,8 +1,8 @@
 //! nox: one command for the NoX tools in dom0.
 //!
 //! Moving from scripts to Rust tool by tool (xen-migration.md, nox-cli
-//! spec): `doctor`, `vm-run` and `manage-vms` run here (src/doctor.rs,
-//! src/run.rs, src/manage.rs; their old names are links to nox, picked by
+//! spec): `doctor`, `backup`, `vm-run` and `manage-vms` run here (src/doctor.rs,
+//! src/backup.rs, src/run.rs, src/manage.rs; their old names are links to nox, picked by
 //! argv[0]); every other subcommand execs the script that does the work
 //! (vm-clip, nox-copy, dom0-update, update-all, vm-usb, …), found on PATH,
 //! so its output and exit code are the script's own.
@@ -12,6 +12,7 @@ use std::process::ExitCode;
 
 use clap::{Args, CommandFactory, Parser, Subcommand};
 
+mod backup;
 mod doctor;
 mod manage;
 mod registry;
@@ -119,7 +120,7 @@ enum Cmd {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<OsString>,
     },
-    /// Back up VMs onto the external LUKS backup disk (vm-backup): home =
+    /// Back up VMs onto the external LUKS backup disk (src/backup.rs): home =
     /// /home/user of NixOS VMs, --full = whole disks; restore, list, prune
     #[command(long_about = BACKUP_ABOUT)]
     Backup(Backup),
@@ -209,13 +210,28 @@ enum Cmd {
         #[command(subcommand)]
         action: Usb,
     },
+    /// The lab bridge: a labTarget VM (registry) on sys-firewall's vm-lab
+    /// while kali tests its apps (vm-lab; gone after a restart of the VM)
+    Lab {
+        #[command(subcommand)]
+        action: Lab,
+    },
     /// Keyboard and mouse (optionally the Bluetooth adapter) to a VM and back
     Input {
         #[command(subcommand)]
         action: Input,
     },
-    /// Smoke test of the running system (starts nothing, exit 1 on a failure)
-    Doctor,
+    /// Smoke test of the running system (starts nothing, exit 1 on a
+    /// failure): the result line and the failures with their details
+    Doctor {
+        /// -v: every check; -vv: every check with its details
+        #[arg(short, action = clap::ArgAction::Count)]
+        verbose: u8,
+        /// The errors the runs reported (kernel, xl dmesg) are known noise
+        /// of this machine from now on: they no longer fail
+        #[arg(long, conflicts_with = "verbose")]
+        ack: bool,
+    },
     /// Run a VM from an older system generation, or its images from the snapshot
     #[command(
         after_help = "Without --gen/--reset/--data: the generations with another runner for VM.\n\
@@ -258,13 +274,13 @@ enum Cmd {
 
 /// `nox backup --help`: the two kinds and the generations
 const BACKUP_ABOUT: &str =
-    "Back up VMs onto the external LUKS backup disk (vm-backup, README \"Backup\").\n\n\
+    "Back up VMs onto the external LUKS backup disk (README \"Backup\").\n\n\
     Two kinds:\n  \
       home  /home/user of NixOS VMs (the default)\n  \
       full  whole disks: a VM's disks, an image domain's image, dom0's ~/.ssh, the builder's key\n\
     Every run is a generation named by its start time, e.g. 2026-10-21_201500.";
 
-/// `nox backup`: the arguments are checked here, the work is vm-backup's
+/// `nox backup`: the arguments are checked here, the work is src/backup.rs
 /// (README "Backup" explains every case)
 #[derive(Args)]
 #[command(
@@ -311,16 +327,6 @@ struct BackupSel {
     all: bool,
 }
 
-impl BackupSel {
-    fn args(self) -> Vec<String> {
-        if self.all {
-            vec!["--all".into()]
-        } else {
-            self.targets
-        }
-    }
-}
-
 #[derive(Subcommand)]
 enum BackupCmd {
     /// Put a backup back: home adds files (deletes nothing, newer files in
@@ -361,8 +367,8 @@ enum BackupCmd {
         /// home or full
         #[arg(value_parser = ["home", "full"])]
         kind: String,
-        /// Generations to keep per VM/target
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32).range(1..))]
+        /// Generations to keep per VM/target (0: all go, asks first)
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u32))]
         keep: u32,
         /// Only show what would be deleted
         #[arg(short = 'n', long)]
@@ -388,50 +394,41 @@ fn generation(s: &str) -> Result<String, String> {
     }
 }
 
-/// vm-backup's arguments for `nox backup …`
-fn backup_args(b: Backup) -> Vec<String> {
-    let mut a: Vec<String> = Vec::new();
+/// What `nox backup …` asks for (src/backup.rs does it)
+fn backup_req(b: Backup) -> backup::Req {
+    use backup::{Req, Sel};
+    let sel = |s: BackupSel| {
+        if s.all {
+            Sel::All
+        } else {
+            Sel::Names(s.targets)
+        }
+    };
     match b.action {
-        None => {
-            if b.full {
-                a.push("--full".into());
-                if let Some(l) = b.level {
-                    a.push("--level".into());
-                    a.push(l.to_string());
-                }
-            }
-            a.extend(b.sel.args());
-        }
-        Some(BackupCmd::Restore { full, from, sel }) => {
-            a.push("restore".into());
-            if full {
-                a.push("--full".into());
-            }
-            if let Some(g) = from {
-                a.push("--from".into());
-                a.push(g);
-            }
-            a.extend(sel.args());
-        }
-        Some(BackupCmd::Disks { sel }) => {
-            a.push("disks".into());
-            a.extend(sel.args());
-        }
-        Some(BackupCmd::List) => a.push("list".into()),
+        None if b.full => Req::Full {
+            sel: sel(b.sel),
+            level: b.level.unwrap_or(3),
+        },
+        None => Req::Home(sel(b.sel)),
+        Some(BackupCmd::Restore { full, from, sel: s }) => Req::Restore {
+            full,
+            from,
+            sel: sel(s),
+        },
+        Some(BackupCmd::Disks { sel: s }) => Req::Disks(sel(s)),
+        Some(BackupCmd::List) => Req::List,
         Some(BackupCmd::Prune {
             kind,
             keep,
             dry_run,
             targets,
-        }) => {
-            a.extend(["prune".into(), kind, "--keep".into(), keep.to_string()]);
-            a.extend(targets);
-            if dry_run {
-                a.push("-n".into());
-            }
-        }
+        }) => Req::Prune {
+            kind,
+            keep,
+            dry_run,
+            targets,
+        },
     }
-    a
 }
 
 /// `nox <cmd>… help` = `nox <cmd>… --help`: the word `help` as the last
@@ -494,6 +491,23 @@ enum Usb {
     AllowInput {
         /// busid
         busid: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum Lab {
+    /// Lab targets and which are on the bridge (address from kali)
+    #[command(visible_aliases = ["ls", "status"])]
+    List,
+    /// Hang a running lab target on the lab bridge
+    Attach {
+        /// VM name or short alias
+        vm: String,
+    },
+    /// Take it off the lab bridge
+    Detach {
+        /// VM name or short alias
+        vm: String,
     },
 }
 
@@ -626,27 +640,67 @@ eval "$c""#;
 }
 
 /// `nox disp [--from <vm>] [cmd…]`: vm-disp with the disposable to use
-/// (`--vm disp-<vm>`, the registry entry NoX adds for `hasDisposable`)
+/// (`--vm disp-<vm>`, the registry entry NoX adds for `hasDisposable`).
+/// A disposable that is down starts only if Xen has its boot memory free:
+/// otherwise systemd retried the start for minutes ("can't allocate low
+/// memory", hp 2026-10-28)
 fn disp(from: Option<String>, cmd: Vec<OsString>) -> ExitCode {
-    let mut a: Vec<OsString> = Vec::new();
-    if let Some(base) = from {
-        let domains = match registry::domains() {
-            Ok(d) => d,
-            Err(e) => {
-                eprintln!("nox: {e:#}");
-                return ExitCode::from(1);
-            }
-        };
-        let name = registry::find(&domains, &base).map_or(base.clone(), |d| d.name.clone());
-        let vm = format!("disp-{name}");
-        if registry::find(&domains, &vm).is_none() {
-            eprintln!("nox: {base} has no disposable (hasDisposable = true in vms.nix)");
+    let domains = match registry::domains() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("nox: {e:#}");
             return ExitCode::from(1);
         }
-        a.extend(["--vm".into(), vm.into()]);
+    };
+    let mut a: Vec<OsString> = Vec::new();
+    let vm = match from {
+        Some(base) => {
+            let name = registry::find(&domains, &base).map_or(base.clone(), |d| d.name.clone());
+            let vm = format!("disp-{name}");
+            if registry::find(&domains, &vm).is_none() {
+                eprintln!("nox: {base} has no disposable (hasDisposable = true in vms.nix)");
+                return ExitCode::from(1);
+            }
+            a.extend(["--vm".into(), vm.clone().into()]);
+            vm
+        }
+        None => "disp".to_string(),
+    };
+    if let Some(d) = registry::find(&domains, &vm) {
+        if let Err(msg) = memory_for(d) {
+            eprintln!("nox: {msg}");
+            return ExitCode::from(1);
+        }
     }
     a.extend(cmd);
     exec("vm-disp", a)
+}
+
+/// Xen's free memory (MiB) is enough for `d`'s boot memory, or it runs
+/// already. Unknown (no sudo rule, no xl): the start is tried
+fn memory_for(d: &registry::Domain) -> Result<(), String> {
+    let Some(need) = d.memory else { return Ok(()) };
+    if sys::is_active(&d.service()) {
+        return Ok(());
+    }
+    let free = sys::output("sudo", ["-n", "xl", "info", "free_memory"])
+        .and_then(|s| s.trim().parse::<u64>().ok());
+    match free {
+        Some(free) => enough_memory(&d.name, need, free),
+        None => Ok(()),
+    }
+}
+
+/// Boot memory plus a little for Xen's own tables
+fn enough_memory(vm: &str, need: u64, free: u64) -> Result<(), String> {
+    const MARGIN: u64 = 64;
+    if free >= need + MARGIN {
+        Ok(())
+    } else {
+        Err(format!(
+            "{vm} needs {need} MiB, Xen has {free} MiB free: stop a VM first (nox list --running, nox stop <vm>)"
+        ))
+    }
 }
 
 fn main() -> ExitCode {
@@ -663,7 +717,7 @@ fn main() -> ExitCode {
                 .iter()
                 .map(|a| a.to_string_lossy().into_owned())
                 .collect();
-            return doctor::run_doctor(&rest);
+            return doctor::main_args(&rest);
         }
         Some("vm-run") => return run::main(&args[1..]),
         Some("manage-vms") => return manage::main(&args[1..]),
@@ -683,7 +737,7 @@ fn main() -> ExitCode {
         Cmd::Stop(sel) => vm_action("stop", sel, false),
         Cmd::Restart { sel, fresh } => vm_action("restart", sel, fresh.fresh),
         Cmd::Disp { from, cmd } => disp(from, cmd),
-        Cmd::Backup(b) => exec("vm-backup", backup_args(b)),
+        Cmd::Backup(b) => backup::main(backup_req(b)),
         Cmd::Pull { vm, file } => {
             let mut a: Vec<OsString> = vec![vm.into()];
             a.extend(file.map(OsString::from));
@@ -764,6 +818,15 @@ fn main() -> ExitCode {
             Usb::Detach { device } => exec("vm-usb", ["detach".to_string(), device]),
             Usb::AllowInput { busid } => exec("vm-usb", ["allow-input".to_string(), busid]),
         },
+        Cmd::Lab { .. } if !sys::on_path("vm-lab") => {
+            eprintln!("nox: this machine has no lab bridge (NoX services.xen-lab, with kali)");
+            ExitCode::from(1)
+        }
+        Cmd::Lab { action } => match action {
+            Lab::List => exec("vm-lab", ["status"]),
+            Lab::Attach { vm } => exec("vm-lab", ["attach".to_string(), vm]),
+            Lab::Detach { vm } => exec("vm-lab", ["detach".to_string(), vm]),
+        },
         Cmd::Input { action } => match action {
             Input::To { vm, bt } => {
                 let mut args = vec![vm];
@@ -774,7 +837,13 @@ fn main() -> ExitCode {
             }
             Input::Back { vm } => exec("input-back", vm),
         },
-        Cmd::Doctor => doctor::run_doctor(&[]),
+        Cmd::Doctor { verbose, ack } => {
+            if ack {
+                doctor::main_args(&["--ack".into()])
+            } else {
+                doctor::run_doctor(verbose)
+            }
+        }
         Cmd::Rollback {
             vm,
             gen,
@@ -838,6 +907,34 @@ mod tests {
             panic!("not input back")
         };
         assert_eq!(vm, None);
+    }
+
+    #[test]
+    fn disp_memory() {
+        assert!(enough_memory("disp-net", 3072, 5520).is_ok());
+        let e = enough_memory("disp-net", 3072, 2400).unwrap_err();
+        assert!(e.contains("3072 MiB") && e.contains("2400 MiB free"));
+        // Xen's own tables: not exactly the boot size
+        assert!(enough_memory("disp", 2048, 2048).is_err());
+    }
+
+    #[test]
+    fn lab_commands() {
+        let cli = Cli::try_parse_from(["nox", "lab", "attach", "coding"]).unwrap();
+        let Some(Cmd::Lab {
+            action: Lab::Attach { vm },
+        }) = cli.command
+        else {
+            panic!("not lab attach")
+        };
+        assert_eq!(vm, "coding");
+        assert!(matches!(
+            Cli::try_parse_from(["nox", "lab", "status"])
+                .unwrap()
+                .command,
+            Some(Cmd::Lab { action: Lab::List })
+        ));
+        assert!(Cli::try_parse_from(["nox", "lab", "attach"]).is_err());
     }
 
     #[test]
@@ -924,28 +1021,38 @@ mod tests {
         assert!(entries(text, "root").is_empty());
     }
 
-    fn backup(args: &[&str]) -> Result<Vec<String>, clap::Error> {
+    fn backup(args: &[&str]) -> Result<backup::Req, clap::Error> {
         let mut v = vec!["nox", "backup"];
         v.extend(args);
         let cli = Cli::try_parse_from(v)?;
         let Some(Cmd::Backup(b)) = cli.command else {
             panic!("not backup")
         };
-        Ok(backup_args(b))
+        Ok(backup_req(b))
     }
 
     #[test]
     fn backup_home_and_full() {
-        assert_eq!(backup(&["nvim", "chat"]).unwrap(), ["nvim", "chat"]);
-        assert_eq!(backup(&["--all"]).unwrap(), ["--all"]);
+        use backup::{Req, Sel};
+        let names = |v: &[&str]| Sel::Names(v.iter().map(|s| s.to_string()).collect());
+        assert_eq!(
+            backup(&["nvim", "chat"]).unwrap(),
+            Req::Home(names(&["nvim", "chat"]))
+        );
+        assert_eq!(backup(&["--all"]).unwrap(), Req::Home(Sel::All));
         assert_eq!(
             backup(&["--full", "coding:home,var", "nvim"]).unwrap(),
-            ["--full", "coding:home,var", "nvim"]
+            Req::Full {
+                sel: names(&["coding:home,var", "nvim"]),
+                level: 3
+            }
         );
-        // --level goes right after --full, wherever it was written
         assert_eq!(
             backup(&["coding", "--level", "9", "--full"]).unwrap(),
-            ["--full", "--level", "9", "coding"]
+            Req::Full {
+                sel: names(&["coding"]),
+                level: 9
+            }
         );
         assert!(backup(&[]).is_err());
         assert!(backup(&["--all", "nvim"]).is_err());
@@ -955,23 +1062,39 @@ mod tests {
 
     #[test]
     fn backup_subcommands() {
+        use backup::{Req, Sel};
+        let names = |v: &[&str]| Sel::Names(v.iter().map(|s| s.to_string()).collect());
         assert_eq!(
             backup(&["restore", "--from", "2026-10-21_201500", "nvim"]).unwrap(),
-            ["restore", "--from", "2026-10-21_201500", "nvim"]
+            Req::Restore {
+                full: false,
+                from: Some("2026-10-21_201500".into()),
+                sel: names(&["nvim"])
+            }
         );
         assert_eq!(
             backup(&["restore", "coding", "--full"]).unwrap(),
-            ["restore", "--full", "coding"]
+            Req::Restore {
+                full: true,
+                from: None,
+                sel: names(&["coding"])
+            }
         );
         assert!(backup(&["restore", "--from", "yesterday", "nvim"]).is_err());
         assert!(backup(&["restore"]).is_err());
-        assert_eq!(backup(&["disks", "--all"]).unwrap(), ["disks", "--all"]);
-        assert_eq!(backup(&["list"]).unwrap(), ["list"]);
+        assert_eq!(backup(&["disks", "--all"]).unwrap(), Req::Disks(Sel::All));
+        assert_eq!(backup(&["list"]).unwrap(), Req::List);
         assert_eq!(
             backup(&["prune", "home", "--keep", "5", "-n", "nvim"]).unwrap(),
-            ["prune", "home", "--keep", "5", "nvim", "-n"]
+            Req::Prune {
+                kind: "home".into(),
+                keep: 5,
+                dry_run: true,
+                targets: vec!["nvim".into()]
+            }
         );
-        assert!(backup(&["prune", "home", "--keep", "0"]).is_err());
+        // --keep 0: everything goes (asks first)
+        assert!(backup(&["prune", "home", "--keep", "0"]).is_ok());
         assert!(backup(&["prune", "all", "--keep", "2"]).is_err());
         assert!(backup(&["list", "nvim"]).is_err());
     }

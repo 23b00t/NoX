@@ -283,6 +283,27 @@ fn code(rc: i32) -> ExitCode {
     ExitCode::from(rc.clamp(1, 255) as u8)
 }
 
+/// A VM that was (re)started gets its tray apps (vm-tray) and its missing
+/// windows from the session start (vm-autostart: terminal tab, zen, …);
+/// nox backup uses it too after stopping a VM for the copy. The first
+/// failing exit code, else 0
+pub fn session_back(vm: &str) -> i32 {
+    // vm-autostart only where vm-tray is, like before
+    if !sys::on_path("vm-tray") {
+        return 0;
+    }
+    for tool in ["vm-tray", "vm-autostart"] {
+        if !sys::on_path(tool) {
+            break;
+        }
+        let r = sys::run(tool, [vm]);
+        if r != 0 {
+            return r;
+        }
+    }
+    0
+}
+
 fn act(action: &str, targets: &[&Domain]) -> ExitCode {
     let mut rc = 0;
     for d in targets {
@@ -295,17 +316,10 @@ fn act(action: &str, targets: &[&Domain]) -> ExitCode {
             continue;
         }
         let started = action == "restart" || (action == "start" && !was_active);
-        if started && sys::on_path("vm-tray") {
-            let r = sys::run("vm-tray", [d.name.as_str()]);
+        if started {
+            let r = session_back(&d.name);
             if r != 0 {
                 return code(r);
-            }
-            // and its windows from the session start (terminal tab, zen, …)
-            if sys::on_path("vm-autostart") {
-                let r = sys::run("vm-autostart", [d.name.as_str()]);
-                if r != 0 {
-                    return code(r);
-                }
             }
         }
     }

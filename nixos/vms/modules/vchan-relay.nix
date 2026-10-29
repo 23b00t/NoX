@@ -181,7 +181,7 @@ in
               esac
             '';
 
-            # home backup (dom0's vm-backup, README "Backup"): only disp-backup
+            # home backup (dom0's nox backup, README "Backup"): only disp-backup
             # calls (nox-rpcd policy too). First line: the rsync server command
             # its rsync sends, checked word by word: only known rsync options,
             # /home/user as the only path; send = read-only sender, recv must

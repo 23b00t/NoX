@@ -81,18 +81,38 @@ impl Stat {
     }
 }
 
-/// The table: one line per check, counted as it is printed
+/// The table: one line per check, counted as it is printed. Level 0 (the
+/// default) prints only FAIL/WARN rows with their details, 1 (`-v`) every
+/// row, 2 (`-vv`) every row with its details
 #[derive(Default)]
 pub struct Table {
     pub pass: u32,
     pub fail: u32,
     pub skip: u32,
+    pub verbose: u8,
+    header: bool,
 }
 
 impl Table {
     fn row(&mut self, stat: Stat, check: &str, detail: &str) {
-        println!("{:<4}  {:<26} {}", stat.label(), check, detail);
-        let _ = std::io::stdout().flush();
+        self.row_more(stat, check, detail, &[]);
+    }
+    /// A row with more lines below it (e.g. every new kernel error)
+    fn row_more(&mut self, stat: Stat, check: &str, detail: &str, more: &[String]) {
+        let bad = matches!(stat, Stat::Fail | Stat::Warn);
+        if bad || self.verbose >= 1 {
+            if !self.header {
+                println!("{:<4}  {:<26} DETAIL", "STAT", "CHECK");
+                self.header = true;
+            }
+            println!("{:<4}  {:<26} {}", stat.label(), check, detail);
+            if bad || self.verbose >= 2 {
+                for l in more {
+                    println!("      {}", cut(l, 150));
+                }
+            }
+            let _ = std::io::stdout().flush();
+        }
         match stat {
             Stat::Pass => self.pass += 1,
             Stat::Fail => self.fail += 1,
@@ -244,7 +264,7 @@ fn now() -> u64 {
         .unwrap_or(0)
 }
 
-/// Backup age in days from vm-backup's record, None if there is none
+/// Backup age in days from nox backup's record, None if there is none
 pub fn backup_days(last: u64, now: u64) -> Option<u64> {
     (last != 0).then(|| now.saturating_sub(last) / 86400)
 }
@@ -259,14 +279,148 @@ fn xen_errors(text: &str) -> Vec<String> {
 }
 
 fn cut90(s: &str) -> String {
-    s.chars().take(90).collect()
+    cut(s, 90)
 }
 
-pub fn run_doctor(args: &[String]) -> ExitCode {
-    if !args.is_empty() {
-        eprintln!("usage: vm-doctor   (checks the running system, starts nothing)");
-        return ExitCode::from(2);
+fn cut(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
+/// `vm-doctor [-v|-vv] [--ack]` (the old name; nox doctor parses with clap)
+pub fn main_args(args: &[String]) -> ExitCode {
+    let mut verbose = 0;
+    let mut ack = false;
+    for a in args {
+        match a.as_str() {
+            "-v" => verbose += 1,
+            "-vv" => verbose += 2,
+            "--ack" => ack = true,
+            _ => {
+                eprintln!("usage: vm-doctor [-v|-vv] [--ack]   (checks the running system, starts nothing)");
+                return ExitCode::from(2);
+            }
+        }
     }
+    if ack {
+        acknowledge()
+    } else {
+        run_doctor(verbose)
+    }
+}
+
+/// Error lines the runs reported and nobody acknowledged yet (normalized,
+/// one per line), and the ones acknowledged as known noise of this machine
+const PENDING: &str = "errors-pending";
+const KNOWN: &str = "errors-known";
+
+/// The text of an error line without what changes between two of them:
+/// the journal's date/host prefix, Xen's `(XEN) [time]` prefix, numbers and
+/// long hex values (addresses)
+pub fn normalize(line: &str) -> String {
+    let msg = match line.find(" kernel: ") {
+        Some(i) => &line[i + " kernel: ".len()..],
+        None => line,
+    };
+    let msg = msg.trim_start_matches("(XEN)").trim_start();
+    let msg = match msg.strip_prefix('[') {
+        Some(rest) => rest.split_once(']').map_or(msg, |(_, r)| r.trim_start()),
+        None => msg,
+    };
+    let mut out = String::new();
+    for word in msg.split(' ') {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        let w = word.trim_start_matches("0x");
+        if w.len() >= 6 && w.chars().all(|c| c.is_ascii_hexdigit()) {
+            out.push('#');
+            continue;
+        }
+        let mut digits = false;
+        for c in word.chars() {
+            if c.is_ascii_digit() {
+                if !digits {
+                    out.push('#');
+                }
+                digits = true;
+            } else {
+                out.push(c);
+                digits = false;
+            }
+        }
+    }
+    out
+}
+
+fn read_set(path: &std::path::Path) -> Vec<String> {
+    fs::read_to_string(path)
+        .unwrap_or_default()
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Adds the new ones of `lines` to the pending file
+fn remember_pending(dir: &std::path::Path, lines: &[String]) {
+    let path = dir.join(PENDING);
+    let mut set = read_set(&path);
+    for l in lines {
+        let n = normalize(l);
+        if !set.contains(&n) {
+            set.push(n);
+        }
+    }
+    let _ = fs::write(
+        &path,
+        set.iter().map(|l| format!("{l}\n")).collect::<String>(),
+    );
+}
+
+/// `nox doctor --ack`: the errors the runs reported become known noise of
+/// this machine (they no longer fail; `-vv` still lists them)
+fn acknowledge() -> ExitCode {
+    let dir = state_dir("vm-doctor");
+    let pending = read_set(&dir.join(PENDING));
+    if pending.is_empty() {
+        println!("nothing to acknowledge (no reported errors pending)");
+        return ExitCode::SUCCESS;
+    }
+    let mut known = read_set(&dir.join(KNOWN));
+    for p in &pending {
+        println!("known from now on: {p}");
+        if !known.contains(p) {
+            known.push(p.clone());
+        }
+    }
+    let ok = fs::write(
+        dir.join(KNOWN),
+        known.iter().map(|l| format!("{l}\n")).collect::<String>(),
+    )
+    .and_then(|()| fs::remove_file(dir.join(PENDING)));
+    match ok {
+        Ok(()) => {
+            println!(
+                "(list: {}; delete a line to forget it)",
+                dir.join(KNOWN).display()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("nox doctor: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// Splits error lines into new and known (by their normalized text)
+pub fn split_known(lines: Vec<String>, known: &[String]) -> (Vec<String>, Vec<String>) {
+    lines
+        .into_iter()
+        .partition(|l| !known.contains(&normalize(l)))
+}
+
+pub fn run_doctor(verbose: u8) -> ExitCode {
     let data = match load(REGISTRY) {
         Ok(d) => d,
         Err(e) => {
@@ -274,8 +428,10 @@ pub fn run_doctor(args: &[String]) -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let mut t = Table::default();
-    println!("{:<4}  {:<26} DETAIL", "STAT", "CHECK");
+    let mut t = Table {
+        verbose,
+        ..Table::default()
+    };
 
     // --- domains
     for u in &data.autostart {
@@ -471,7 +627,7 @@ pub fn run_doctor(args: &[String]) -> ExitCode {
         }
     }
 
-    // --- backup (vm-backup records the last W1 run)
+    // --- backup (nox backup records the last W1 run)
     let last: u64 = fs::read_to_string(state_dir("nox-backup").join("last"))
         .ok()
         .and_then(|s| s.trim().parse().ok())
@@ -536,9 +692,12 @@ pub fn run_doctor(args: &[String]) -> ExitCode {
         t.row(Stat::Fail, "failed units", &units);
     }
 
-    // Errors since the last run (first run: since boot)
+    // Errors since the last run (first run: since boot). Known noise of
+    // this machine (`nox doctor --ack`, e.g. a Bluetooth firmware message at
+    // every boot) is no failure; new ones are remembered until acknowledged
     let dir = state_dir("vm-doctor");
     let _ = fs::create_dir_all(&dir);
+    let known = read_set(&dir.join(KNOWN));
     let boot = fs::read_to_string("/proc/sys/kernel/random/boot_id")
         .unwrap_or_default()
         .trim()
@@ -550,50 +709,40 @@ pub fn run_doctor(args: &[String]) -> ExitCode {
         (true, Some(ts)) => format!("--since=@{ts}"),
         _ => "-b".to_string(),
     };
-    let kerr = output(
+    let kerr: Vec<String> = output(
         "journalctl",
         &["-k", "-p", "err", "-q", "--no-pager", &since],
-    );
-    if kerr.is_empty() {
-        t.row(Stat::Pass, "kernel errors", "none new");
-    } else {
-        let lines: Vec<&str> = kerr.lines().collect();
-        t.row(
-            Stat::Fail,
-            "kernel errors",
-            &format!(
-                "{} new, last: {}",
-                lines.len(),
-                cut90(lines.last().unwrap_or(&""))
-            ),
-        );
-    }
+    )
+    .lines()
+    .map(str::to_string)
+    .collect();
+    let (new, old) = split_known(kerr, &known);
+    errors_row(&mut t, "kernel errors", &new, &old);
+    remember_pending(&dir, &new);
+    // xl dmesg: NoX lets the wheel group run exactly `xl dmesg` without a
+    // password (read only), so it works where sudo asks for the rest (xmg)
     let xerr = match run("sudo", &["-n", "xl", "dmesg"], None) {
         Some(xd) => {
-            // Xen's own lines only: (dN) lines are guest consoles
+            // Xen's own lines only: (dN) lines are guest consoles. The ring
+            // keeps the whole boot: the count of the last run marks the new ones
             let errs = xen_errors(&xd);
             let before: usize = if same_boot {
                 prev.get(2).and_then(|s| s.parse().ok()).unwrap_or(0)
             } else {
                 0
             };
-            if errs.len() <= before {
-                t.row(Stat::Pass, "xl dmesg", "no new errors");
-            } else {
-                t.row(
-                    Stat::Fail,
-                    "xl dmesg",
-                    &format!(
-                        "{} new, last: {}",
-                        errs.len() - before,
-                        cut90(errs.last().map(String::as_str).unwrap_or(""))
-                    ),
-                );
-            }
+            let fresh = errs.iter().skip(before).cloned().collect();
+            let (new, old) = split_known(fresh, &known);
+            errors_row(&mut t, "xl dmesg", &new, &old);
+            remember_pending(&dir, &new);
             errs.len()
         }
         None => {
-            t.row(Stat::Skip, "xl dmesg", "xl needs sudo");
+            t.row(
+                Stat::Skip,
+                "xl dmesg",
+                "sudo -n xl dmesg refused (NoX sudo rule missing?)",
+            );
             0
         }
     };
@@ -605,6 +754,32 @@ pub fn run_doctor(args: &[String]) -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    }
+}
+
+/// kernel errors / xl dmesg: FAIL with every new line below it, PASS when
+/// there are none or only known ones
+fn errors_row(t: &mut Table, check: &str, new: &[String], old: &[String]) {
+    let known = if old.is_empty() {
+        String::new()
+    } else {
+        format!(" ({} known)", old.len())
+    };
+    if new.is_empty() {
+        t.row_more(Stat::Pass, check, &format!("none new{known}"), old);
+    } else {
+        let mut more = new.to_vec();
+        more.push("known noise of this machine? nox doctor --ack".into());
+        t.row_more(
+            Stat::Fail,
+            check,
+            &format!(
+                "{} new{known}, last: {}",
+                new.len(),
+                cut90(new.last().map(String::as_str).unwrap_or(""))
+            ),
+            &more,
+        );
     }
 }
 
@@ -705,6 +880,42 @@ mod tests {
     fn backup_age() {
         assert_eq!(backup_days(0, 1_000_000), None);
         assert_eq!(backup_days(1_000_000 - 3 * 86400 - 5, 1_000_000), Some(3));
+    }
+
+    #[test]
+    fn error_lines_normalized() {
+        let a =
+            "Okt 28 23:21:29 xmg kernel: Bluetooth: hci0: FW download error recovery failed (-19)";
+        let b =
+            "Okt 29 08:02:11 xmg kernel: Bluetooth: hci0: FW download error recovery failed (-19)";
+        assert_eq!(normalize(a), normalize(b));
+        assert_eq!(
+            normalize(a),
+            "Bluetooth: hci#: FW download error recovery failed (-#)"
+        );
+        assert_eq!(
+            normalize("(XEN) [  12.345678] AMD-Vi: IO_PAGE_FAULT at 0xffff88810abc"),
+            normalize("(XEN) [ 999.000001] AMD-Vi: IO_PAGE_FAULT at 0xffff88820def")
+        );
+        let known = vec![normalize(a)];
+        let (new, old) = split_known(
+            vec![b.to_string(), "Okt 29 x kernel: nvme: timeout".into()],
+            &known,
+        );
+        assert_eq!(old, [b]);
+        assert_eq!(new, ["Okt 29 x kernel: nvme: timeout"]);
+    }
+
+    #[test]
+    fn quiet_table_counts_everything() {
+        let mut t = Table::default();
+        t.row(Stat::Pass, "a", "");
+        t.row_more(Stat::Fail, "b", "x", &["detail".into()]);
+        assert_eq!((t.pass, t.fail, t.skip), (1, 1, 0));
+        assert!(t.header);
+        let mut q = Table::default();
+        q.row(Stat::Pass, "a", "");
+        assert!(!q.header);
     }
 
     #[test]

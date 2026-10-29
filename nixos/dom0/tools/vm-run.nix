@@ -31,6 +31,8 @@ in
     footImage = footImage vm;
     storeGroup = vm.storeGroup or null;
     disposable = vm.disposable or false;
+    # boot memory in MiB: nox disp checks Xen's free memory before a start
+    memory = vm.memory or null;
   }) (vmRegistry.vms ++ imageDomains);
 
   environment.systemPackages = [
