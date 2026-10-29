@@ -443,7 +443,8 @@ let
           fetch "$@" >"$stage/builder-signing-key" || return 1
           chmod 600 "$stage/builder-signing-key"
           echo "  the builder's key is in $stage/builder-signing-key; to put it back:"
-          echo "    ssh builder sudo tee $p <$stage/builder-signing-key >/dev/null"
+          echo "    nox start builder"
+          echo "    nox ssh builder sudo tee $p <$stage/builder-signing-key >/dev/null"
           ;;
         dom0)
           # By hand: dom0's files are not overwritten from here

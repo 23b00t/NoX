@@ -13,7 +13,8 @@
 let
   links = import ../usb-links.nix { inherit lib vmRegistry; };
   vmName = lib.removeSuffix "-vm" (config.networking.hostName or "");
-  enable = links.isTarget vmName && config.microvm.hypervisor == "xen";
+  enable =
+    links.isTarget vmName && config.microvm.hypervisor == "xen" && !links.viaImageDomain config;
   bluetooth = builtins.elem vmName links.bluetoothVms;
   usbip = config.boot.kernelPackages.usbip;
 

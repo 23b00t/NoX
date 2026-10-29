@@ -6,6 +6,19 @@
 { lib }:
 cfg:
 let
+  # Every NoX VM (role and infrastructure): fstrim 5 min after each boot
+  # gives blocks freed in the VM back to dom0, whose images are sparse files
+  # (steam's home.img held 150 GB of deleted data, 2026-10-28). NixOS'
+  # weekly calendar timer never ran: the stamp of Persistent= lives on the
+  # tmpfs root, so only a VM running at Monday 00:00 trimmed
+  vmBase = {
+    services.fstrim.enable = true;
+    systemd.timers.fstrim.timerConfig = {
+      # "" clears the OnCalendar=weekly of util-linux' unit
+      OnCalendar = lib.mkForce [ "" ];
+      OnBootSec = "5min";
+    };
+  };
   # A VM's apps with the catalog's fields under its own (non-null) ones
   appsOf =
     vm:
@@ -26,6 +39,7 @@ let
           groupUnfree = vm.storeGroup != null && (cfg.storeGroups.${vm.storeGroup}.unfree or false);
         })
         cfg.roles.${vm.role}.module
+        vmBase
         cfg.vmModule
       ]
       ++ lib.optional (vm.module != null) vm.module;
@@ -39,6 +53,7 @@ let
     module = {
       imports = [
         (../vms + "/${name}")
+        vmBase
         cfg.vmModule
       ]
       ++ lib.optional (cfg.vms.${name}.module != null) cfg.vms.${name}.module;

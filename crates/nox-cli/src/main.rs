@@ -108,8 +108,13 @@ enum Cmd {
         fresh: Fresh,
     },
     /// Start the ad-hoc disposable `disp` (empty on every start) and open a
-    /// program in it, foot by default; `nox stop disp` throws it away
+    /// program in it, foot by default; `nox stop disp` throws it away.
+    /// --from <vm>: the disposable of that VM instead (disp-<vm>, its role,
+    /// apps and module, empty; `hasDisposable = true` in vms.nix)
     Disp {
+        /// VM whose disposable to use (name or short alias)
+        #[arg(long, value_name = "VM")]
+        from: Option<String>,
         /// Program and its arguments (default: foot)
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         cmd: Vec<OsString>,
@@ -620,6 +625,30 @@ eval "$c""#;
     exec("bash", ["-c", script, "nox", entry.cmd.as_str()])
 }
 
+/// `nox disp [--from <vm>] [cmd…]`: vm-disp with the disposable to use
+/// (`--vm disp-<vm>`, the registry entry NoX adds for `hasDisposable`)
+fn disp(from: Option<String>, cmd: Vec<OsString>) -> ExitCode {
+    let mut a: Vec<OsString> = Vec::new();
+    if let Some(base) = from {
+        let domains = match registry::domains() {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("nox: {e:#}");
+                return ExitCode::from(1);
+            }
+        };
+        let name = registry::find(&domains, &base).map_or(base.clone(), |d| d.name.clone());
+        let vm = format!("disp-{name}");
+        if registry::find(&domains, &vm).is_none() {
+            eprintln!("nox: {base} has no disposable (hasDisposable = true in vms.nix)");
+            return ExitCode::from(1);
+        }
+        a.extend(["--vm".into(), vm.into()]);
+    }
+    a.extend(cmd);
+    exec("vm-disp", a)
+}
+
 fn main() -> ExitCode {
     sys::default_sigpipe();
     let args: Vec<OsString> = std::env::args_os().collect();
@@ -653,7 +682,7 @@ fn main() -> ExitCode {
         Cmd::Start { sel, fresh } => vm_action("start", sel, fresh.fresh),
         Cmd::Stop(sel) => vm_action("stop", sel, false),
         Cmd::Restart { sel, fresh } => vm_action("restart", sel, fresh.fresh),
-        Cmd::Disp { cmd } => exec("vm-disp", cmd),
+        Cmd::Disp { from, cmd } => disp(from, cmd),
         Cmd::Backup(b) => exec("vm-backup", backup_args(b)),
         Cmd::Pull { vm, file } => {
             let mut a: Vec<OsString> = vec![vm.into()];
@@ -852,10 +881,17 @@ mod tests {
         assert_eq!(sel.vms, ["sys-net"]);
         assert!(fresh.fresh);
         let cli = Cli::try_parse_from(["nox", "disp", "firefox", "--private-window"]).unwrap();
-        let Some(Cmd::Disp { cmd }) = cli.command else {
+        let Some(Cmd::Disp { from, cmd }) = cli.command else {
             panic!("not disp")
         };
         assert_eq!(cmd, ["firefox", "--private-window"]);
+        assert_eq!(from, None);
+        let cli = Cli::try_parse_from(["nox", "disp", "--from", "b", "firefox"]).unwrap();
+        let Some(Cmd::Disp { from, cmd }) = cli.command else {
+            panic!("not disp")
+        };
+        assert_eq!(from.as_deref(), Some("b"));
+        assert_eq!(cmd, ["firefox"]);
         assert!(Cli::try_parse_from(["nox", "stop", "--fresh", "x"]).is_err());
     }
 

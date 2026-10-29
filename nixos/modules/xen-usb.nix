@@ -42,7 +42,10 @@ let
 
   # Target VMs on this host: "name short adminAddress linkAddress"
   targetVms = builtins.filter (
-    vm: links.isTarget vm && config.microvm.vms.${vm}.config.config.microvm.hypervisor == "xen"
+    vm:
+    links.isTarget vm
+    && config.microvm.vms.${vm}.config.config.microvm.hypervisor == "xen"
+    && !links.viaImageDomain config.microvm.vms.${vm}.config.config
   ) (builtins.attrNames config.microvm.vms);
   targetsFile = pkgs.writeText "vm-usb-targets" (
     lib.concatMapStrings (

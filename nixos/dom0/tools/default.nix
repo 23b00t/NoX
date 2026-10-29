@@ -23,14 +23,20 @@
     # disp` throws it away
     (pkgs.writeShellScriptBin "vm-disp" ''
       set -eu
+      # --vm disp-<vm>: a VM's own disposable (`nox disp --from <vm>`)
+      vm=disp
+      if [ "''${1-}" = --vm ]; then
+        vm="$2"
+        shift 2
+      fi
       [ $# -gt 0 ] || set -- foot
-      manage-vms start disp
-      # A fresh disp needs its volumes made and a boot: wait for its relay
+      manage-vms start "$vm"
+      # A fresh disposable needs its volumes made and a boot: wait for its relay
       for _ in $(seq 240); do
-        [ -e /run/nox-relay/disp.ready ] && break
+        [ -e "/run/nox-relay/$vm.ready" ] && break
         sleep 0.5
       done
-      exec vm-run disp "$@"
+      exec vm-run "$vm" "$@"
     '')
     (import ./explorer.nix { inherit pkgs vmRegistry; })
     (import ./github-agent.nix { inherit pkgs; })

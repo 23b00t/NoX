@@ -21,13 +21,18 @@ let
   # nox.* of one machine (host null: all definitions, for the lookups by name)
   noxFor =
     host:
-    (lib.evalModules {
-      modules = [
-        ./vms.nix
-        vmsModule
-      ];
-      specialArgs = { inherit host; };
-    }).config.nox;
+    let
+      nox =
+        (lib.evalModules {
+          modules = [
+            ./vms.nix
+            vmsModule
+          ];
+          specialArgs = { inherit host; };
+        }).config.nox;
+    in
+    # plus the disposables of VMs with `hasDisposable` (disp-<vm>)
+    nox // { vms = nox.vms // import ./disposables.nix { inherit lib; } nox; };
   # … in the registry's entry format
   domainsFor = host: import ./legacy.nix { inherit lib; } (noxFor host);
   all = domainsFor null;

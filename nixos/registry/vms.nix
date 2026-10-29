@@ -253,6 +253,11 @@ let
       default = null;
       description = "Boots empty every time (home and store overlay images are deleted before start and after stop). Default: false.";
     };
+    hasDisposable = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Adds the VM's disposable `disp-<name>` (`nox disp --from <name>`): the same role, apps, module and fields, but empty on every start, label of `disp`, index + 100, short `d<short>`, no backup, no autostart, no desktop entries. Needs a role and a store group (an own store image is not supported yet). Default: false.";
+    };
     memPriority = mkOption {
       type = types.nullOr types.int;
       default = null;

@@ -3434,6 +3434,30 @@ null
 
 
 
+### nox\.vms\.\<name>\.hasDisposable
+
+
+
+Adds the VM’s disposable ` disp-<name> ` (` nox disp --from <name> `): the same role, apps, module and fields, but empty on every start, label of ` disp `, index + 100, short ` d<short> `, no backup, no autostart, no desktop entries\. Needs a role and a store group (an own store image is not supported yet)\. Default: false\.
+
+
+
+*Type:*
+null or boolean
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.vms\.\<name>\.home\.image
 
 

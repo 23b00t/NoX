@@ -62,7 +62,10 @@ let
       homeSize = v.home.size;
       # explorer (dom0) lists the VMs with the "yazi" feature
       features = if v.explorer == true then [ "yazi" ] else null;
-      apps = appsEntry v;
+      # a disposable (disposables.nix) has its base's apps installed, but no
+      # desktop entries, tray starts or icons of its own
+      apps = if v.disposableOf or null != null then null else appsEntry v;
+      disposableOf = v.disposableOf or null;
       ip = ip v.index;
       nat = v.uplink != null;
       # sys-firewall is the modules' default

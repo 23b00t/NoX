@@ -12,6 +12,9 @@
 let
   stateDir = "/var/lib/builder";
   inherit (config.nox.builder) repoUrl;
+  # The builder's registry entry (memory, memoryMax) as this machine sees it
+  # (byName is the machine-independent view)
+  reg = lib.findFirst (vm: vm.name == "builder") vmRegistry.byName.builder vmRegistry.vms;
 
   # builder-build <machine> [branch]: fetch, build, sign; prints the toplevel.
   # builder-build --iso <branch>: builds the config's installer-iso and
@@ -144,11 +147,11 @@ in
         size = 2048;
       }
     ];
-    # Boots with 4096 MB, the RAM balancer grows it up to 16384 MB
-    # (evaluating the hp configuration peaks at ~6.6 GB)
-    mem = 16384;
+    # Boots with registry `memory`, the RAM balancer grows it up to
+    # `memoryMax` (defaults in registry/infra.nix, vms.nix may raise them)
+    mem = reg.memoryMax;
     balloon = true;
-    initialBalloonMem = 12288;
+    initialBalloonMem = reg.memory;
     vcpu = 8;
   };
 
@@ -201,8 +204,9 @@ in
   nix.settings = {
     # RAM, not CPU, is the limit: the evaluator keeps its heap for the whole
     # build, and parallel mkfs.erofs runs (store images) ran out of memory
-    # with "auto" (8). Each job still uses all cores.
-    max-jobs = 2;
+    # with "auto" (8). Each job still uses all cores. One job per 8 GB of
+    # memoryMax: 16 GB → 2, 32 GB → 4
+    max-jobs = lib.max 2 (reg.memoryMax / 8192);
     # Build directories on the volume instead of the RAM-backed root
     # (default /nix/var/nix/b is on the 2 GB tmpfs). Lix uses build-dir, not
     # the daemon's TMPDIR (the daemon is socket-activated per connection).

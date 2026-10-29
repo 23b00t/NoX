@@ -56,4 +56,12 @@ in
   ];
 
   environment.etc."xdg/foot/foot.ini".text = lib.generators.toINI { } theme.foot;
+
+  # The fonts foot.ini names (theme.nix), also in VMs without common-config
+  # (steam: foot fell back to DejaVu Sans, not monospace)
+  fonts.packages = [
+    pkgs.nerd-fonts.fira-code
+    (import ../../desktop/symbols-font.nix { inherit pkgs; })
+    pkgs.noto-fonts-color-emoji
+  ];
 }

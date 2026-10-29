@@ -46,7 +46,10 @@ let
       })
       (
         builtins.filter (
-          vm: usbLinks.isTarget vm && config.microvm.vms.${vm}.config.config.microvm.hypervisor == "xen"
+          vm:
+          usbLinks.isTarget vm
+          && config.microvm.vms.${vm}.config.config.microvm.hypervisor == "xen"
+          && !usbLinks.viaImageDomain config.microvm.vms.${vm}.config.config
         ) (builtins.attrNames config.microvm.vms)
       );
 

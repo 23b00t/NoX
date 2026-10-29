@@ -36,6 +36,16 @@ rec {
   ];
   isTarget = name: vmRegistry.byName ? ${name} && !builtins.elem name noTarget;
 
+  # VMs whose network goes through an image domain (irc: Whonix-Gateway, Tor
+  # only) never get USB: the USB/IP vif would be a second link next to the
+  # gateway, and a USB network adapter on it a way around Tor. Callers pass
+  # the guest's NixOS config (the registry doesn't know its uplink backend)
+  viaImageDomain =
+    guestConfig:
+    builtins.any (b: builtins.elem b (map (i: "${i.name}-vm") vmRegistry.imageDomains)) (
+      builtins.attrValues (guestConfig.microvm.xen.interfaceBackends or { })
+    );
+
   inputDevices = builtins.filter (d: (d.defaultOwner or null) == "host") devices;
 
   # Target VMs allowed to own a registry Bluetooth adapter: they run bluez

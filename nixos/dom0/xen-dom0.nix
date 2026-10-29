@@ -245,6 +245,7 @@ let
   # app VM back (xmg 2026-10-26: 2 min); now it waits for group 1 like the
   # others, and the Workstation waits for the Gateway itself (its pre-start)
   imageDomains = config.services.xen-image-domains.domains;
+  usbLinks = import ../vms/usb-links.nix { inherit lib vmRegistry; };
   sysGroup = {
     vms = builtins.filter (lib.hasPrefix "sys-") config.microvm.autostart;
     images = [ ];
@@ -312,6 +313,40 @@ in
     inputs.nox.nixosModules.rpc
     inputs.nox.nixosModules.cli
   ];
+
+  # A VM behind an image domain (irc: Whonix-Gateway, Tor only) talks through
+  # it alone: every interface served by an image domain, no passed-through
+  # PCI device, no USB device of the inventory pointing at it (usb-links.nix
+  # keeps it out of USB/IP)
+  assertions = lib.concatLists (
+    lib.mapAttrsToList (
+      name: vm:
+      let
+        g = vm.config.config;
+        domains = map (d: d.domain) (lib.attrValues imageDomains);
+        backends = g.microvm.xen.interfaceBackends or { };
+        usbOwners = lib.concatMap (
+          d: lib.optional (d ? defaultOwner) d.defaultOwner ++ d.allowedOwners or [ ]
+        ) vmRegistry.hardware.usb.devices;
+      in
+      lib.optionals (usbLinks.viaImageDomain g) [
+        {
+          assertion = lib.all (i: lib.elem (backends.${i.id} or "dom0") domains) g.microvm.interfaces;
+          message = "${name}: its network goes through an image domain (Tor), so every interface must be served by one; found ${
+            toString (map (i: i.id) g.microvm.interfaces)
+          } with backends ${builtins.toJSON backends}.";
+        }
+        {
+          assertion = g.microvm.devices == [ ];
+          message = "${name}: its network goes through an image domain (Tor); no PCI passthrough there (a NIC would bypass it).";
+        }
+        {
+          assertion = !builtins.elem name usbOwners;
+          message = "${name}: its network goes through an image domain (Tor) and gets no USB; remove it from defaultOwner/allowedOwners in the USB inventory.";
+        }
+      ]
+    ) config.microvm.vms
+  );
 
   virtualisation.xen = {
     enable = true;
@@ -693,6 +728,31 @@ in
         ) (lib.filterAttrs (name: _: config.microvm.vms ? ${name}) config.services.nox-relay.host.guests)
       )
       disposableUnits
+      # VMs whose uplink backend is an image domain (irc: Whonix-Gateway) start
+      # it with them; their preStart then waits for its data/backend-ready
+      # (vms/modules/net-config.nix). Without it irc hung 3 min and looped.
+      (lib.mapAttrs'
+        (
+          name: units:
+          lib.nameValuePair "microvm@${name}" {
+            wants = units;
+            after = units;
+          }
+        )
+        (
+          lib.filterAttrs (_: units: units != [ ]) (
+            lib.mapAttrs (
+              _: vm:
+              let
+                backends = lib.attrValues (vm.config.config.microvm.xen.interfaceBackends or { });
+              in
+              lib.mapAttrsToList (n: _: "xen-image@${n}.service") (
+                lib.filterAttrs (_: d: lib.elem d.domain backends) imageDomains
+              )
+            ) config.microvm.vms
+          )
+        )
+      )
       # Boot order: the barrier and every domain outside group 1 after it
       (
         {

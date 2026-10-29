@@ -102,6 +102,10 @@ let
       githubAgent = false;
       dbus = false;
       memPriority = 10;
+      # Boots with 12 GB, grows up to 16 GB (evaluating the hp configuration
+      # peaks at ~6.6 GB); max-jobs follows memoryMax (vms/builder)
+      memory = 12288;
+      memoryMax = 16384;
       # nothing in by nox-rpc copy (the build VM sees untrusted code); out
       # asks, for the installer ISO (dom0-update --iso <vm>: dom0's own
       # call, no question)
