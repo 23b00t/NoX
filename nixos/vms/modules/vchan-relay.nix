@@ -7,7 +7,9 @@
 #   connection) instead of the admin network (stage B, ProxyCommand in
 #   home/ssh.nix); stage B2 drops the admin interface (except sys-net)
 # - wprs (VMs with wprsd, vms/modules/wprs.nix): dom0's wprsc reaches wprsd,
-#   apps get dom0's pulse socket at /tmp/wprs-pulse (`vm-gui` in dom0)
+#   sound: the VM's own pipewire, tunnels to dom0's pulse servers at
+#   /tmp/wprs-pulse (playback) and /tmp/wprs-pulse-mic (registry
+#   `microphone`), dom0 side: dom0/vm-audio.nix
 # - RPC (stage C, app VMs): `vm-copy`, incoming files in ~/Incoming/<source>
 # dom0 side: machines/hp/xen.nix
 {
@@ -27,6 +29,8 @@ let
   wprs = config.systemd.user.services ? wprsd;
   # Pixels over grant-shared memory (registry `wprsSharedMemory`, vms/modules/wprs.nix)
   wprsGrants = wprs && (vm.wprsSharedMemory or true);
+  # dom0's microphone (registry `microphone`, while `nox mic on` in dom0)
+  microphone = wprs && (vm.microphone or false);
   ssh = config.services.openssh.enable;
   sshSocket = "/run/sshd-vchan.sock";
   # The fleet's theme: dark/light and the cursor of apps over RPC
@@ -77,6 +81,12 @@ in
             // lib.optionalAttrs wprs {
               pulse = {
                 path = "/tmp/wprs-pulse";
+                inherit owner;
+              };
+            }
+            // lib.optionalAttrs microphone {
+              pulse-mic = {
+                path = "/tmp/wprs-pulse-mic";
                 inherit owner;
               };
             };
@@ -224,7 +234,8 @@ in
               WAYLAND_DISPLAY = "wprs-0";
               DISPLAY = ":100";
               XDG_SESSION_TYPE = "wayland";
-              PULSE_SERVER = "unix:/tmp/wprs-pulse";
+              # the VM's own pipewire-pulse (vms/modules/wprs.nix)
+              PULSE_SERVER = "unix:/run/user/1000/pulse/native";
               # Dark (nox.theme.dark): GTK3 by theme; libadwaita reads the
               # color scheme from the settings portal, which VMs lack
               # (dconf's default in common-config.nix did not reach Bottles

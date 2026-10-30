@@ -72,4 +72,50 @@ in
     (import ../../desktop/symbols-font.nix { inherit pkgs; })
     pkgs.noto-fonts-color-emoji
   ];
+
+  # Sound (2026-10-30, Xen: over nox-relay, vms/modules/vchan-relay.nix):
+  # apps talk to the VM's own pipewire (pulse or native, socket-activated).
+  # A pulse-tunnel sink sends a buffered stream over the relay to dom0,
+  # which only plays it (dom0/vm-audio.nix); with the registry field
+  # `microphone` a tunnel source records from dom0 while `nox mic on` there
+  # (otherwise it retries, the relay logs that once). mpv speaks pipewire
+  # natively: through pulse it dropped frames (hp, 2026-10-29). Not in VMs
+  # with a pulseaudio of their own (sys-usb: Bluetooth audio)
+  services.pipewire =
+    lib.mkIf (config.microvm.hypervisor == "xen" && !config.services.pulseaudio.enable)
+      {
+        enable = true;
+        pulse.enable = true;
+        wireplumber.enable = true;
+        alsa.enable = lib.mkDefault false;
+        extraConfig.pipewire."90-nox-dom0" = {
+          "context.modules" =
+            let
+              tunnel = mode: address: name: description: {
+                name = "libpipewire-module-pulse-tunnel";
+                args = {
+                  "tunnel.mode" = mode;
+                  "pulse.server.address" = address;
+                  "pulse.latency" = 200;
+                  "reconnect.interval.ms" = 1000;
+                  "audio.rate" = 48000;
+                  "audio.channels" = 2;
+                  "audio.position" = [
+                    "FL"
+                    "FR"
+                  ];
+                  "node.name" = name;
+                  "node.description" = description;
+                };
+              };
+            in
+            [ (tunnel "sink" "unix:/tmp/wprs-pulse" "nox-dom0" "dom0") ]
+            ++ lib.optional (vmRegistry.byName.${vmName}.microphone or false) (
+              tunnel "source" "unix:/tmp/wprs-pulse-mic" "nox-dom0-mic" "dom0 microphone"
+            );
+        };
+      };
+  environment.etc."mpv/mpv.conf".text = lib.mkBefore ''
+    ao=pipewire
+  '';
 }

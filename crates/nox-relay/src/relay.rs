@@ -3,7 +3,7 @@
 use crate::config::{Config, Listen};
 use crate::proto::{self, Frame, Kind, MAGIC, MAX_PAYLOAD, WINDOW};
 use crate::vchan::{State, Vchan, Xenstore};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::fd::AsRawFd;
@@ -52,10 +52,12 @@ struct Stream {
     local_eof: bool,
     /// The peer sent Shutdown: shut our write side once `out` is flushed.
     peer_eof: bool,
+    /// The service it belongs to (logging)
+    service: String,
 }
 
 impl Stream {
-    fn new(sock: UnixStream, state: StreamState) -> Self {
+    fn new(sock: UnixStream, state: StreamState, service: &str) -> Self {
         Stream {
             sock,
             state,
@@ -64,6 +66,7 @@ impl Stream {
             unacked: 0,
             local_eof: false,
             peer_eof: false,
+            service: service.to_string(),
         }
     }
 }
@@ -76,6 +79,10 @@ pub struct Relay {
     server: bool,
     listeners: Vec<(UnixListener, String)>,
     serve: HashMap<String, PathBuf>,
+    /// Services that failed last time (our socket, or the peer refused):
+    /// logged once until they work again (the microphone is off most of the
+    /// time, its tunnel in the VM retries every few seconds)
+    serve_down: HashSet<String>,
     streams: HashMap<u32, Stream>,
     next_id: u32,
     vin: Vec<u8>,
@@ -113,6 +120,7 @@ impl Relay {
             server,
             listeners,
             serve: cfg.serve.into_iter().map(|s| (s.service, s.path)).collect(),
+            serve_down: HashSet::new(),
             streams: HashMap::new(),
             next_id: if server { 2 } else { 1 },
             vin: Vec::new(),
@@ -323,12 +331,20 @@ impl Relay {
                 if let Some(s) = self.streams.get_mut(&f.stream) {
                     if s.state == StreamState::Opening {
                         s.state = StreamState::Open;
+                        if self.serve_down.remove(&s.service) {
+                            eprintln!("service {}: peer serves it again", s.service);
+                        }
                     }
                 }
             }
             Kind::OpenErr => {
-                if self.streams.remove(&f.stream).is_some() {
-                    eprintln!("stream {}: peer refused the service", f.stream);
+                if let Some(s) = self.streams.remove(&f.stream) {
+                    if self.serve_down.insert(s.service.clone()) {
+                        eprintln!(
+                            "stream {}: peer refused the service {} (logged once until it works)",
+                            f.stream, s.service
+                        );
+                    }
                 }
             }
             Kind::Data => {
@@ -382,7 +398,7 @@ impl Relay {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(2);
         self.streams
-            .insert(id, Stream::new(sock, StreamState::Opening));
+            .insert(id, Stream::new(sock, StreamState::Opening, service));
         self.send(id, Kind::Open, service.as_bytes());
     }
 
@@ -408,12 +424,20 @@ impl Relay {
         };
         match UnixStream::connect(path).and_then(|s| s.set_nonblocking(true).map(|_| s)) {
             Ok(sock) => {
+                if self.serve_down.remove(&name) {
+                    eprintln!("service {name}: {} answers again", path.display());
+                }
                 self.streams
-                    .insert(id, Stream::new(sock, StreamState::Open));
+                    .insert(id, Stream::new(sock, StreamState::Open, &name));
                 self.send(id, Kind::OpenOk, b"");
             }
             Err(e) => {
-                eprintln!("service {name}: {}: {e}", path.display());
+                if self.serve_down.insert(name.clone()) {
+                    eprintln!(
+                        "service {name}: {}: {e} (logged once until it answers)",
+                        path.display()
+                    );
+                }
                 self.send(id, Kind::OpenErr, b"");
             }
         }

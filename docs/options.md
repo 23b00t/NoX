@@ -3858,6 +3858,30 @@ null
 
 
 
+### nox\.vms\.\<name>\.microphone
+
+
+
+dom0’s microphone for apps in the VM (wprs VMs), only while dom0 allows it: ` nox mic on|off ` (off after every boot)\. Without it the VM can play sound but never record\. Default: false\.
+
+
+
+*Type:*
+null or boolean
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.vms\.\<name>\.module
 
 

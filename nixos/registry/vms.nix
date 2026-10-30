@@ -299,6 +299,11 @@ let
       default = null;
       description = "Filtered session bus to dom0 (notifications, tray). Default: true.";
     };
+    microphone = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "dom0's microphone for apps in the VM (wprs VMs), only while dom0 allows it: `nox mic on|off` (off after every boot). Without it the VM can play sound but never record. Default: false.";
+    };
     wprsSharedMemory = mkOption {
       type = types.nullOr types.bool;
       default = null;

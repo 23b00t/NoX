@@ -77,12 +77,12 @@ in
         #clock,
         #battery,
         #pulseaudio,
-        #pulseaudio.microphone,
         #custom-xen-mem,
         #custom-xen-cpu,
         #backlight,
         #tray,
         #custom-bluetooth,
+        #custom-vm-mic,
         #custom-swaync,
         #custom-cputemp {
           padding: 0 10px;
@@ -114,6 +114,11 @@ in
 
         #pulseaudio.muted {
           color: @muted;
+        }
+
+        /* the VMs may record (nox mic on) */
+        #custom-vm-mic.on {
+          color: @urgent;
         }
 
         tooltip {
@@ -221,7 +226,7 @@ in
             "tray",
             "custom/bluetooth",
             "pulseaudio",
-            "pulseaudio#microphone",
+            "custom/vm-mic",
             "battery",
             "custom/swaync",
           ],
@@ -290,15 +295,12 @@ in
             }
           },
 
-          "pulseaudio#microphone": {
-            "format": "{format_source}",
-
-            "format-source": " {volume}%",
-            "format-source-muted": " mute",
-            // The microphone itself (waybar's defaults act on the speaker)
-            "on-click": "wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle",
-            "on-scroll-up": "wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SOURCE@ 5%+",
-            "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%-"
+          // Whether the VMs may record (nox mic, NoX dom0/vm-audio.nix); click: off
+          "custom/vm-mic": {
+            "return-type": "json",
+            "exec": "systemctl --user is-active --quiet nox-pulse-mic.service && echo '{\"text\": \" VM\", \"class\": \"on\", \"tooltip\": \"VMs may record: click to stop (nox mic off)\"}' || echo '{\"text\": \" off\", \"tooltip\": \"VMs may not record (nox mic on)\"}'",
+            "interval": 3,
+            "on-click": "nox mic off"
           },
 
           "battery": {
@@ -359,7 +361,7 @@ in
     partOf = [ "graphical-session.target" ];
     after = [ "graphical-session.target" ];
     wantedBy = [ "graphical-session.target" ];
-    # The modules' on-click/on-scroll commands (wpctl, brightnessctl,
+    # The modules' on-click/on-scroll commands (brightnessctl,
     # swaync-client, pavucontrol, bt-manager) come from the system profile;
     # a NixOS unit's PATH would only hold coreutils & co.
     path = [
