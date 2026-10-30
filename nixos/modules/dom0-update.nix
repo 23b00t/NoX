@@ -23,11 +23,13 @@ let
 
     usage() {
       cat <<EOF >&2
-    Usage: dom0-update [--switch] [--machine <name>] [--branch <branch>]
+    Usage: dom0-update [--bump] [--switch] [--machine <name>] [--branch <branch>]
            dom0-update --iso <vm> [--branch <branch>]
 
     Builds the system on the builder VM, copies the signed closure and
     activates it for the next boot (default) or right away (--switch).
+    --bump: the builder updates the flake inputs first and pushes
+    flake.lock as a signed commit "update" (nox update).
     --iso <vm>: builds the config's installer ISO instead and copies it
     from the builder straight to <vm> (~/Incoming/builder/nox-installer.iso
     there; started if it is off), nothing goes through dom0's store.
@@ -37,12 +39,14 @@ let
     }
 
     action=boot
+    bump=()
     iso_vm=""
     machine=${lib.escapeShellArg cfg.machine}
     branch=${lib.escapeShellArg cfg.branch}
     while [ $# -gt 0 ]; do
       case "$1" in
         --switch) action=switch ;;
+        --bump) bump=(--bump) ;;
         --iso) [ $# -ge 2 ] || usage; action=iso; iso_vm="$2"; shift ;;
         --machine) [ $# -ge 2 ] || usage; machine="$2"; shift ;;
         --branch) [ $# -ge 2 ] || usage; branch="$2"; shift ;;
@@ -51,6 +55,8 @@ let
       esac
       shift
     done
+    # The ISO is built from the branch as it is
+    [ "$action" != iso ] || [ "''${#bump[@]}" = 0 ] || usage
 
     ${lib.optionalString (builderKey == null) ''
       echo "dom0-update: vms/builder/signing-key-${config.networking.hostName}.pub is missing, dom0 does not trust the builder yet" >&2
@@ -117,7 +123,7 @@ let
     else
       # Runs as the calling user (ssh config/key for ${builderIp}); the nix-daemon
       # verifies the builder signature when the paths are added
-      out="$(ssh ${builderIp} builder-build "$machine" "$branch" | tail -n 1)"
+      out="$(ssh ${builderIp} builder-build "''${bump[@]}" "$machine" "$branch" | tail -n 1)"
       case "$out" in
         /nix/store/*-nixos-system-*) ;;
         *) echo "dom0-update: unexpected builder output: $out" >&2; exit 1 ;;

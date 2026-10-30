@@ -108,21 +108,21 @@ let
     fi
   '';
 
-  # Full system update, step 2 (step 1: `flake-bump` in nvim pushes new
-  # inputs): dom0 from the builder, then the Debian systems inside the
-  # Whonix images, which dom0-update does not touch (it only renews their
-  # store disk). Domains that were off are started and stopped again.
+  # Full system update (nox update --all): dom0 from the builder (--bump: new
+  # flake inputs first), then the Debian systems inside the Whonix images,
+  # which dom0-update does not touch (it only renews their store disk).
+  # Domains that were off are started and stopped again.
   updateAll = pkgs.writeShellScriptBin "update-all" ''
     set -euo pipefail
 
     usage() {
       cat <<EOF >&2
-    Usage: update-all [--switch] [--machine <name>] [--branch <branch>]
+    Usage: update-all [--bump] [--switch] [--machine <name>] [--branch <branch>]
 
     Full update: dom0 from the builder (dom0-update with the same arguments;
-    --switch activates right away), then the Whonix-Gateway and -Workstation
-    (apt over Tor)${lib.optionalString hasKali ", then Kali (apt)"}. New flake inputs first with
-    flake-bump in nvim. Only rebuild dom0: dom0-update.
+    --bump: new flake inputs first, --switch activates right away), then the
+    Whonix-Gateway and -Workstation (apt over Tor)${lib.optionalString hasKali ", then Kali (apt)"}.
+    Only rebuild dom0: dom0-update.
     EOF
       exit 1
     }
@@ -586,7 +586,8 @@ in
       ## nix
       sudo nix-env --profile /nix/var/nix/profiles/system --delete-generations <n> <m> # Delete specific system generations (then GC)
       nix build ~/nixos-config#nixosConfigurations.<host>.config.system.build.toplevel --no-link --show-trace # Build with full trace
-      dom0-update # Build on the builder VM and install (next boot)
+      nox rebuild # Build on the builder VM and install (next boot)
+      nox update # New flake inputs (the builder pushes flake.lock), build, install (next boot)
     '';
   };
 

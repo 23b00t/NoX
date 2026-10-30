@@ -186,8 +186,9 @@ enum Cmd {
         #[arg(long)]
         menu: bool,
     },
-    /// Update dom0 from the builder VM; --all: then the Whonix domains too;
-    /// --iso: the installer ISO instead, from the builder straight to a VM
+    /// Update: the builder VM updates the flake inputs (flake.lock as its own
+    /// signed commit, pushed), then builds dom0 like `rebuild`; --all: then
+    /// the Whonix domains too
     Update {
         /// Also update the image domains (Whonix, apt over Tor)
         #[arg(long)]
@@ -195,8 +196,21 @@ enum Cmd {
         /// Activate right away instead of on the next boot
         #[arg(long)]
         switch: bool,
+        /// nixosConfiguration to build (default: the script's)
+        #[arg(long, value_name = "NAME")]
+        machine: Option<String>,
+        /// Branch to update and build (default: the script's)
+        #[arg(long, value_name = "BRANCH")]
+        branch: Option<String>,
+    },
+    /// Rebuild dom0 from the builder VM as the branch is (no new inputs);
+    /// --iso: the installer ISO instead, from the builder straight to a VM
+    Rebuild {
+        /// Activate right away instead of on the next boot
+        #[arg(long)]
+        switch: bool,
         /// Build the installer ISO and move it to this VM's ~/Incoming/builder
-        #[arg(long, value_name = "VM", conflicts_with_all = ["all", "switch", "machine"])]
+        #[arg(long, value_name = "VM", conflicts_with_all = ["switch", "machine"])]
         iso: Option<String>,
         /// nixosConfiguration to build (default: the script's)
         #[arg(long, value_name = "NAME")]
@@ -507,6 +521,32 @@ enum Input {
     },
 }
 
+/// dom0-update's arguments for `nox update` / `nox rebuild`
+fn build_args(
+    switch: bool,
+    iso: Option<String>,
+    machine: Option<String>,
+    branch: Option<String>,
+) -> Vec<OsString> {
+    let mut a: Vec<OsString> = Vec::new();
+    if switch {
+        a.push("--switch".into());
+    }
+    if let Some(vm) = iso {
+        a.push("--iso".into());
+        a.push(vm.into());
+    }
+    if let Some(m) = machine {
+        a.push("--machine".into());
+        a.push(m.into());
+    }
+    if let Some(b) = branch {
+        a.push("--branch".into());
+        a.push(b.into());
+    }
+    a
+}
+
 fn vm_action(action: &str, sel: Select, fresh: bool) -> ExitCode {
     let mut a: Vec<OsString> = vec![action.into()];
     if fresh {
@@ -769,28 +809,19 @@ fn main() -> ExitCode {
         Cmd::Update {
             all,
             switch,
-            iso,
             machine,
             branch,
         } => {
-            let mut a: Vec<OsString> = Vec::new();
-            if switch {
-                a.push("--switch".into());
-            }
-            if let Some(vm) = iso {
-                a.push("--iso".into());
-                a.push(vm.into());
-            }
-            if let Some(m) = machine {
-                a.push("--machine".into());
-                a.push(m.into());
-            }
-            if let Some(b) = branch {
-                a.push("--branch".into());
-                a.push(b.into());
-            }
+            let mut a: Vec<OsString> = vec!["--bump".into()];
+            a.extend(build_args(switch, None, machine, branch));
             exec(if all { "update-all" } else { "dom0-update" }, a)
         }
+        Cmd::Rebuild {
+            switch,
+            iso,
+            machine,
+            branch,
+        } => exec("dom0-update", build_args(switch, iso, machine, branch)),
         Cmd::Usb { action } => match action {
             Usb::List => exec("vm-usb", ["list"]),
             Usb::Attach { device, vm } => exec("vm-usb", ["attach".to_string(), device, vm]),
@@ -917,14 +948,40 @@ mod tests {
     }
 
     #[test]
-    fn update_iso() {
-        let cli = Cli::try_parse_from(["nox", "update", "--iso", "disp", "--branch", "b"]).unwrap();
-        let Some(Cmd::Update { iso, branch, .. }) = cli.command else {
+    fn rebuild_iso() {
+        let cli =
+            Cli::try_parse_from(["nox", "rebuild", "--iso", "disp", "--branch", "b"]).unwrap();
+        let Some(Cmd::Rebuild {
+            switch,
+            iso,
+            machine,
+            branch,
+        }) = cli.command
+        else {
+            panic!("not rebuild")
+        };
+        assert_eq!(
+            build_args(switch, iso, machine, branch),
+            ["--iso", "disp", "--branch", "b"]
+        );
+        assert!(Cli::try_parse_from(["nox", "rebuild", "--iso", "disp", "--switch"]).is_err());
+        assert!(Cli::try_parse_from(["nox", "update", "--iso", "disp"]).is_err());
+    }
+
+    #[test]
+    fn update_bumps() {
+        let cli = Cli::try_parse_from(["nox", "update", "--all", "--switch"]).unwrap();
+        let Some(Cmd::Update {
+            all,
+            switch,
+            machine,
+            branch,
+        }) = cli.command
+        else {
             panic!("not update")
         };
-        assert_eq!(iso.as_deref(), Some("disp"));
-        assert_eq!(branch.as_deref(), Some("b"));
-        assert!(Cli::try_parse_from(["nox", "update", "--iso", "disp", "--switch"]).is_err());
+        assert!(all);
+        assert_eq!(build_args(switch, None, machine, branch), ["--switch"]);
     }
 
     #[test]

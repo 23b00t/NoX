@@ -1,9 +1,9 @@
 # vm-doctor (`nox doctor`): smoke test of the running system on demand.
 # The checks live in nox-cli (crates/nox-cli/src/doctor.rs); this module
 # gives it its data (/etc/nox/registry.json `doctor`: per domain the unit,
-# relay domain, wprs, D-Bus, uplink, clipboard rule; the autostart units),
-# the tools it calls and the old name `vm-doctor` (a link to nox, which
-# picks the tool by argv[0]).
+# relay domain, wprs and its grants, D-Bus, uplink, clipboard rule; the
+# autostart units), the tools it calls and the old name `vm-doctor` (a link
+# to nox, which picks the tool by argv[0]).
 {
   lib,
   pkgs,
@@ -38,6 +38,8 @@ in
       unit = unitOf h.name;
       domain = if relayed ? ${h.name} then relayed.${h.name}.domain else "";
       wprs = listen h ? wprs;
+      # wprs pixels over grant-shared memory (registry wprsSharedMemory)
+      grants = (relayed.${h.name}.grants or null) != null;
       dbus = (relayed.${h.name}.serve or { }) ? dbus;
       uplink = if h.nat or false then h.uplink or "sys-firewall" else "";
       clip = clipPolicy h;

@@ -54,7 +54,10 @@ nox = {
   vmModule.time.timeZone = "Europe/Berlin";
   # the builder (nox.infra.builder.enable): the repo it builds; a private
   # repo by SSH with the builder's deploy key (cat its
-  # /var/lib/builder/deploy-key.pub, add it at GitHub as a read-only deploy key)
+  # /var/lib/builder/deploy-key.pub, add it at GitHub as a read-only deploy key);
+  # `nox update` (new inputs) needs the SSH URL and the bump key: its
+  # /var/lib/builder/bump-key.pub as a deploy key with write access and as
+  # `builder-<machine> namespaces="git" <key>` in vms/builder/bump-signers
   # vms.builder.module.nox.builder.repoUrl = "git@github.com:<you>/<config>.git";
   vms.builder.module.nox.builder.repoUrl = "https://github.com/<you>/<config>";
   # theme of dom0 and every VM (NoX: nox, organic logo, dark, moon and
@@ -179,7 +182,7 @@ NetworkManager (`nmtui`); the kernel boots with the IOMMU on, so
 `nox-hwcheck` sees the IOMMU groups. Build it one of two ways:
 
 - **On a NoX machine** (dom0 builds nothing, the builder does):
-  `nox update --iso <vm>`, e.g. `nox update --iso disp`. The builder
+  `nox rebuild --iso <vm>`, e.g. `nox rebuild --iso disp`. The builder
   builds the config's `installer-iso` (NoX as pinned in the config's
   flake.lock, from the branch's signed HEAD like a system; `--branch b` for
   another one) and streams it from its store through the broker straight
@@ -247,8 +250,9 @@ output and exit code through. The built-in tools read their data from
 | `nox clip copy\|paste` | `vm-clip copy\|paste` |
 | `nox copy [-m] [-n] [--max b] [<from-vm>] <to-vm> <paths…>` | `nox-copy …` (lands in `~/Incoming/<source>` in the target, merging into folders already there; never overwrites) |
 | `nox printers [--menu]` | `nox-printers`: IPP printers in the local network (sys-print scans what sys-net names); `--menu`: rofi, the chosen address to the clipboard |
-| `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update …` (`--all`: `update-all …`) |
-| `nox update --iso <vm> [--branch b]` | `dom0-update --iso <vm> …` (installer ISO from the builder straight to the VM, see "Installer") |
+| `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update --bump …` (`--all`: `update-all --bump …`): the builder updates the flake inputs, commits flake.lock signed with its bump key and pushes it, then builds (nothing new: builds anyway) |
+| `nox rebuild [--switch] [--machine m] [--branch b]` | `dom0-update …`: build the branch as it is |
+| `nox rebuild --iso <vm> [--branch b]` | `dom0-update --iso <vm> …` (installer ISO from the builder straight to the VM, see "Installer") |
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
 | `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
 | `nox lab list\|attach\|detach [vm]` | `vm-lab status\|attach\|detach …`: a labTarget VM on sys-firewall's lab bridge while kali tests it |

@@ -16,13 +16,25 @@ let
   # (byName is the machine-independent view)
   reg = lib.findFirst (vm: vm.name == "builder") vmRegistry.byName.builder vmRegistry.vms;
 
-  # builder-build <machine> [branch]: fetch, build, sign; prints the toplevel.
+  # The builders' keys for flake.lock bumps (builder-build --bump), one line
+  # per machine; without the file no bump commit is built
+  bumpSigners = vmRegistry.builderKeys + "/bump-signers";
+  hasBumpSigners = builtins.pathExists bumpSigners;
+
+  # builder-build [--bump] <machine> [branch]: fetch, build, sign; prints the
+  # toplevel. --bump first updates the flake inputs and pushes flake.lock as
+  # a signed commit "update" of its own (nox update).
   # builder-build --iso <branch>: builds the config's installer-iso and
   # prints its store path, without GC root or signature: dom0-update
   # --iso <vm> streams it from here to the VM and then deletes it
   builderBuild = pkgs.writeShellScriptBin "builder-build" ''
     set -euo pipefail
-    machine="''${1:?usage: builder-build <machine> [branch] | --iso <branch>}"
+    bump=0
+    if [ "''${1:-}" = --bump ]; then
+      bump=1
+      shift
+    fi
+    machine="''${1:?usage: builder-build [--bump] <machine> [branch] | --iso <branch>}"
     branch="''${2:-$machine}"
     attr="nixosConfigurations.$machine.config.system.build.toplevel"
     # The out-link is the GC root of the last build per machine
@@ -32,15 +44,29 @@ let
       machine=installer-iso
       attr=installer-iso
       link=(--no-link)
+      bump=0
     fi
     repo="${stateDir}/repo"
     key="${stateDir}/signing-key"
+    bumpkey="${stateDir}/bump-key"
 
     [ -r "$key" ] || { echo "builder-build: signing key $key missing" >&2; exit 1; }
+    if [ "$bump" = 1 ]; then
+      [ -r "$bumpkey" ] || { echo "builder-build: bump key $bumpkey missing" >&2; exit 1; }
+      ${lib.optionalString (!hasBumpSigners) ''
+        echo "builder-build: vms/builder/bump-signers is missing, a bump commit would not be built (README \"Builder\")" >&2
+        exit 1
+      ''}
+    fi
 
     # SSH URLs (a private config): the builder's own read-only deploy key
-    # and GitHub's pinned host key (programs.ssh.knownHosts below), no agent
-    export GIT_SSH_COMMAND="${pkgs.openssh}/bin/ssh -i ${stateDir}/deploy-key -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/dev/null"
+    # and GitHub's pinned host key (programs.ssh.knownHosts below), no agent.
+    # The push of a bump goes with the bump key (write access)
+    git_ssh() {
+      echo "${pkgs.openssh}/bin/ssh -i $1 -o IdentitiesOnly=yes -o IdentityAgent=none -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/dev/null"
+    }
+    GIT_SSH_COMMAND="$(git_ssh ${stateDir}/deploy-key)"
+    export GIT_SSH_COMMAND
 
     if [ ! -d "$repo/.git" ]; then
       ${pkgs.git}/bin/git clone --quiet ${lib.escapeShellArg repoUrl} "$repo" >&2
@@ -53,13 +79,65 @@ let
     echo "builder-build: $machine from $branch @ $(${pkgs.git}/bin/git -C "$repo" rev-parse --short HEAD)" >&2
 
     # Only commits signed by an allowed key get built: a compromised GitHub
-    # account or repo alone cannot push a system into dom0
-    if ! ${pkgs.git}/bin/git -C "$repo" \
-      -c gpg.ssh.program=${pkgs.openssh}/bin/ssh-keygen \
-      -c gpg.ssh.allowedSignersFile=${vmRegistry.builderKeys + "/allowed-signers"} \
-      verify-commit HEAD >&2; then
-      echo "builder-build: HEAD of $branch is not signed by a key in vms/builder/allowed-signers, not building" >&2
+    # account or repo alone cannot push a system into dom0. Either signed by
+    # the user (allowed-signers), or a builder's flake.lock bump
+    # (bump-signers): one parent, nothing but flake.lock changed, on top of
+    # a commit trusted the same way (bumps in a row end at a user's commit).
+    # The builder is fully trusted anyway (it signs the closure), and the
+    # inputs it locks come from the user's flake.nix
+    signed_by() {
+      ${pkgs.git}/bin/git -C "$repo" \
+        -c gpg.ssh.program=${pkgs.openssh}/bin/ssh-keygen \
+        -c gpg.ssh.allowedSignersFile="$2" \
+        verify-commit "$1" 2>/dev/null
+    }
+    trusted() {
+      local c=$1 _
+      for _ in $(seq 50); do
+        signed_by "$c" ${vmRegistry.builderKeys + "/allowed-signers"} && return 0
+        ${
+          if hasBumpSigners then
+            ''
+              signed_by "$c" ${bumpSigners} || return 1
+              [ "$(${pkgs.git}/bin/git -C "$repo" rev-list --no-walk --parents "$c" | wc -w)" = 2 ] || return 1
+              [ "$(${pkgs.git}/bin/git -C "$repo" diff --name-only "$c^" "$c")" = flake.lock ] || return 1
+              echo "builder-build: $(${pkgs.git}/bin/git -C "$repo" rev-parse --short "$c") is a builder's flake.lock bump" >&2
+              c="$c^"
+            ''
+          else
+            "return 1"
+        }
+      done
+      return 1
+    }
+    if ! trusted HEAD; then
+      echo "builder-build: HEAD of $branch is not signed by a key in vms/builder/allowed-signers (nor a builder's flake.lock bump, bump-signers), not building" >&2
       exit 1
+    fi
+
+    # nox update: new inputs as a commit of their own, pushed before the
+    # build so that GitHub has what dom0 runs; signed and pushed with the
+    # bump key. Nothing new: build anyway
+    if [ "$bump" = 1 ]; then
+      (cd "$repo" && ${config.nix.package}/bin/nix flake update) >&2
+      if ${pkgs.git}/bin/git -C "$repo" diff --quiet flake.lock; then
+        echo "builder-build: inputs already up to date" >&2
+      else
+        ${pkgs.git}/bin/git -C "$repo" \
+          -c user.name=builder-${vmRegistry.host or "vm"} \
+          -c user.email=builder@nox \
+          -c gpg.format=ssh \
+          -c gpg.ssh.program=${pkgs.openssh}/bin/ssh-keygen \
+          -c user.signingkey="$bumpkey" \
+          commit --quiet -S -m update flake.lock >&2
+        if ! GIT_SSH_COMMAND="$(git_ssh "$bumpkey")" \
+          ${pkgs.git}/bin/git -C "$repo" push --quiet origin "HEAD:refs/heads/$branch" >&2; then
+          echo "builder-build: push to $branch failed (bump-key.pub a deploy key with write access at GitHub? SSH repoUrl? $branch moved meanwhile: run again)" >&2
+          exit 1
+        fi
+        echo "builder-build: pushed flake.lock to $branch @ $(${pkgs.git}/bin/git -C "$repo" rev-parse --short HEAD)" >&2
+        trusted HEAD || { echo "builder-build: the bump commit does not verify (bump-signers), not building" >&2; exit 1; }
+      fi
     fi
 
     # The previous system of this machine stops being a GC root before the
@@ -182,9 +260,11 @@ in
       # Signing key, generated in the VM on first boot; only the public part
       # leaves it (vms/builder/signing-key-<machine>.pub, trusted by that dom0).
       # Same for the deploy key: an SSH key for a private config repo, read
-      # only, registered at GitHub as that repo's deploy key (README "Builder")
+      # only, registered at GitHub as that repo's deploy key (README "Builder"),
+      # and the bump key: signs and pushes flake.lock (nox update), a deploy
+      # key with write access, its public part in vms/builder/bump-signers
       builder-signing-key = {
-        description = "Generate the builder's Nix signing key and deploy key";
+        description = "Generate the builder's Nix signing key, deploy key and bump key";
         wantedBy = [ "multi-user.target" ];
         after = [ "local-fs.target" ];
         unitConfig.RequiresMountsFor = [ stateDir ];
@@ -203,10 +283,12 @@ in
             nix key convert-secret-to-public < ${stateDir}/signing-key > ${stateDir}/signing-key.pub
             chmod 644 ${stateDir}/signing-key.pub
           fi
-          if [ ! -e ${stateDir}/deploy-key ]; then
-            ssh-keygen -q -t ed25519 -N "" -C builder-vm-deploy -f ${stateDir}/deploy-key
-            chmod 644 ${stateDir}/deploy-key.pub
-          fi
+          for k in deploy bump; do
+            if [ ! -e ${stateDir}/$k-key ]; then
+              ssh-keygen -q -t ed25519 -N "" -C builder-vm-$k -f ${stateDir}/$k-key
+              chmod 644 ${stateDir}/$k-key.pub
+            fi
+          done
         '';
       };
     };

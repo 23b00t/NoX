@@ -2,8 +2,8 @@
 //!
 //! Starts no VMs, checks only what runs: autostart domains, rpc and relay
 //! per VM, network over sys-firewall (and the tunnel for sys-vpn clients),
-//! app start by RPC, clipboard round trip, wprs, D-Bus, backup age, stale
-//! runners, disk, failed units, kernel/Xen errors. Table of
+//! app start by RPC, clipboard round trip, wprs (and its grants), D-Bus,
+//! backup age, stale runners, disk, failed units, kernel/Xen errors. Table of
 //! PASS/FAIL/WARN/SKIP, exit 1 on any FAIL. The data per domain comes from
 //! `/etc/nox/registry.json` (`doctor`), written by NoX's vm-doctor module;
 //! the tools it asks (systemctl, nox-rpc, journalctl, xl, wl-clipboard, df)
@@ -41,6 +41,9 @@ pub struct Domain {
     pub domain: String,
     #[serde(default)]
     pub wprs: bool,
+    /// wprs pixels over grant-shared memory (a grant broker in the relay)
+    #[serde(default)]
+    pub grants: bool,
     #[serde(default)]
     pub dbus: bool,
     /// sys-firewall / sys-vpn for VMs with an uplink, empty otherwise
@@ -496,7 +499,9 @@ pub fn split_known(lines: Vec<String>, known: &[String]) -> (Vec<String>, Vec<St
 }
 
 pub fn run_doctor(verbose: u8) -> ExitCode {
-    let data = match load(REGISTRY) {
+    // NOX_REGISTRY: another registry (tests), as registry.rs
+    let path = std::env::var("NOX_REGISTRY").unwrap_or_else(|_| REGISTRY.into());
+    let data = match load(&path) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("nox doctor: {e:#}");
@@ -675,14 +680,16 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
     for d in running.iter().filter(|d| d.wprs) {
         let state = probe(&d.name, "wprsd");
         let sock = format!("--socket=/run/nox-relay/{}-wprs.sock", d.name);
-        let n = wprsc
+        let pids: Vec<(&str, Vec<u8>)> = wprsc
             .lines()
-            .filter(|pid| {
-                fs::read(format!("/proc/{pid}/cmdline"))
-                    .map(|c| c.split(|b| *b == 0).any(|a| a == sock.as_bytes()))
-                    .unwrap_or(false)
+            .filter_map(|pid| {
+                let c = fs::read(format!("/proc/{pid}/cmdline")).ok()?;
+                c.split(|b| *b == 0)
+                    .any(|a| a == sock.as_bytes())
+                    .then_some((pid, c))
             })
-            .count();
+            .collect();
+        let n = pids.len();
         let check = format!("wprs {}", d.name);
         if state != "active" {
             let s = if state.is_empty() { "unknown" } else { &state };
@@ -695,6 +702,9 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
             );
         } else {
             t.row(Stat::Pass, &check, &format!("wprsd active, {n} wprsc"));
+        }
+        if d.grants && state == "active" {
+            wprs_grants(&mut t, &d.name, pids.first());
         }
     }
 
@@ -875,6 +885,154 @@ fn errors_row(t: &mut Table, check: &str, new: &[String], old: &[String]) {
     }
 }
 
+/// wprs pixels over grant-shared memory: the relay's broker socket, wprsc
+/// started with it, wprsc's mappings of the guest's grants and grant
+/// messages since wprsc and the relay started. WARN, never FAIL: wprs
+/// falls back to the stream and keeps working
+fn wprs_grants(t: &mut Table, vm: &str, wprsc: Option<&(&str, Vec<u8>)>) {
+    let check = format!("wprs grants {vm}");
+    let broker = format!("/run/nox-relay/{vm}-grants.sock");
+    if fs::metadata(&broker).is_err() {
+        t.row(
+            Stat::Warn,
+            &check,
+            &format!("{broker} missing (nox-relay-{vm})"),
+        );
+        return;
+    }
+    let Some((pid, cmdline)) = wprsc else {
+        t.row(Stat::Skip, &check, "no wprsc");
+        return;
+    };
+    let arg = format!("--xen-grant-socket={broker}");
+    if !cmdline.split(|b| *b == 0).any(|a| a == arg.as_bytes()) {
+        t.row(
+            Stat::Warn,
+            &check,
+            "wprsc runs without the broker (started before it): pixels over the stream",
+        );
+        return;
+    }
+    let maps = fs::read_to_string(format!("/proc/{pid}/maps")).unwrap_or_default();
+    let mapped = gntdev_maps(&maps);
+    let invocation = |user: bool, unit: &str| {
+        let mut a = vec!["show", "-p", "InvocationID", "--value", unit];
+        if user {
+            a.insert(0, "--user");
+        }
+        output("systemctl", &a)
+    };
+    let journal = |user: bool, id: &str| {
+        if id.is_empty() {
+            return String::new();
+        }
+        let m = format!("_SYSTEMD_INVOCATION_ID={id}");
+        let mut a = vec!["-q", "--no-pager", "-o", "cat", m.as_str()];
+        if user {
+            a.insert(0, "--user");
+        }
+        output("journalctl", &a)
+    };
+    let client = journal(true, &invocation(true, &format!("wprsc@{vm}")));
+    let relay = journal(false, &invocation(false, &format!("nox-relay-{vm}")));
+    let msgs = grant_messages(&client, &relay);
+    if !msgs.is_empty() {
+        t.row_more(
+            Stat::Warn,
+            &check,
+            &format!(
+                "{} grant message(s) since start, {mapped} mappings",
+                msgs.len()
+            ),
+            &msgs,
+        );
+    } else if mapped == 0 {
+        // No window, no buffers: nothing to map yet (tray-only VMs)
+        match vm_windows(&output("niri", &["msg", "-j", "windows"]), vm) {
+            Some(0) => t.row(Stat::Pass, &check, "broker up, no window open"),
+            Some(n) => t.row(
+                Stat::Warn,
+                &check,
+                &format!("{n} window(s), but wprsc maps no grants: pixels over the stream"),
+            ),
+            None => t.row(
+                Stat::Warn,
+                &check,
+                "wprsc maps no grants: pixels over the stream (or no window open)",
+            ),
+        }
+    } else {
+        t.row(
+            Stat::Pass,
+            &check,
+            &format!("broker up, wprsc maps {mapped} grant region(s)"),
+        );
+    }
+}
+
+/// The VM's windows in `niri msg -j windows` (wprsc's app id prefix
+/// `[<vm>] `); None if niri gave no list
+pub fn vm_windows(json: &str, vm: &str) -> Option<usize> {
+    let list: Vec<serde_json::Value> = serde_json::from_str(json).ok()?;
+    let prefix = format!("[{vm}] ");
+    Some(
+        list.iter()
+            .filter(|w| {
+                w.get("app_id")
+                    .and_then(|a| a.as_str())
+                    .is_some_and(|a| a.starts_with(&prefix))
+            })
+            .count(),
+    )
+}
+
+/// wprsc's mappings of granted pages (/proc/<pid>/maps)
+pub fn gntdev_maps(maps: &str) -> usize {
+    maps.lines()
+        .filter(|l| l.ends_with("/dev/xen/gntdev"))
+        .count()
+}
+
+/// WARN/ERROR lines about grants or shared memory in wprsc's log (tracing,
+/// with colors) and the relay's `grants:` lines
+pub fn grant_messages(wprsc: &str, relay: &str) -> Vec<String> {
+    let mut out: Vec<String> = wprsc
+        .lines()
+        .map(strip_ansi)
+        .filter(|l| {
+            let low = l.to_lowercase();
+            (l.contains(" WARN ") || l.contains(" ERROR "))
+                && ["grant", "shm", "gntdev"].iter().any(|k| low.contains(k))
+        })
+        .map(|l| format!("wprsc: {}", l.trim()))
+        .collect();
+    out.extend(
+        relay
+            .lines()
+            .filter(|l| l.starts_with("grants:"))
+            .map(|l| format!("relay: {l}")),
+    );
+    out
+}
+
+/// Drops ANSI color sequences (ESC [ … m)
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            for c in chars.by_ref() {
+                if c.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 /// dom0 → VM → dom0 with a token; both clipboards restored afterwards
 fn clipboard(t: &mut Table, vm: &str) {
     let dom0 = run("wl-paste", &["--no-newline", "--type", "text"], None);
@@ -973,6 +1131,28 @@ mod tests {
                  x\nWaiting for domain chat-vm (domid 12) to die [pid 2]\nfoo (domid ) bar\n";
         assert_eq!(domid_from_journal(j).as_deref(), Some("12"));
         assert_eq!(domid_from_journal("nothing"), None);
+    }
+
+    #[test]
+    fn grants_from_maps_and_logs() {
+        let maps = "7edd5162d000-7edd51daa000 r--s 00000000 00:07 442                        /dev/xen/gntdev\n\
+                    7edd68478000-7edd68bf5000 r--p 00000000 00:00 0\n\
+                    7edd68478000-7edd68bf5000 r--s 00000000 00:07 442                        /dev/xen/gntdev";
+        assert_eq!(gntdev_maps(maps), 2);
+        assert_eq!(gntdev_maps(""), 0);
+        let windows = r#"[{"id":1,"app_id":"[net] zen"},{"id":2,"app_id":"[netx] a"},{"id":3,"app_id":null}]"#;
+        assert_eq!(vm_windows(windows, "net"), Some(1));
+        assert_eq!(vm_windows(windows, "chat"), Some(0));
+        assert_eq!(vm_windows("", "net"), None);
+        let wprsc = "\u{1b}[2m2026-10-29T13:42:54.641935Z\u{1b}[0m \u{1b}[31mERROR\u{1b}[0m ThreadId(01) \u{1b}[1mhandle_shm_buffer\u{1b}[0m: map failed\n\
+                     \u{1b}[2m2026-10-29T13:42:54Z\u{1b}[0m \u{1b}[31mERROR\u{1b}[0m ThreadId(01) new_output: unknown\n\
+                     running config: grant socket set";
+        let relay = "peer connected\ngrants: map 3 pages: denied";
+        let m = grant_messages(wprsc, relay);
+        assert_eq!(m.len(), 2, "{m:?}");
+        assert!(m[0].starts_with("wprsc: 2026-10-29T13:42:54.641935Z ERROR"));
+        assert!(m[0].contains("handle_shm_buffer"));
+        assert_eq!(m[1], "relay: grants: map 3 pages: denied");
     }
 
     #[test]

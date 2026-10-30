@@ -21,12 +21,20 @@
         # unit opens and deletes the temp file, then reads from the fd
         tmp="$(mktemp)"
         cat >"$tmp"
+        sum="$(sha256sum <"$tmp")"
         systemd-run --user --quiet --collect --setenv=WAYLAND_DISPLAY=wprs-0 \
           /bin/sh -c 'exec 3<"$0"; rm -f "$0"; exec "$1" --foreground --type text/plain <&3 3<&-' \
           "$tmp" ${pkgs.wl-clipboard}/bin/wl-copy || {
           rm -f "$tmp"
           exit 1
         }
+        # wl-copy takes the selection only after systemd-run returned: wait
+        # (2 s at most) until the guest serves the new text, so a `get`
+        # right after sees it (nox doctor's round trip in chat, 2026-10-29)
+        for _ in $(seq 40); do
+          [ "$(${pkgs.wl-clipboard}/bin/wl-paste --no-newline --type text 2>/dev/null | sha256sum)" = "$sum" ] && break
+          sleep 0.05
+        done
         ;;
       *)
         echo "usage: vm-clip-helper get|set" >&2
