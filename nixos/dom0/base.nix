@@ -132,6 +132,12 @@ in
     blacklistedKernelModules = hostBlacklistedKernelModules;
 
     kernel.sysctl = {
+      # All VM disks go through dom0's page cache: with the default ratios a
+      # big write fills it and a sync stalls everything on the same disk
+      # (hp, 2026-10-30: dom0 hung up to 15 s, now up to 9.5 s)
+      "vm.dirty_bytes" = 536870912; # 512 MB
+      "vm.dirty_background_bytes" = 134217728; # 128 MB
+
       # see: https://github.com/wayland-transpositor/wprs?tab=readme-ov-file#system-tuning
       # and: https://wiki.archlinux.org/title/Sysctl#Increase_the_memory_dedicated_to_the_network_interfaces
       # Increase maximum and default socket buffer sizes for better network throughput

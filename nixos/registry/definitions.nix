@@ -14,9 +14,13 @@ let
   vmBase = {
     services.fstrim.enable = true;
     systemd.timers.fstrim.timerConfig = {
-      # "" clears the OnCalendar=weekly of util-linux' unit
-      OnCalendar = lib.mkForce [ "" ];
-      OnBootSec = "5min";
+      # "" clears all timers of util-linux' unit (OnCalendar=weekly), also
+      # those set before it: it has to come first, in this option
+      OnCalendar = lib.mkForce [ ];
+      OnBootSec = [
+        ""
+        "5min"
+      ];
     };
   };
   # A VM's apps with the catalog's fields under its own (non-null) ones
