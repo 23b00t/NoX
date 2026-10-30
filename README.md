@@ -253,6 +253,7 @@ output and exit code through. The built-in tools read their data from
 | `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update --bump …` (`--all`: `update-all --bump …`): the builder updates the flake inputs, commits flake.lock signed with its bump key and pushes it, then builds (nothing new: builds anyway) |
 | `nox rebuild [--switch] [--machine m] [--branch b]` | `dom0-update …`: build the branch as it is |
 | `nox rebuild --iso <vm> [--branch b]` | `dom0-update --iso <vm> …` (installer ISO from the builder straight to the VM, see "Installer") |
+| `nox mic on\|off\|status` | dom0's microphone for the VMs with the registry field `microphone` (nox-pulse-mic, dom0/vm-audio.nix): on until `off` or the next boot, `off` ends running recordings; waybar shows "VM" in red while on |
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
 | `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
 | `nox lab list\|attach\|detach [vm]` | `vm-lab status\|attach\|detach …`: a labTarget VM on sys-firewall's lab bridge while kali tests it |

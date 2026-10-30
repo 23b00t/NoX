@@ -791,7 +791,9 @@ in
     # dom0's side of the relay: rpc-in (nox-rpc --dom0), wprs, extras
     services.nox-relay.host.guests = lib.mapAttrs (name: d: {
       inherit (d) domain;
-      serve = d.relay.host.serve // lib.optionalAttrs d.wprs { pulse = "/run/user/1000/pulse/native"; };
+      # sound: playback only (dom0/vm-audio.nix), no microphone
+      serve =
+        d.relay.host.serve // lib.optionalAttrs d.wprs { pulse = "/run/user/1000/nox-pulse-vm/native"; };
       listen =
         d.relay.host.listen
         // {

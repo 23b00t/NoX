@@ -365,8 +365,9 @@ in
       wireplumber.enable = true;
       # If you want to use JACK applications, uncomment this
       # jack.enable = true;
-      # No network audio: VMs get the native socket over the vchan relay
-      # (/tmp/wprs-pulse in the VM), the former `ssh -R 4713` is gone
+      # No network audio: the VMs' pipewire tunnels to pulse servers of
+      # their own over the vchan relay (dom0/vm-audio.nix: playback only,
+      # microphone only while `nox mic on`)
     };
   };
 

@@ -321,6 +321,7 @@ in
     ../modules/xen-image-domains.nix
     ../modules/xen-vnc.nix
     ../modules/xen-lab.nix
+    ./vm-audio.nix
     inputs.nox.nixosModules.relay
     inputs.nox.nixosModules.rpc
     inputs.nox.nixosModules.cli
@@ -412,7 +413,7 @@ in
     # v2.8.4: sockets for Xen guests over vchan (NoX nox-relay) instead of SSH
     # forwards: GitHub agent (registry `allowGitHubAgent`), filtered session
     # bus (`enableHostDbusForward`), wprs for VMs with wprsd (`vm-gui`, the
-    # wprsc socket is /run/nox-relay/<vm>-wprs.sock; apps get dom0's pulse),
+    # wprsc socket is /run/nox-relay/<vm>-wprs.sock; sound: vm-audio.nix),
     # SSH to the guests with sshd (only the builder: /run/nox-relay/builder-ssh.sock).
     # Guest side: vms/modules/vchan-relay.nix
     nox-relay.host = {
@@ -434,7 +435,12 @@ in
               // lib.optionalAttrs (vm.enableHostDbusForward or true) {
                 dbus = "/run/user/1000/vm-session-bus.sock";
               }
-              // lib.optionalAttrs wprs { pulse = "/run/user/1000/pulse/native"; };
+              # sound (vm-audio.nix): playback only; the microphone only
+              # with the registry field `microphone` and while `nox mic on`
+              // lib.optionalAttrs wprs { pulse = "/run/user/1000/nox-pulse-vm/native"; }
+              // lib.optionalAttrs (wprs && (vm.microphone or false)) {
+                pulse-mic = "/run/user/1000/nox-pulse-mic/native";
+              };
             listen =
               lib.optionalAttrs wprs {
                 wprs = {

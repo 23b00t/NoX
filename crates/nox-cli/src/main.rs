@@ -219,6 +219,12 @@ enum Cmd {
         #[arg(long, value_name = "BRANCH")]
         branch: Option<String>,
     },
+    /// dom0's microphone for the VMs with the registry field `microphone`:
+    /// on until `off` or the next boot; off ends running recordings
+    Mic {
+        #[command(subcommand)]
+        action: Mic,
+    },
     /// USB devices: list, attach to a VM, detach
     Usb {
         #[command(subcommand)]
@@ -461,6 +467,35 @@ enum Clip {
     Copy,
     /// Focused VM's clipboard into dom0
     Paste,
+}
+
+#[derive(Subcommand)]
+enum Mic {
+    /// Let the VMs record (nox-pulse-mic, dom0/vm-audio.nix)
+    On,
+    /// No more recording; running recordings end
+    Off,
+    /// on or off
+    Status,
+}
+
+/// The microphone server's unit (NoX dom0/vm-audio.nix)
+const MIC_UNIT: &str = "nox-pulse-mic.service";
+
+fn mic(action: Mic) -> ExitCode {
+    let verb = match action {
+        Mic::On => "start",
+        Mic::Off => "stop",
+        Mic::Status => {
+            let on = sys::run("systemctl", ["--user", "is-active", "--quiet", MIC_UNIT]) == 0;
+            println!("{}", if on { "on" } else { "off" });
+            return ExitCode::SUCCESS;
+        }
+    };
+    match sys::run("systemctl", ["--user", verb, MIC_UNIT]) {
+        0 => ExitCode::SUCCESS,
+        c => ExitCode::from(u8::try_from(c).unwrap_or(1)),
+    }
 }
 
 #[derive(Subcommand)]
@@ -822,6 +857,7 @@ fn main() -> ExitCode {
             machine,
             branch,
         } => exec("dom0-update", build_args(switch, iso, machine, branch)),
+        Cmd::Mic { action } => mic(action),
         Cmd::Usb { action } => match action {
             Usb::List => exec("vm-usb", ["list"]),
             Usb::Attach { device, vm } => exec("vm-usb", ["attach".to_string(), device, vm]),
@@ -926,6 +962,23 @@ mod tests {
         assert!(e.contains("3072 MiB") && e.contains("2400 MiB free"));
         // Xen's own tables: not exactly the boot size
         assert!(enough_memory("disp", 2048, 2048).is_err());
+    }
+
+    #[test]
+    fn mic_commands() {
+        for (word, want) in [("on", "On"), ("off", "Off"), ("status", "Status")] {
+            let cli = Cli::try_parse_from(["nox", "mic", word]).unwrap();
+            let Some(Cmd::Mic { action }) = cli.command else {
+                panic!("not mic")
+            };
+            let got = match action {
+                Mic::On => "On",
+                Mic::Off => "Off",
+                Mic::Status => "Status",
+            };
+            assert_eq!(got, want);
+        }
+        assert!(Cli::try_parse_from(["nox", "mic"]).is_err());
     }
 
     #[test]
