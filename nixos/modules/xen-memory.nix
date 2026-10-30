@@ -7,6 +7,11 @@
 # Xen's free memory minus reserveMB, higher registry `memPriority` first.
 # Shrinking waits until the VM wanted less for shrinkDelay seconds.
 # dom0 is never touched.
+#
+# Event-driven: a xenstore watch marks a VM dirty when its guest reports, and
+# only dirty VMs are evaluated. VMs with something pending (shrink waiting,
+# growth cut short by the budget) stay dirty; a sweep of all domains every
+# sweepSeconds catches whatever else was missed.
 {
   lib,
   pkgs,
@@ -42,14 +47,15 @@ let
     ) managedVms
   );
 
+  # Safety net of the event-driven loop, not a tunable
+  sweepSeconds = 60;
+
   balancer = pkgs.writeShellScript "xen-memory-balancer" ''
     set -u
     PATH=${
       lib.makeBinPath [
         xen
         pkgs.coreutils
-        pkgs.gawk
-        pkgs.gnugrep
       ]
     }
 
@@ -57,19 +63,38 @@ let
     # then goes to the highest target seen in that time (bursty builds)
     declare -A low_since low_max
 
-    while true; do
-      grows=""
-      now=$(date +%s)
+    # domain -> "min max prio"; domid -> domain ("" = not managed);
+    # domids to evaluate in the next round
+    declare -A vm_row domain_of dirty
 
-      while read -r domain min max prio; do
-        domid="$(xl domid "$domain" 2>/dev/null)" || continue
+    while read -r domain min max prio; do
+      vm_row[$domain]="$min $max $prio"
+    done < ${vmTable}
 
-        # Guest-supplied, so untrusted: four plain numbers or nothing
-        info="$(xenstore-read "/local/domain/$domid/data/meminfo" 2>/dev/null)" || continue
-        echo "$info" | grep -Eqx '[0-9]{1,9} [0-9]{1,9} [0-9]{1,9} [0-9]{1,9}' || continue
+    balance() {
+      local round=("''${!dirty[@]}") grows="" now=$EPOCHSECONDS
+      dirty=()
+
+      for domid in "''${round[@]}"; do
+        if [ -z "''${domain_of[$domid]+x}" ]; then
+          # Written by dom0, the guest cannot fake it
+          name="$(xenstore-read "/local/domain/$domid/name" 2>/dev/null)" || continue
+          domain_of[$domid]=""
+          [ -z "''${vm_row[$name]+x}" ] || domain_of[$domid]=$name
+        fi
+        domain=''${domain_of[$domid]}
+        [ -n "$domain" ] || continue
+        read -r min max prio <<< "''${vm_row[$domain]}"
+
+        # Guest-supplied, so untrusted: four plain numbers or nothing.
+        # Unreadable means the domain is gone: forget it.
+        if ! info="$(xenstore-read "/local/domain/$domid/data/meminfo" 2>/dev/null)" ||
+          ! target_kb="$(xenstore-read "/local/domain/$domid/memory/target" 2>/dev/null)"; then
+          unset "domain_of[$domid]" "low_since[$domain]" "low_max[$domain]"
+          continue
+        fi
+        [[ $info =~ ^[0-9]{1,9}\ [0-9]{1,9}\ [0-9]{1,9}\ [0-9]{1,9}$ ]] || continue
         read -r total avail swaptotal swapfree <<< "$info"
-
-        target_kb="$(xenstore-read "/local/domain/$domid/memory/target" 2>/dev/null)" || continue
         cur=$(( target_kb / 1024 ))
 
         used=$(( total - avail + swaptotal - swapfree ))
@@ -95,28 +120,80 @@ let
             echo "$domain: $cur -> $new MiB (used $used, low for ${toString cfg.shrinkDelay}s)"
             timeout 30 xl mem-set "$domain" "''${new}m" || true
             unset "low_since[$domain]" "low_max[$domain]"
+          else
+            dirty[$domid]=1
           fi
         else
           unset "low_since[$domain]" "low_max[$domain]"
-          grows+="$prio $domain $cur $want $used"$'\n'
+          grows+="$prio $domain $cur $want $used $domid"$'\n'
         fi
-      done < ${vmTable}
+      done
 
       if [ -n "$grows" ]; then
         free="$(xl info free_memory 2>/dev/null)" || free=0
         budget=$(( free - ${toString cfg.reserveMB} ))
-        while read -r prio domain cur want used; do
+        while read -r prio domain cur want used domid; do
           [ -n "$domain" ] || continue
-          (( budget <= 0 )) && break
+          if (( budget <= 0 )); then
+            dirty[$domid]=1
+            continue
+          fi
           new=$want
-          (( new - cur > budget )) && new=$(( cur + budget ))
+          if (( new - cur > budget )); then
+            new=$(( cur + budget ))
+            dirty[$domid]=1
+          fi
           echo "$domain: $cur -> $new MiB (used $used, wants $want, prio $prio)"
           timeout 30 xl mem-set "$domain" "''${new}m" || true
           budget=$(( budget - (new - cur) ))
         done < <(printf '%s' "$grows" | sort -k1,1nr)
       fi
+    }
 
-      sleep ${toString cfg.interval}
+    # Domains already running sent their report before the watch existed, so
+    # wait for the watch's initial event, then sweep. Domains that vanished
+    # are in domain_of and get forgotten by their failing read.
+    exec 3< <(exec xenstore-watch /local/domain)
+    read -r -u 3 path || exit 1
+
+    next_round=0
+    next_sweep=0
+    while true; do
+      now=$EPOCHSECONDS
+      if (( now >= next_sweep )); then
+        for domid in "''${!domain_of[@]}" $(xenstore-list /local/domain 2>/dev/null); do
+          dirty[$domid]=1
+        done
+        next_sweep=$(( now + ${toString sweepSeconds} ))
+      fi
+
+      if (( ''${#dirty[@]} > 0 && now >= next_round )); then
+        balance
+        next_round=$(( EPOCHSECONDS + ${toString cfg.interval} ))
+        continue
+      fi
+
+      if (( ''${#dirty[@]} > 0 )); then
+        wait=$(( next_round - now ))
+      else
+        wait=$(( next_sweep - now ))
+      fi
+
+      # 1 is EOF (the watch died, systemd restarts us), above 128 the timeout
+      if read -r -t "$wait" -u 3 path; then
+        if [[ $path =~ ^/local/domain/([0-9]+)/data/meminfo$ ]]; then
+          domid=''${BASH_REMATCH[1]}
+          if [ "''${domain_of[$domid]-x}" != "" ]; then
+            # The first report opens a window, so VMs reporting at about the
+            # same time are served together, by priority
+            (( ''${#dirty[@]} > 0 )) || next_round=$(( EPOCHSECONDS + ${toString cfg.interval} ))
+            dirty[$domid]=1
+          fi
+        fi
+      elif (( $? <= 128 )); then
+        echo "xenstore-watch ended"
+        exit 1
+      fi
     done
   '';
 in
@@ -127,7 +204,7 @@ in
     interval = lib.mkOption {
       type = lib.types.ints.positive;
       default = 2;
-      description = "Seconds between two balancing rounds.";
+      description = "Minimum seconds between two balancing rounds.";
     };
 
     overheadPercent = lib.mkOption {
