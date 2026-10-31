@@ -59,6 +59,16 @@ let
     set +e
     # --load-db is refused through nix-daemon: use the DB directly
     export NIX_REMOTE=local
+
+    # The own closure, from the image: microvm.nix loads it through the merged
+    # store at boot, but closure-info is no valid path, a GC deletes it there
+    # and the whiteout makes that load fail. Then the whole system counts as
+    # dead and the next GC deletes it (vanilla, 2026-10-31)
+    if [[ "$(${pkgs.coreutils}/bin/cat /proc/cmdline)" =~ regInfo=/nix/store/([^\ /]+)/registration ]]; then
+      reg="/nix/.ro-store/''${BASH_REMATCH[1]}/registration"
+      [ -r "$reg" ] && ${nix}/bin/nix-store --load-db < "$reg"
+    fi
+
     if [ -f /persist/overlay.db ] && [ -s /persist/overlay.db ]; then
       # --load-db is all or nothing: drop entries whose files or references
       # are gone (e.g. paths of an older store image), repeated until stable.

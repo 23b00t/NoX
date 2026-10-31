@@ -29,6 +29,10 @@ let
   # --iso <vm> streams it from here to the VM and then deletes it
   builderBuild = pkgs.writeShellScriptBin "builder-build" ''
     set -euo pipefail
+    # Hand the blocks of the build directories and collected paths back to
+    # dom0 (the boot's timer runs before the build). In the background, the
+    # build's result doesn't wait for it; the store's content stays
+    trap '/run/wrappers/bin/sudo -n ${config.systemd.package}/bin/systemctl start --no-block fstrim.service >/dev/null 2>&1 || true' EXIT
     bump=0
     if [ "''${1:-}" = --bump ]; then
       bump=1
@@ -308,8 +312,8 @@ in
     # The store overlay holds this machine's last closure; builder-build
     # unroots it before the next build, so GC during builds when space runs
     # low frees its paths. Room for the big store images (several GB each)
-    min-free = 15 * 1024 * 1024 * 1024;
-    max-free = 30 * 1024 * 1024 * 1024;
+    min-free = reg.storeMinFree * 1024 * 1024;
+    max-free = reg.storeMaxFree * 1024 * 1024;
     # Over HTTP/2 the many .narinfo queries share a few connections; on xmg
     # (2026-10-11) one stalled connection hung all of them for 300 s each
     # ("Operation too slow"). Separate HTTP/1.1 connections don't.

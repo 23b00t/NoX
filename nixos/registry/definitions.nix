@@ -17,6 +17,9 @@ let
       # "" clears all timers of util-linux' unit (OnCalendar=weekly), also
       # those set before it: it has to come first, in this option
       OnCalendar = lib.mkForce [ ];
+      # util-linux' unit delays by up to 100 min: short-lived VMs never trimmed
+      # (builder, 2026-10-31)
+      RandomizedDelaySec = 0;
       OnBootSec = [
         ""
         "5min"

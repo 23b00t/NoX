@@ -111,6 +111,9 @@ let
       # Store overlay (new store paths) in MB: the machine's closure (xmg
       # ~60 GB) plus what a build adds before the old system is collected
       store.size = 100000;
+      # GC only when space runs low: build speed goes before disk space
+      store.minFree = 15360;
+      store.maxFree = 30720;
       # nothing in by nox-rpc copy (the build VM sees untrusted code); out
       # asks, for the installer ISO (dom0-update --iso <vm>: dom0's own
       # call, no question)

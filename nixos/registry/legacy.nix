@@ -61,6 +61,8 @@ let
         ;
       homeSize = v.home.size;
       storeSize = v.store.size;
+      storeMinFree = v.store.minFree;
+      storeMaxFree = v.store.maxFree;
       # explorer (dom0) lists the VMs with the "yazi" feature
       features = if v.explorer == true then [ "yazi" ] else null;
       # a disposable (disposables.nix) has its base's apps installed, but no

@@ -206,6 +206,16 @@ let
       default = null;
       description = "Size of the persistent store overlay in MB (new store paths built or fetched in the VM). Read by the builder (default 100000, registry/infra.nix). The image is created once: a bigger value needs the existing image grown by hand (truncate, e2fsck -f, resize2fs) or deleted (empty cache).";
     };
+    store.minFree = mkOption {
+      type = types.nullOr types.ints.positive;
+      default = null;
+      description = "Free space in the store overlay in MB below which Nix collects garbage during a build. Read by the builder (default 15360, registry/infra.nix): the store stays nearly full, which keeps build tools and old paths for fast rebuilds. On a small disk set it (and `store.maxFree`) higher, or `store.size` lower: less space used, longer builds.";
+    };
+    store.maxFree = mkOption {
+      type = types.nullOr types.ints.positive;
+      default = null;
+      description = "Free space in the store overlay in MB up to which such a collection frees paths. Read by the builder (default 30720, registry/infra.nix).";
+    };
     home.image = mkOption {
       type = types.nullOr types.str;
       default = null;
@@ -364,6 +374,8 @@ let
       config = lib.genAttrs defaultable fromRole // {
         home.size = lib.mkIf (defaults ? home.size) (lib.mkDefault defaults.home.size);
         store.size = lib.mkIf (defaults ? store.size) (lib.mkDefault defaults.store.size);
+        store.minFree = lib.mkIf (defaults ? store.minFree) (lib.mkDefault defaults.store.minFree);
+        store.maxFree = lib.mkIf (defaults ? store.maxFree) (lib.mkDefault defaults.store.maxFree);
       };
     }
   );
