@@ -26,11 +26,15 @@ let
     (extension "ublock-origin" "uBlock0@raymondhill.net")
     (extension "noscript" "{73a6fe31-595d-460b-a920-fcc0f8843232}")
     (extension "vimium-ff" "{d7742d87-e61d-4b78-b8a1-b469842139fa}")
+    (extension "keepassxc-browser" "keepassxc-browser@keepassxc.org")
   ];
 
   zenWrapped =
     pkgs.wrapFirefox zen-browser.packages.${pkgs.stdenv.hostPlatform.system}.zen-browser-unwrapped
       {
+        # keepassxc-proxy for the add-on
+        nativeMessagingHosts = [ pkgs.keepassxc ];
+
         extraPrefs = lib.concatLines (
           lib.mapAttrsToList (
             name: value: "lockPref(${lib.strings.toJSON name}, ${lib.strings.toJSON value});"
