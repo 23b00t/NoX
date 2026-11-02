@@ -3970,6 +3970,54 @@ null
 
 
 
+### nox\.vms\.\<name>\.store\.maxFree
+
+
+
+Free space in the store overlay in MB up to which such a collection deletes dead paths: ` store.minFree ` triggers it, this is its target\. Default (null): 30 % of the overlay\.
+
+
+
+*Type:*
+null or (positive integer, meaning >0)
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.vms\.\<name>\.store\.minFree
+
+
+
+Free space in the store overlay in MB below which Nix collects garbage during a build or download\. Every VM with a store overlay (builder, VMs with ` services.persistentStoreOverlay `)\. Default (null): 15 % of the overlay\. The store stays nearly full, which keeps build tools and old paths for fast rebuilds\. On a small disk set it and ` store.maxFree ` higher (e\.g\. builder 40000/60000) or ` store.size ` lower: less space used in dom0, longer builds (cost not measured)\. Must stay below ` store.maxFree `\.
+
+
+
+*Type:*
+null or (positive integer, meaning >0)
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.vms\.\<name>\.store\.size
 
 

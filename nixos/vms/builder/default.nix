@@ -309,11 +309,10 @@ in
     # (default /nix/var/nix/b is on the 2 GB tmpfs). Lix uses build-dir, not
     # the daemon's TMPDIR (the daemon is socket-activated per connection).
     build-dir = "${stateDir}/build";
+    # min-free/max-free: persistent-store-overlay (15/30 % of the overlay).
     # The store overlay holds this machine's last closure; builder-build
     # unroots it before the next build, so GC during builds when space runs
-    # low frees its paths. Room for the big store images (several GB each)
-    min-free = reg.storeMinFree * 1024 * 1024;
-    max-free = reg.storeMaxFree * 1024 * 1024;
+    # low frees its paths
     # Over HTTP/2 the many .narinfo queries share a few connections; on xmg
     # (2026-10-11) one stalled connection hung all of them for 300 s each
     # ("Operation too slow"). Separate HTTP/1.1 connections don't.

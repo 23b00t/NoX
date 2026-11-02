@@ -2,6 +2,7 @@
   config,
   lib,
   pkgs,
+  vmRegistry,
   ...
 }:
 
@@ -9,6 +10,13 @@ let
   cfg = config.services.persistentStoreOverlay;
 
   nix = config.nix.package;
+
+  vmName = lib.removeSuffix "-vm" (config.networking.hostName or "");
+  currentVm = vmRegistry.byName.${vmName} or { };
+  # GC thresholds in MB: registry `store.minFree`/`store.maxFree`, else 15/30 %
+  # of the overlay (builder: GC at 85 GB used, back down to 70 GB)
+  minFree = if cfg.minFree != null then cfg.minFree else cfg.overlaySize * 15 / 100;
+  maxFree = if cfg.maxFree != null then cfg.maxFree else cfg.overlaySize * 30 / 100;
 
   # Dumps the DB entries of all valid paths in the writable overlay. Not only
   # the closure of GC roots: paths of an aborted build are unrooted, would
@@ -132,6 +140,20 @@ in
       description = "Size of the writable store overlay in MB.";
     };
 
+    minFree = lib.mkOption {
+      type = lib.types.nullOr lib.types.ints.positive;
+      default = currentVm.storeMinFree or null;
+      defaultText = lib.literalExpression "registry `store.minFree`";
+      description = "Free space in the overlay in MB below which Nix collects garbage during a build or download. null: 15 % of `overlaySize`.";
+    };
+
+    maxFree = lib.mkOption {
+      type = lib.types.nullOr lib.types.ints.positive;
+      default = currentVm.storeMaxFree or null;
+      defaultText = lib.literalExpression "registry `store.maxFree`";
+      description = "Free space in the overlay in MB up to which such a collection deletes dead paths. null: 30 % of `overlaySize`.";
+    };
+
     dbDirSize = lib.mkOption {
       type = lib.types.int;
       default = 512;
@@ -140,6 +162,13 @@ in
   };
 
   config = lib.mkIf cfg.enable {
+    assertions = [
+      {
+        assertion = maxFree > minFree;
+        message = "${vmName}: store.maxFree (${toString maxFree} MB) must be greater than store.minFree (${toString minFree} MB)";
+      }
+    ];
+
     microvm = {
       writableStoreOverlay = "/nix/.rw-store";
       volumes = [
@@ -182,6 +211,9 @@ in
       trusted-users = [
         cfg.user
       ];
+      # GC only when space runs low; the store keeps old paths for fast rebuilds
+      min-free = minFree * 1024 * 1024;
+      max-free = maxFree * 1024 * 1024;
     };
     systemd.services.nix-db-backup = {
       description = "Backup overlay-related Nix DB entries on shutdown";
@@ -206,8 +238,18 @@ in
 
     systemd.services.nix-db-restore = {
       description = "Restore overlay-related Nix DB entries at boot";
-      wantedBy = [ "multi-user.target" ];
-      before = [ "multi-user.target" ];
+      # nix-daemon waits for it: until then the overlay's paths count as
+      # invalid, Nix fetches or builds them again and a GC deletes them. The
+      # socket queues connections meanwhile (builder-build came in 3 s into
+      # the 17 s restore, hp 2026-11-02)
+      wantedBy = [
+        "multi-user.target"
+        "nix-daemon.service"
+      ];
+      before = [
+        "multi-user.target"
+        "nix-daemon.service"
+      ];
       after = [ "local-fs.target" ];
 
       unitConfig.RequiresMountsFor = [
