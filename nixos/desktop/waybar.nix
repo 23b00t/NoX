@@ -9,6 +9,20 @@ let
     inherit lib;
     inherit (config.nox.desktop) theme;
   };
+
+  # custom/vm-mic: mic volume, plus whether the VMs may record (red)
+  vmMic = pkgs.writeShellScript "waybar-vm-mic" ''
+    vol=$(wpctl get-volume @DEFAULT_AUDIO_SOURCE@)
+    case "$vol" in
+      *MUTED*) vol="mute" ;;
+      *) vol=$(echo "$vol" | awk '{ printf "%d%%", $2 * 100 + 0.5 }') ;;
+    esac
+    if systemctl --user is-active --quiet nox-pulse-mic.service; then
+      echo "{\"text\": \" VM $vol\", \"class\": \"on\", \"tooltip\": \"VMs may record: click to stop (nox mic off), scroll: volume\"}"
+    else
+      echo "{\"text\": \" $vol\", \"tooltip\": \"VMs may not record (nox mic on), scroll: volume\"}"
+    fi
+  '';
 in
 {
   environment.systemPackages = with pkgs; [
@@ -295,12 +309,14 @@ in
             }
           },
 
-          // Whether the VMs may record (nox mic, NoX dom0/vm-audio.nix); click: off
+          // Mic volume and whether the VMs may record (nox mic, NoX dom0/vm-audio.nix); click: off, scroll: volume
           "custom/vm-mic": {
             "return-type": "json",
-            "exec": "systemctl --user is-active --quiet nox-pulse-mic.service && echo '{\"text\": \" VM\", \"class\": \"on\", \"tooltip\": \"VMs may record: click to stop (nox mic off)\"}' || echo '{\"text\": \" off\", \"tooltip\": \"VMs may not record (nox mic on)\"}'",
+            "exec": "${vmMic}",
             "interval": 3,
-            "on-click": "nox mic off"
+            "on-click": "nox mic off",
+            "on-scroll-up": "wpctl set-volume -l 1 @DEFAULT_AUDIO_SOURCE@ 5%+",
+            "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%-"
           },
 
           "battery": {
