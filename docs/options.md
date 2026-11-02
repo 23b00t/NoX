@@ -541,7 +541,7 @@ string
 
 
 
-Window colors per trust label, for the window rules of the compositor (desktop/niri\.nix uses them; with nox\.desktop\.compositor = null they are mine to apply)\. Each entry: ` label `, ` appId ` (extended regex on the app id), ` active ` (\#rrggbb: border and focus ring of the focused window), ` inactiveBorder ` and ` inactiveRing ` (\#rrggbbaa)\.
+Window colors per trust label, for the window rules of the compositor (desktop/niri\.nix uses them; with nox\.desktop\.compositor = null the own config applies them)\. Each entry: ` label `, ` appId ` (extended regex on the app id), ` active ` (\#rrggbb: border and focus ring of the focused window), ` inactiveBorder ` and ` inactiveRing ` (\#rrggbbaa)\.
 
 
 

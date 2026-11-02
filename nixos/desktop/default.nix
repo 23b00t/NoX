@@ -76,8 +76,8 @@ in
     # Compositor hooks: shell snippets behind `nox-wm <command>`
     # (desktop/session.nix), used by vm-clip, close-guard, screenrec-full,
     # vm-autostart and nox doctor. The compositor module sets them
-    # (desktop/niri.nix); with nox.desktop.compositor = null they are mine
-    # to write. Unset: the command fails, the tools fall back or refuse.
+    # (desktop/niri.nix); with nox.desktop.compositor = null the own config
+    # writes them. Unset: the command fails, the tools fall back or refuse.
     wm =
       lib.mapAttrs
         (
@@ -206,7 +206,7 @@ in
             }) (lib.groupBy (vm: vm.label or "untrusted") (vmRegistry.vms ++ vmRegistry.imageDomains))
           );
       defaultText = lib.literalMD "one entry per trust label in use, from the registry and the theme";
-      description = "Window colors per trust label, for the window rules of the compositor (desktop/niri.nix uses them; with nox.desktop.compositor = null they are mine to apply). Each entry: `label`, `appId` (extended regex on the app id), `active` (#rrggbb: border and focus ring of the focused window), `inactiveBorder` and `inactiveRing` (#rrggbbaa).";
+      description = "Window colors per trust label, for the window rules of the compositor (desktop/niri.nix uses them; with nox.desktop.compositor = null the own config applies them). Each entry: `label`, `appId` (extended regex on the app id), `active` (#rrggbb: border and focus ring of the focused window), `inactiveBorder` and `inactiveRing` (#rrggbbaa).";
     };
     waybar.workspaces = lib.mkOption {
       type = lib.types.nullOr (
@@ -289,10 +289,21 @@ in
   config = lib.mkMerge [
     {
       # The VMs only see nox.theme (registry): a different dom0 theme splits
-      # the look
+      # the look. Without NoX's compositor: what is left to do
+      # (docs/compositor.md)
       warnings =
         lib.optional (cfg.theme != vmRegistry.theme)
-          "nox.desktop.theme differs from nox.theme (vms.nix): the VMs keep nox.theme. Set the theme in vms.nix to change both.";
+          "nox.desktop.theme differs from nox.theme (vms.nix): the VMs keep nox.theme. Set the theme in vms.nix to change both."
+        ++ lib.optionals (cfg.compositor == null) (
+          let
+            unset = lib.attrNames (lib.filterAttrs (_: v: v == null) cfg.wm);
+          in
+          lib.optional (unset != [ ])
+            "nox.desktop.compositor is null and nox.desktop.wm.{${lib.concatStringsSep "," unset}} unset: vm-clip refuses without focusedWindow, close-guard and screenrec-full do nothing, vm-autostart skips its checks and the login terminals (docs/compositor.md)."
+          ++ lib.optional (
+            cfg.niri.settings != { }
+          ) "nox.desktop.niri.settings is set, but nox.desktop.compositor is null: ignored."
+        );
     }
     (lib.mkIf cfg.swaync.enable {
       # at-spi2-core: no "AT-SPI: Error retrieving accessibility bus" noise

@@ -21,6 +21,7 @@ domains: `nox.vms.<name>` with role, label, apps, resources) and
 `machines/` (hardware data and the machine's NixOS module). Every option,
 the roles, the app catalog and the infrastructure VMs:
 [docs/options.md](docs/options.md) (generated: `nix build .#options-doc`).
+niri is the default compositor; another one: [docs/compositor.md](docs/compositor.md).
 
 Settings that are yours, not NoX's, go into your config, e.g. in
 `vms.nix`:
