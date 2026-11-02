@@ -166,6 +166,12 @@ in
         lib.nameValuePair "nox-relay-${name}" {
           description = "nox-relay to ${g.domain}";
           wantedBy = [ "multi-user.target" ];
+          # Not restarted by a rebuild: that cut every wprsc of the guest and
+          # its windows vanished (the apps kept running). The new relay runs
+          # from the guest's next start on (both sides exit when the peer goes
+          # away, Restart=always picks up the new unit), together with the
+          # guest's own new relay
+          restartIfChanged = false;
           path = [ cfg.host.xenPackage ];
           # The domain id changes with every guest start: look it up each time
           script = ''
