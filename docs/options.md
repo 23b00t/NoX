@@ -469,7 +469,7 @@ null or value “niri” (singular enum)
 
 
 
-xkb layout of niri’s keyboard (empty: not set)\.
+xkb layout of the compositor’s keyboard (empty: not set)\. The niri module applies it; an own compositor reads it from here\.
 
 
 
@@ -493,7 +493,7 @@ string
 
 
 
-xkb options of niri’s keyboard (empty: not set)\.
+xkb options of the compositor’s keyboard (empty: not set)\. The niri module applies it; an own compositor reads it from here\.
 
 
 
@@ -517,7 +517,7 @@ string
 
 
 
-xkb variant of niri’s keyboard (empty: not set)\.
+xkb variant of the compositor’s keyboard (empty: not set)\. The niri module applies it; an own compositor reads it from here\.
 
 
 
@@ -531,6 +531,27 @@ string
 ```nix
 ""
 ```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.labels
+
+
+
+Window colors per trust label, for the window rules of the compositor (desktop/niri\.nix uses them; with nox\.desktop\.compositor = null they are mine to apply)\. Each entry: ` label `, ` appId ` (extended regex on the app id), ` active ` (\#rrggbb: border and focus ring of the focused window), ` inactiveBorder ` and ` inactiveRing ` (\#rrggbbaa)\.
+
+
+
+*Type:*
+list of attribute set of string *(read only)*
+
+
+
+*Default:*
+one entry per trust label in use, from the registry and the theme
 
 *Declared by:*
  - [nixos/desktop](../nixos/desktop)
@@ -1329,6 +1350,71 @@ one of “normal”, “dark”
 
 ```nix
 "dark"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.waybar\.workspaces
+
+
+
+Workspaces on the left of waybar (null: none)\.
+
+
+
+*Type:*
+null or (submodule)
+
+
+
+*Default:*
+
+```nix
+niri: { module = "niri/workspaces"; settings.format = "{index}"; }, otherwise null
+
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.waybar\.workspaces\.module
+
+
+
+waybar’s workspaces module, e\.g\. ` hyprland/workspaces `\.
+
+
+
+*Type:*
+string
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.waybar\.workspaces\.settings
+
+
+
+The module’s waybar settings\.
+
+
+
+*Type:*
+JSON value
+
+
+
+*Default:*
+
+```nix
+{ }
 ```
 
 *Declared by:*
@@ -2489,8 +2575,6 @@ submodule
 
 ### nox\.theme\.colors
 
-
-
 Overrides of the theme’s semantic roles (hex without ‘\#’): bg, bgDark, border, fg, fgActive, accent, accentStrong, accent2, muted, urgent, warn, ok, info, shadow\. Logo and wallpaper colors follow them where the theme derives them from roles\.
 
 
@@ -2602,6 +2686,8 @@ positive integer, meaning >0
 
 
 ### nox\.theme\.dark
+
+
 
 GTK and Qt apps in their dark variant (dom0 and the VMs: GTK theme, color-scheme, Qt style)\. false = the light variant; the desktop’s own colors come from the theme\.
 

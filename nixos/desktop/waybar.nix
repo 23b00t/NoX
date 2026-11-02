@@ -5,6 +5,7 @@
   ...
 }:
 let
+  ws = config.nox.desktop.waybar.workspaces;
   theme = import ./theme.nix {
     inherit lib;
     inherit (config.nox.desktop) theme;
@@ -227,7 +228,7 @@ in
 
           // Layout without external JSONC modules/includes
           "modules-left": [
-            "niri/workspaces"
+            ${lib.optionalString (ws != null) ''"${ws.module}"''}
           ],
           "modules-center": [
             "custom/xen-mem",
@@ -245,11 +246,8 @@ in
             "custom/swaync",
           ],
 
-          // Workspaces instead of one icon per window; empty ones stay hidden.
-          // Numbers only, also for named ones (the terminal workspace)
-          "niri/workspaces": {
-            "format": "{index}"
-          },
+          // Workspaces instead of one icon per window (nox.desktop.waybar.workspaces)
+          ${lib.optionalString (ws != null) ''"${ws.module}": ${builtins.toJSON ws.settings},''}
 
           "clock": {
             "format": "{:%H:%M   %a, %d.%m.%y}",

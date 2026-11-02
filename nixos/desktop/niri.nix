@@ -33,36 +33,25 @@ let
       ${lib.getExe config.programs.niri.package} validate --config "$target"
     '';
   };
-  # Trust label per VM (vms/registry.nix `label`, absent = untrusted): one
-  # window rule per label on the "[<vm>] " app id prefix that dom0's wprsc
-  # sets (`--app-id-prefix`, home/vm-management/vm-gui.nix, vm-run; "[<vm>]"
-  # alone for windows without an app id). A VM cannot fake it: its own app
-  # id only follows the prefix. dom0's color only for app ids that don't
-  # start with "["; windows matching neither (a dom0 window without an app
-  # id) keep the layout default `unknown`
-  labelRule = label: appId: {
+  # One window rule per trust label (nox.desktop.labels); windows matching
+  # none keep the layout default `unknown`
+  labelRules = map (l: {
     "window-rule"._children = [
-      { match._props."app-id" = appId; }
+      { match._props."app-id" = l.appId; }
       {
         border = {
-          "active-color" = theme.label.${label};
-          "inactive-color" = theme.labelWithAlpha label theme.opacity.inactiveBorder;
+          "active-color" = l.active;
+          "inactive-color" = l.inactiveBorder;
         };
       }
       {
         "focus-ring" = {
-          "active-color" = theme.label.${label};
-          "inactive-color" = theme.labelWithAlpha label theme.opacity.inactiveRing;
+          "active-color" = l.active;
+          "inactive-color" = l.inactiveRing;
         };
       }
     ];
-  };
-  labelRules = [
-    (labelRule "dom0" "^[^\\[]")
-  ]
-  ++ lib.mapAttrsToList (
-    label: vms: labelRule label "^\\[(${lib.concatMapStringsSep "|" (vm: vm.name) vms})\\]( |$)"
-  ) (lib.groupBy (vm: vm.label or "untrusted") (vmRegistry.vms ++ vmRegistry.imageDomains));
+  }) config.nox.desktop.labels;
 
   trayApps = import ./tray-apps.nix { inherit lib vmRegistry; };
   trayCommands = lib.concatLists (

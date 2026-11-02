@@ -10,6 +10,10 @@
 }:
 let
   cfg = config.nox.desktop;
+  theme = import ./theme.nix {
+    inherit lib;
+    inherit (cfg) theme;
+  };
 
   # niri's settings: attrs → KDL (home-manager's wayland.windowManager.niri
   # conventions: `_args`, `_props`, `_children`)
@@ -160,7 +164,7 @@ in
           lib.mkOption {
             type = lib.types.str;
             inherit default;
-            description = "xkb ${name} of niri's keyboard (empty: not set).";
+            description = "xkb ${name} of the compositor's keyboard (empty: not set). The niri module applies it; an own compositor reads it from here.";
           }
         )
         {
@@ -168,6 +172,71 @@ in
           variant = "";
           options = "";
         };
+    # Trust label per VM (registry `label`, absent = untrusted) as window
+    # colors on the "[<vm>] " app id prefix that dom0's wprsc sets
+    # (`--app-id-prefix`, dom0/tools/vm-gui.nix, vm-run; "[<vm>]" alone for
+    # windows without an app id). A VM cannot fake it: its own app id only
+    # follows the prefix. dom0's color only for app ids that don't start
+    # with "["; windows matching neither (a dom0 window without an app id)
+    # keep the compositor's default
+    labels = lib.mkOption {
+      type = lib.types.listOf (lib.types.attrsOf lib.types.str);
+      readOnly = true;
+      default =
+        map
+          (
+            l:
+            l
+            // {
+              active = theme.label.${l.label};
+              inactiveBorder = theme.labelWithAlpha l.label theme.opacity.inactiveBorder;
+              inactiveRing = theme.labelWithAlpha l.label theme.opacity.inactiveRing;
+            }
+          )
+          (
+            [
+              {
+                label = "dom0";
+                appId = "^[^\\[]";
+              }
+            ]
+            ++ lib.mapAttrsToList (label: vms: {
+              inherit label;
+              appId = "^\\[(${lib.concatMapStringsSep "|" (vm: vm.name) vms})\\]( |$)";
+            }) (lib.groupBy (vm: vm.label or "untrusted") (vmRegistry.vms ++ vmRegistry.imageDomains))
+          );
+      defaultText = lib.literalMD "one entry per trust label in use, from the registry and the theme";
+      description = "Window colors per trust label, for the window rules of the compositor (desktop/niri.nix uses them; with nox.desktop.compositor = null they are mine to apply). Each entry: `label`, `appId` (extended regex on the app id), `active` (#rrggbb: border and focus ring of the focused window), `inactiveBorder` and `inactiveRing` (#rrggbbaa).";
+    };
+    waybar.workspaces = lib.mkOption {
+      type = lib.types.nullOr (
+        lib.types.submodule {
+          options = {
+            module = lib.mkOption {
+              type = lib.types.str;
+              description = "waybar's workspaces module, e.g. `hyprland/workspaces`.";
+            };
+            settings = lib.mkOption {
+              type = (pkgs.formats.json { }).type;
+              default = { };
+              description = "The module's waybar settings.";
+            };
+          };
+        }
+      );
+      default =
+        if cfg.compositor == "niri" then
+          {
+            module = "niri/workspaces";
+            settings.format = "{index}";
+          }
+        else
+          null;
+      defaultText = lib.literalExpression ''
+        niri: { module = "niri/workspaces"; settings.format = "{index}"; }, otherwise null
+      '';
+      description = "Workspaces on the left of waybar (null: none).";
+    };
     niri.settings = lib.mkOption {
       type = lib.types.attrsOf kdlValue;
       default = { };
