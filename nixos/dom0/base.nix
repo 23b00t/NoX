@@ -1,6 +1,6 @@
 # dom0 base (moved unchanged from nixos-config machines/common-configuration.nix,
 # NoX modules step 1): boot/kernel/VFIO from the registry's host profile,
-# pkgs with the wprs overlay, desktop session (niri, sddm, portals,
+# pkgs with the wprs overlay, desktop session (sddm, portals,
 # pipewire), the VM bridges, microvm.vms from the registry and
 # vmDefinitions, nix settings. The user's part (account, locale, keyboards,
 # shell and tools, hardware profile) stays in the user's config.
@@ -176,24 +176,11 @@ in
     ./tools
   ];
 
-  # For proper XDG desktop integration
-  # programs.niri adds the gnome portal (screencasting) and gnome-keyring
-  # (Secret portal). niri's niri-portals.conf, plus the GTK file chooser:
-  # the gnome one needs nautilus, which dom0 does not have (niri docs,
-  # Important Software)
+  # For proper XDG desktop integration; the compositor's portal config
+  # comes with its module (desktop/niri.nix)
   xdg.portal = {
     enable = true;
     extraPortals = [ pkgs.xdg-desktop-portal-gtk ];
-    config.niri = {
-      default = [
-        "gnome"
-        "gtk"
-      ];
-      "org.freedesktop.impl.portal.Access" = [ "gtk" ];
-      "org.freedesktop.impl.portal.Notification" = [ "gtk" ];
-      "org.freedesktop.impl.portal.Secret" = [ "gnome-keyring" ];
-      "org.freedesktop.impl.portal.FileChooser" = [ "gtk" ];
-    };
   };
 
   environment = {
@@ -224,7 +211,6 @@ in
   };
 
   programs = {
-    niri.enable = true;
     nix-ld.enable = true;
     dconf.enable = true;
     # No nano: vim is the editor in dom0 too ($EDITOR), like in the VMs
@@ -324,8 +310,9 @@ in
     # devices, also passed-through ones (2026-10-14)
     tlp.enable = false;
 
-    # programs.niri enables gnome-keyring (Secret portal); its gcr SSH agent
-    # would take over SSH_AUTH_SOCK from programs.ssh.startAgent (above)
+    # gnome-keyring (programs.niri enables it for the Secret portal) brings
+    # a gcr SSH agent that would take over SSH_AUTH_SOCK from
+    # programs.ssh.startAgent (above)
     gnome.gcr-ssh-agent.enable = false;
 
     dbus.enable = true;
@@ -348,10 +335,6 @@ in
           # nox.theme.cursor (desktop/gtk-qt.nix installs the package)
           CursorTheme = config.nox.desktop.theme.cursor.name;
           CursorSize = toString config.nox.desktop.theme.cursor.size;
-        };
-        General = {
-          # Set default session globally
-          DefaultSession = "niri.desktop";
         };
         Wayland = {
           EnableHiDPI = true;

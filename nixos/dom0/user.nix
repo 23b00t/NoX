@@ -10,7 +10,7 @@ in
   options.nox.user = lib.mkOption {
     type = lib.types.str;
     default = "user";
-    description = "dom0's user: its account (wheel, trusted Nix user), autologin into niri, input proxy (xen-usb), nox-rpc questions, VNC sockets.";
+    description = "dom0's user: its account (wheel, trusted Nix user), autologin into the desktop session, input proxy (xen-usb), nox-rpc questions, VNC sockets.";
   };
 
   config = {
@@ -25,8 +25,8 @@ in
         enable = lib.mkDefault true;
         user = lib.mkDefault user;
       };
-      # The session autologin starts
-      defaultSession = lib.mkDefault "niri";
+      # The session autologin starts (General.DefaultSession of sddm, too)
+      defaultSession = lib.mkIf (config.nox.desktop.compositor == "niri") (lib.mkDefault "niri");
     };
   };
 }

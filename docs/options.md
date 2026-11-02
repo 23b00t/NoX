@@ -441,6 +441,30 @@ null
 
 
 
+### nox\.desktop\.compositor
+
+
+
+Compositor of dom0’s desktop\. ` null `: none from NoX; bring your own (session, keybinds, window rules), see docs/compositor\.md\. Waybar, rofi, swaync, wpaperd, swaylock, foot and the GTK/Qt theme stay\.
+
+
+
+*Type:*
+null or value “niri” (singular enum)
+
+
+
+*Default:*
+
+```nix
+"niri"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
 ### nox\.desktop\.keyboard\.layout
 
 
@@ -2602,8 +2626,6 @@ attribute set of string matching the pattern \[0-9a-fA-F]{6}
 
 ### nox\.theme\.lock
 
-
-
 Look of the lock screen image (the logo without its o: swaylock’s ring takes its place)\. flavor defaults to neon, shade and decor to the wallpaper’s\.
 
 
@@ -2625,6 +2647,8 @@ submodule
 
 
 ### nox\.theme\.lock\.decor
+
+
 
 Sky behind the logo: a crescent moon, stars, both or none\.
 
