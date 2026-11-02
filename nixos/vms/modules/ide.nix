@@ -10,7 +10,7 @@ let
   githubAgentSocket = "/tmp/ssh-github-agent.sock";
   # Runs once per boot; waits for GitHub itself instead of systemd restarts:
   # the VM's network-online comes long before the uplink through
-  # sys-firewall/sys-net works (xmg 2026-10-27: "Could not resolve host" for
+  # sys-firewall/sys-net works (2026-10-27: "Could not resolve host" for
   # ~5 min after a restart of the sys VMs, then the restart limit hit)
   lazyvimSyncScript = pkgs.writeShellScript "ide-lazyvim-sync" ''
     set -eu
@@ -118,10 +118,22 @@ in
         EDITOR = "nvim";
         VISUAL = "nvim";
       }
+      // {
+        # NoX's lazygit defaults first, then the user's own config (later
+        # files win; each listed file must exist, tmpfiles below)
+        LG_CONFIG_FILE = "/etc/lazygit/config.yml,$HOME/.config/lazygit/config.yml";
+      }
       // lib.optionalAttrs cfg.githubAgent.enable {
         # Set SSH_AUTH_SOCK for all environments to the correct agent socket path
         SSH_AUTH_SOCK = githubAgentSocket;
       };
+
+      # No background fetch: every fetch signs with the GitHub agent, and dom0
+      # asks to confirm each use (2026-11-02: a lazygit asked every minute)
+      etc."lazygit/config.yml".text = ''
+        git:
+          autoFetch: false
+      '';
 
       etc."gpg-agent.conf".text = ''
         pinentry-program /run/current-system/sw/bin/pinentry-tty
@@ -168,6 +180,8 @@ in
 
     systemd.tmpfiles.rules = [
       "d /home/${cfg.user}/.config 0755 ${cfg.user} users -"
+      "d /home/${cfg.user}/.config/lazygit 0755 ${cfg.user} users -"
+      "f /home/${cfg.user}/.config/lazygit/config.yml 0644 ${cfg.user} users -"
       "d /home/${cfg.user}/.gnupg 0700 ${cfg.user} users -"
       "L+ /home/${cfg.user}/.gnupg/gpg-agent.conf - - - - /etc/gpg-agent.conf"
     ];

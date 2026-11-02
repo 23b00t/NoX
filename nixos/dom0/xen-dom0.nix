@@ -1,6 +1,5 @@
-# Xen dom0, shared by all machines (hp, xmg), on top of
-# common-configuration.nix. Machine specifics come from the registry view
-# (`hardware`, `hostProfile`) and machines/<name>/xen.nix.
+# Xen dom0, shared by all machines. Machine specifics come from the
+# registry view (`hardware`, `hostProfile`) and the user's config.
 # MicroVMs run as Xen PVH domUs via the microvm.nix fork (hypervisor = "xen").
 {
   lib,
@@ -22,13 +21,13 @@ let
     (vmRegistry.hostProfile.blockedHostDrivers.nic or [ ])
     ++ (vmRegistry.hostProfile.blockedHostDrivers.wifi or [ ]);
   dom0TestAccess = vmRegistry.hostProfile.dom0TestAccess or null;
-  # Kali image domain (machines/xmg/xen.nix), updated by update-all
+  # Kali image domain (from the user's config), updated by update-all
   hasKali = config.services.xen-image-domains.domains ? kali;
 
   # Destroys the domain of MicroVM $1 if it is left behind: right away once
   # it is shut down (state `s`, e.g. `--ps--`: the guest is off, but the
   # domain still holds its PCI devices and memory, and the runner is gone;
-  # sys-usb waited 30 s for nothing, xmg 2026-10-27), otherwise after 30 s
+  # sys-usb waited 30 s for nothing, 2026-10-27), otherwise after 30 s
   destroyLeftoverDomain = pkgs.writeShellScript "destroy-leftover-domain" ''
     xl=${config.virtualisation.xen.package}/bin/xl
     dom="$1-vm"
@@ -189,7 +188,7 @@ let
       [ "$(timeout 5 nox-rpc --dom0 ping "$1" </dev/null 2>/dev/null)" = ok ]
     }
     # Up to 2 min for a domain that is still booting (ensure_running just
-    # started it: kali failed right away on the xmg, 2026-10-28)
+    # started it: kali failed right away, 2026-10-28)
     wait_rpc() {
       local t0=$SECONDS
       rpc_up "$1" && return 0
@@ -278,7 +277,7 @@ let
   # nox-sys.target = each of them booted (its relay connected, NoX
   # --ready-file), at most 120 s. The Whonix-Gateway is not in group 1: it
   # waits up to 90 s for sys-net's uplink before it starts, which held every
-  # app VM back (xmg 2026-10-26: 2 min); now it waits for group 1 like the
+  # app VM back (2026-10-26: 2 min); now it waits for group 1 like the
   # others, and the Workstation waits for the Gateway itself (its pre-start)
   imageDomains = config.services.xen-image-domains.domains;
   usbLinks = import ../vms/usb-links.nix { inherit lib vmRegistry; };
@@ -302,7 +301,7 @@ let
   afterSys = {
     # A drop-in, not a whole unit: xen-image@ is a template from this config,
     # a full instance unit would replace it (no ExecStart, "bad unit file
-    # setting", hp 2026-10-18)
+    # setting", 2026-10-18)
     overrideStrategy = "asDropin";
     wants = [ "nox-sys.target" ];
     after = [ "nox-sys.target" ];
@@ -453,8 +452,10 @@ in
           {
             domain = "${name}-vm";
             serve =
+              # One socket per guest in front of the agent, so its
+              # confirmation can name the VM (tools/github-agent-forward.nix)
               lib.optionalAttrs (vm.allowGitHubAgent or false) {
-                github-agent = "/home/nx/.ssh/agent/github.sock";
+                github-agent = "/run/user/1000/github-agent/${name}.sock";
               }
               // lib.optionalAttrs (vm.enableHostDbusForward or true) {
                 dbus = "/run/user/1000/vm-session-bus.sock";
@@ -596,7 +597,7 @@ in
   };
 
   # dom0 swapped out ~470 MB with ~3 GB still available (page cache pushed
-  # program pages out, xmg 2026-10-18). Swap only when memory is really short
+  # program pages out, 2026-10-18). Swap only when memory is really short
   boot.kernel.sysctl."vm.swappiness" = 1;
 
   # v2.5: the WLAN card belongs to sys-net (registry `hardware.pci`, driver
@@ -655,8 +656,9 @@ in
           # wait for it to go away and destroy it if it doesn't. The VM itself
           # only starts after pci-setup, so no running domain is hit here.
           "microvm-pci-devices@".serviceConfig.ExecStartPre = [ "${destroyLeftoverDomain} %i" ];
-          # The same after a stop: steam stayed behind as "--ps--" after
-          # `systemctl stop microvm@steam` and kept its 16 GB (xmg, 2026-10-14).
+          # The same after a stop: a VM with a passed-through GPU stayed behind
+          # as "--ps--" after `systemctl stop microvm@<vm>` and kept its 16 GB
+          # (2026-10-14).
           # Returns at once when the domain is gone.
           "microvm@" = {
             serviceConfig.ExecStopPost = [ "${destroyLeftoverDomain} %i" ];
@@ -709,7 +711,7 @@ in
               # CPU every 5 s, memory every 30 s (waybar intervals in
               # home/desktop/waybar.nix). Few processes per round: every fork
               # costs page-table hypercalls in a PV dom0 (2026-10-21: 3 s with
-              # two awk per domain took ~5 % of a core on the hp)
+              # two awk per domain took ~5 % of a core)
               prev="" prev_t="" tick=0
               while :; do
                 now=$EPOCHREALTIME

@@ -3,7 +3,8 @@ let
   # The agent's confirmation (keys are added with `ssh-add -c`): a rofi
   # dialog in the session, prompt from ssh-agent as $1. Allow = exit 0 with
   # no output; Deny, Escape or no answer within 30 s = exit 1 (deny). The
-  # agent can't tell which VM asks (all share dom0's socket over nox-relay)
+  # agent can't tell who asks: the VMs are the github-agent-from-<vm>@…
+  # connections open right now (github-agent-forward.nix), none = dom0 itself
   askpass = pkgs.writeShellScript "github-agent-askpass" ''
     [ "''${SSH_ASKPASS_PROMPT:-}" = confirm ] || exit 1
     XDG_RUNTIME_DIR="/run/user/$(id -u)"
@@ -12,7 +13,14 @@ let
       case "$s" in *.lock) continue ;; esac
       [ -S "$s" ] && export WAYLAND_DISPLAY="''${s##*/}" && break
     done
-    msg="<b>GitHub agent</b>"$'\n'"$(printf '%s' "$1" | ${pkgs.gnused}/bin/sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
+    vms="$(${pkgs.systemd}/bin/systemctl --user list-units --plain --no-legend --state=active \
+      'github-agent-from-*@*.service' |
+      ${pkgs.gnused}/bin/sed -n 's/^github-agent-from-\([^@]*\)@.*/\1/p' | ${pkgs.coreutils}/bin/sort -u)"
+    case "$(printf '%s' "$vms" | ${pkgs.coreutils}/bin/wc -l)" in
+      0) [ -n "$vms" ] && who="<b>$vms</b>" || who="<b>dom0</b>" ;;
+      *) who="one of <b>$(printf '%s' "$vms" | ${pkgs.coreutils}/bin/paste -sd, | ${pkgs.gnused}/bin/sed 's/,/, /g')</b>" ;;
+    esac
+    msg="$who wants to use the GitHub key"$'\n'"$(printf '%s' "$1" | ${pkgs.gnused}/bin/sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
     answer="$(printf 'Deny\nAllow\n' | ${pkgs.coreutils}/bin/timeout 30 ${pkgs.rofi}/bin/rofi -dmenu \
       -theme /etc/xdg/rofi/config.rasi \
       -theme-str 'mainbox { children: [ "inputbar", "message", "listview" ]; }
