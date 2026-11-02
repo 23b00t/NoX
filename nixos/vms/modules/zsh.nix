@@ -39,7 +39,7 @@ in
       type = lib.types.nullOr lib.types.str;
       default = null;
       example = "montys.omp.json";
-      description = "oh-my-posh theme file name located in ~/.cache/oh-my-posh/themes/; null: no oh-my-posh prompt.";
+      description = "oh-my-posh theme file name from oh-my-posh's themes/ directory; null: no oh-my-posh prompt.";
     };
 
     extraAliases = lib.mkOption {
@@ -93,7 +93,7 @@ in
       ''
       + lib.optionalString withPrompt ''
         if command -v oh-my-posh >/dev/null 2>&1; then
-          eval "$(oh-my-posh init zsh --config "$HOME/.cache/oh-my-posh/themes/${cfg.ohMyPoshTheme}")"
+          eval "$(oh-my-posh init zsh --config ${ohMyPoshThemes}/themes/${cfg.ohMyPoshTheme})"
         fi
 
       ''
@@ -124,11 +124,8 @@ in
     ]
     ++ lib.optional withPlugins "L+ /home/${cfg.user}/.zsh_plugins.txt - - - - /etc/zsh_plugins.txt"
     ++ [ "d /home/${cfg.user}/.cache 0755 ${cfg.user} users -" ]
-    ++ lib.optionals withPrompt [
-      "d /home/${cfg.user}/.cache/oh-my-posh 0755 ${cfg.user} users -"
-
-      "z /home/${cfg.user}/.cache/oh-my-posh/themes - - - - -"
-      "L+ /home/${cfg.user}/.cache/oh-my-posh/themes - - - - ${ohMyPoshThemes}/themes"
-    ];
+    # the theme is read straight from the store: on init oh-my-posh deletes
+    # every file in its cache dir older than 7 days, a themes link included
+    ++ lib.optional withPrompt "d /home/${cfg.user}/.cache/oh-my-posh 0755 ${cfg.user} users -";
   };
 }
