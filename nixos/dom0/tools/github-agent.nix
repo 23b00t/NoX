@@ -1,4 +1,28 @@
 { pkgs, ... }:
+let
+  # The agent's confirmation (keys are added with `ssh-add -c`): a rofi
+  # dialog in the session, prompt from ssh-agent as $1. Allow = exit 0 with
+  # no output; Deny, Escape or no answer within 30 s = exit 1 (deny). The
+  # agent can't tell which VM asks (all share dom0's socket over nox-relay)
+  askpass = pkgs.writeShellScript "github-agent-askpass" ''
+    [ "''${SSH_ASKPASS_PROMPT:-}" = confirm ] || exit 1
+    XDG_RUNTIME_DIR="/run/user/$(id -u)"
+    export XDG_RUNTIME_DIR
+    for s in "$XDG_RUNTIME_DIR"/wayland-*; do
+      case "$s" in *.lock) continue ;; esac
+      [ -S "$s" ] && export WAYLAND_DISPLAY="''${s##*/}" && break
+    done
+    msg="<b>GitHub agent</b>"$'\n'"$(printf '%s' "$1" | ${pkgs.gnused}/bin/sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
+    answer="$(printf 'Deny\nAllow\n' | ${pkgs.coreutils}/bin/timeout 30 ${pkgs.rofi}/bin/rofi -dmenu \
+      -theme /etc/xdg/rofi/config.rasi \
+      -theme-str 'mainbox { children: [ "inputbar", "message", "listview" ]; }
+        message { padding: 10px 14px; background-color: @main-bg; }
+        textbox { horizontal-align: 0; background-color: @main-bg; text-color: @main-fg; }
+        listview { lines: 2; }' \
+      -i -no-custom -p "github?" -mesg "$msg")" || exit 1
+    [ "$answer" = Allow ]
+  '';
+in
 pkgs.writeShellScriptBin "github-agent" ''
   #!/usr/bin/env bash
   set -eu
@@ -58,8 +82,13 @@ pkgs.writeShellScriptBin "github-agent" ''
   }
 
   start_agent() {
-    eval "$(${pkgs.openssh}/bin/ssh-agent -a "$SOCKET_PATH" -s)" >/dev/null
-    printf 'SSH_AUTH_SOCK=%s\nSSH_AGENT_PID=%s\n' "$SSH_AUTH_SOCK" "$SSH_AGENT_PID" > "$ENV_PATH"
+    # Askpass for the confirmation (ssh-add -c) without DISPLAY: the oneshot
+    # unit starts the agent before niri
+    eval "$(SSH_ASKPASS=${askpass} SSH_ASKPASS_REQUIRE=force \
+      ${pkgs.openssh}/bin/ssh-agent -a "$SOCKET_PATH" -s)" >/dev/null
+    # GITHUB_AGENT_CONFIRM: the agent has the askpass; an older one without
+    # it would deny every use of a confirm key, so it is replaced
+    printf 'SSH_AUTH_SOCK=%s\nSSH_AGENT_PID=%s\nGITHUB_AGENT_CONFIRM=1\n' "$SSH_AUTH_SOCK" "$SSH_AGENT_PID" > "$ENV_PATH"
     chmod 600 "$ENV_PATH"
   }
 
@@ -73,7 +102,7 @@ pkgs.writeShellScriptBin "github-agent" ''
     export SSH_AGENT_PID=""
   fi
 
-  if [ ! -S "$SOCKET_PATH" ] || [ -z "''${SSH_AGENT_PID:-}" ] || ! kill -0 "$SSH_AGENT_PID" 2>/dev/null || ! agent_is_reachable; then
+  if [ ! -S "$SOCKET_PATH" ] || [ "''${GITHUB_AGENT_CONFIRM:-}" != 1 ] || [ -z "''${SSH_AGENT_PID:-}" ] || ! kill -0 "$SSH_AGENT_PID" 2>/dev/null || ! agent_is_reachable; then
     reset_agent_state
     start_agent
   fi
@@ -93,7 +122,7 @@ pkgs.writeShellScriptBin "github-agent" ''
   ensure_key_loaded() {
     if ! ${pkgs.openssh}/bin/ssh-add -l >/dev/null 2>&1; then
       if can_prompt_for_passphrase; then
-        ${pkgs.openssh}/bin/ssh-add "$KEY_PATH"
+        ${pkgs.openssh}/bin/ssh-add -c "$KEY_PATH"
       else
         echo "Agent is running, but key is locked and no interactive prompt is available. Run 'github-agent' manually once per login to unlock." >&2
       fi
@@ -107,7 +136,7 @@ pkgs.writeShellScriptBin "github-agent" ''
 
     if ! ${pkgs.openssh}/bin/ssh-add -L 2>/dev/null | ${pkgs.gnugrep}/bin/grep -F "$(cat "$KEY_PATH.pub")" >/dev/null; then
       if can_prompt_for_passphrase; then
-        ${pkgs.openssh}/bin/ssh-add "$KEY_PATH"
+        ${pkgs.openssh}/bin/ssh-add -c "$KEY_PATH"
       else
         echo "Agent is running, but target key is not loaded and no interactive prompt is available. Run 'github-agent' manually once per login to unlock." >&2
       fi
