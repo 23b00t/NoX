@@ -88,6 +88,9 @@ in
       tmpfiles.rules = [
         "d /home/${cfg.user} 0755 ${cfg.user} users -"
         "d /home/${cfg.user}/.ssh 0700 ${cfg.user} users -"
+        # Rules for ~/.config/<app> (yazi) would create it as root on a new
+        # home: apps can't write their config (keys, 2026-11-02)
+        "d /home/${cfg.user}/.config 0755 ${cfg.user} users -"
       ];
     };
     # Xen's vif-bridge adds `iptables -m physdev` rules for every new vif;
