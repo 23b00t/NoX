@@ -241,7 +241,7 @@ in
       # nix-daemon waits for it: until then the overlay's paths count as
       # invalid, Nix fetches or builds them again and a GC deletes them. The
       # socket queues connections meanwhile (builder-build came in 3 s into
-      # the 17 s restore, hp 2026-11-02)
+      # the 17 s restore, 2026-11-02)
       wantedBy = [
         "multi-user.target"
         "nix-daemon.service"

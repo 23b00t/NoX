@@ -61,7 +61,7 @@ in
   # Two read-only xl calls of nox without a password for the wheel group,
   # exactly these: Xen's log for the doctor's check `xl dmesg`, the free
   # memory nox disp checks before a start. The rest of xl still asks where
-  # sudo asks (xmg)
+  # sudo asks
   security.sudo.extraRules = [
     {
       groups = [ "wheel" ];

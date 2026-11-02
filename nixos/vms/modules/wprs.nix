@@ -36,7 +36,7 @@ in
       ];
       # Frame callbacks come from a wprsd timer (1/framerate - 2 ms after each
       # commit, default 60): Firefox got ~50 fps and dropped a third of a
-      # 60 fps video; with 120 about 10-20 % (xmg 2026-10-18, README Known issues)
+      # 60 fps video; with 120 about 10-20 % (2026-10-18, README Known issues)
       # No clipboard sync with dom0, explicit copy/paste via vm-clip
       ExecStart =
         "/run/current-system/sw/bin/wprsd --framerate 120 --selection-sync false"
@@ -79,7 +79,7 @@ in
   # which only plays it (dom0/vm-audio.nix); with the registry field
   # `microphone` a tunnel source records from dom0 while `nox mic on` there
   # (otherwise it retries, the relay logs that once). mpv speaks pipewire
-  # natively: through pulse it dropped frames (hp, 2026-10-29). Not in VMs
+  # natively: through pulse it dropped frames (2026-10-29). Not in VMs
   # with a pulseaudio of their own (sys-usb: Bluetooth audio)
   services.pipewire =
     lib.mkIf (config.microvm.hypervisor == "xen" && !config.services.pulseaudio.enable)

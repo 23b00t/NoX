@@ -104,12 +104,12 @@ let
       # a build VM sees untrusted code and has no GUI: no clipboard
       clipboard = "deny";
       memPriority = 10;
-      # Boots with 12 GB, grows up to 16 GB (evaluating the hp configuration
+      # Boots with 12 GB, grows up to 16 GB (evaluating a dom0 configuration
       # peaks at ~6.6 GB); max-jobs follows memoryMax (vms/builder)
       memory = 12288;
       memoryMax = 16384;
-      # Store overlay (new store paths) in MB: the machine's closure (xmg
-      # ~60 GB) plus what a build adds before the old system is collected
+      # Store overlay (new store paths) in MB: the machine's closure (a
+      # desktop dom0 ~60 GB) plus what a build adds before the old system is collected
       store.size = 100000;
       # nothing in by nox-rpc copy (the build VM sees untrusted code); out
       # asks, for the installer ISO (dom0-update --iso <vm>: dom0's own

@@ -128,7 +128,7 @@
   };
 
   # One queue per vif: with several (backend with >1 vCPU) part of the
-  # connections of multi-queue guests stalled (sys-net, xmg 2026-10-11)
+  # connections of multi-queue guests stalled (sys-net, 2026-10-11)
   boot.extraModprobeConfig = ''
     options xen_netback max_queues=1
   '';

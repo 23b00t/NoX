@@ -76,7 +76,7 @@ in
 
   # nm-applet's "Edit connections": nm-connection-editor registers its app id
   # on the session bus, which dom0's filtered bus refuses ("Failed to
-  # register: … ServiceUnknown", xmg 2026-10-27). It only needs
+  # register: … ServiceUnknown", 2026-10-27). It only needs
   # NetworkManager on the VM's system bus, so it runs on the VM's own session
   # bus (uid 1000 as in vchan-relay.nix). Wrapped inside the package: nm-applet
   # calls it by its store path; binary wrapper (wrapGAppsHook), so --set
@@ -94,7 +94,7 @@ in
   systemd = {
     # Uplink bridge; the vif-bridge hotplug script (xl devd) adds the VMs' vifs
     network = {
-      # RTL8125 (r8169, xmg): hardware TX checksums broke forwarded (NATed)
+      # RTL8125 (r8169): hardware TX checksums broke forwarded (NATed)
       # packets from the VMs: uploads from VMs at ~20 KB/s, sys-net itself at
       # 4.8 MB/s; Tor circuits and the builder stalled. With TX checksum
       # offload and TSO/GSO off VMs upload at 4.9 MB/s (2026-10-11).
@@ -283,7 +283,7 @@ in
     kernel.sysctl."net.ipv4.ip_forward" = 1;
 
     # Loaded at runtime (first bridge rule, iptables-nft) these deadlocked with
-    # xenwatch attaching new vifs after `mr sys-net` (xmg, 2026-10-16, Known
+    # xenwatch attaching new vifs after `mr sys-net` (2026-10-16, Known
     # Issues): load them at boot
     kernelModules = [
       "nft_meta_bridge"
@@ -291,14 +291,14 @@ in
       "nft_compat"
     ];
 
-    # MSI under a PV dom0 (hp WLAN, xmg Ethernet: online, restarts work,
+    # MSI under a PV dom0 (WLAN and Ethernet: online, restarts work,
     # 2026-10-12). With a PVH dom0 MSI-X mapping fails for passthrough (v2.1;
-    # xmg: no network), INTx (pci=nomsi) works there
+    # no network), INTx (pci=nomsi) works there
     kernelParams = lib.optional (!(vmRegistry.hostProfile.dom0Pv or false)) "pci=nomsi";
 
     # One queue per vif: with several (backend with >1 vCPU) part of the
     # connections of multi-queue guests (Whonix-Gateway) stalled, Tor circuits
-    # timed out (xmg, 2026-10-11)
+    # timed out (2026-10-11)
     extraModprobeConfig = ''
       options rtw88_core disable_lps_deep=y
       options rtw88_pci disable_aspm=y
@@ -324,8 +324,8 @@ in
     ];
     devices = map mkPciDevice nicPciPaths;
     mem = 1024;
-    # One vCPU served the NIC interrupts (INTx), NAT and all bridges; on xmg
-    # the RTL8125 dropped ~1.5 % of the received packets (2026-10-11)
+    # One vCPU served the NIC interrupts (INTx), NAT and all bridges; the
+    # RTL8125 dropped ~1.5 % of the received packets (2026-10-11)
     vcpu = 2;
   };
 

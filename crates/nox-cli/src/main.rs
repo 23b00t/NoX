@@ -697,7 +697,7 @@ eval "$c""#;
 /// (`--vm disp-<vm>`, the registry entry NoX adds for `hasDisposable`).
 /// A disposable that is down starts only if Xen has its boot memory free:
 /// otherwise systemd retried the start for minutes ("can't allocate low
-/// memory", hp 2026-10-28)
+/// memory", 2026-10-28)
 fn disp(from: Option<String>, cmd: Vec<OsString>) -> ExitCode {
     let domains = match registry::domains() {
         Ok(d) => d,

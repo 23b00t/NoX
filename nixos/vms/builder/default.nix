@@ -146,8 +146,8 @@ let
 
     # The previous system of this machine stops being a GC root before the
     # build (dom0 keeps it as a generation): otherwise old and new closure
-    # have to fit side by side, and the store overlay ran full (xmg
-    # 2026-10-29). Nix collects its paths during the build only when space
+    # have to fit side by side, and the store overlay ran full
+    # (2026-10-29). Nix collects its paths during the build only when space
     # runs low (min-free below); paths the new system shares stay
     if [ "$machine" != installer-iso ]; then
       rm -f "${stateDir}/systems/$machine"
@@ -313,7 +313,7 @@ in
     # The store overlay holds this machine's last closure; builder-build
     # unroots it before the next build, so GC during builds when space runs
     # low frees its paths
-    # Over HTTP/2 the many .narinfo queries share a few connections; on xmg
+    # Over HTTP/2 the many .narinfo queries share a few connections; once
     # (2026-10-11) one stalled connection hung all of them for 300 s each
     # ("Operation too slow"). Separate HTTP/1.1 connections don't.
     http2 = false;

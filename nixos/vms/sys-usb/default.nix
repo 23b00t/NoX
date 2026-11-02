@@ -79,7 +79,7 @@ let
           echo 1 >"$dev/authorized"
           # Wait until usb-storage has set it up (its block device is there):
           # taken away mid-setup, the disk's bulk-only state is broken and the
-          # VM sees stalls again (bound after 26 ms, hp 2026-10-22)
+          # VM sees stalls again (bound after 26 ms, 2026-10-22)
           for _ in $(seq 40); do
             # (no compgen: this bash lacks programmable completion)
             blk=("$dev/$2":*/host*/target*/*/block/*)

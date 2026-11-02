@@ -83,7 +83,7 @@ let
     done
     # dom0 retries a call whose answer got lost (early boot) with the same
     # token (`env NOX_APP_TOKEN=<hex> …`): the app runs as its unit, a
-    # repeated call doesn't start it twice (xmg 2026-10-17: foot came twice)
+    # repeated call doesn't start it twice (2026-10-17: foot came twice)
     unit=()
     if [ "''${args[0]}" = env ] && [[ "''${args[1]:-}" =~ ^NOX_APP_TOKEN=([0-9a-f]{8,32})$ ]]; then
       unit=(--unit="nox-app-''${BASH_REMATCH[1]}")
@@ -94,7 +94,7 @@ let
     fi
     # OOMPolicy=continue: when the OOM killer takes one process (e.g. magick
     # in a terminal), the rest of the unit lives on; the default `stop` took
-    # foot with zellij, nvim and Claude along (xmg 2026-10-27)
+    # foot with zellij, nvim and Claude along (2026-10-27)
     if out="$(systemd-run --user --collect --quiet "''${unit[@]}" --property=OOMPolicy=continue ${runArgs} -- "''${args[@]}" 2>&1)"; then
       echo "ok: started ''${args[0]}"
     else

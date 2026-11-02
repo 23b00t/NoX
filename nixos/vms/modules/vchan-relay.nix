@@ -11,7 +11,6 @@
 #   /tmp/wprs-pulse (playback) and /tmp/wprs-pulse-mic (registry
 #   `microphone`), dom0 side: dom0/vm-audio.nix
 # - RPC (stage C, app VMs): `vm-copy`, incoming files in ~/Incoming/<source>
-# dom0 side: machines/hp/xen.nix
 {
   lib,
   pkgs,

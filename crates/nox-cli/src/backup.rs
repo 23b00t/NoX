@@ -12,7 +12,7 @@
 //! Data: /etc/nox/registry.json `backup` (NoX nixos/dom0/tools/vm-backup.nix)
 //! and `domains` (units). Rust orchestrates; tar, zstd, sha256sum and
 //! nox-rpc do the bytes.
-//! NOX_BACKUP_TEST_DISK=<file> (hidden, for tests on the hp): a disk image
+//! NOX_BACKUP_TEST_DISK=<file> (hidden, for tests): a disk image
 //! file instead of the USB disk, formatted on first use.
 
 use std::collections::HashMap;

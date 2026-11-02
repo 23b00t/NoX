@@ -2,7 +2,7 @@
 # wallpaper of nox.desktop.theme, the passphrase field, the boot in short
 # form; Esc shows the full messages). Under Xen dom0 also has the Xen console
 # hvc0, which plymouth takes for a serial console and then forces its text
-# mode (hp 2026-10-27): ignored. The console stays quiet before and after the
+# mode (2026-10-27): ignored. The console stays quiet before and after the
 # splash, and the splash stays until the display manager takes the screen.
 {
   config,

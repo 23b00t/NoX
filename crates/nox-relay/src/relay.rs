@@ -144,7 +144,7 @@ impl Relay {
                 return Ok(());
             }
             // A hard-killed peer never closes its end: the ring looks open
-            // and we would stay bound to the dead domain (hp, 2026-10-16)
+            // and we would stay bound to the dead domain (2026-10-16)
             if checked.elapsed() >= PEER_CHECK {
                 checked = Instant::now();
                 if self

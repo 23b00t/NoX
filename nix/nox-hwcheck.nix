@@ -313,12 +313,12 @@ writeShellApplication {
       ok "$(nproc --all) threads, $(awk -F': ' '/^model name/ { print $2; exit }' /proc/cpuinfo)"
       if [ -d /sys/devices/cpu_core ] && [ -d /sys/devices/cpu_atom ]; then
         info "hybrid: P-cores $(cat /sys/devices/cpu_core/cpus), E-cores $(cat /sys/devices/cpu_atom/cpus)"
-        info "suggestion: give a gaming VM the P-cores in its own cpupool (like the xmg's steam)"
+        info "suggestion: give a gaming VM the P-cores in its own cpupool"
       fi
     fi
     shared="$(awk 'NR > 1 && $NF ~ /,/ { print }' /proc/interrupts | sed 's/  */ /g')"
     if [ -n "$shared" ]; then
-      warn "shared interrupt lines (a passed-through device sharing one with dom0 can stall; xmg: GSI 18)"
+      warn "shared interrupt lines (a passed-through device sharing one with dom0 can stall)"
       while read -r l; do info "  $l"; done <<<"$shared"
     fi
     fw="$(grep -ciE 'firmware bug|bios bug|ACPI BIOS (Warning|Error)' <<<"$kmsg" || true)"

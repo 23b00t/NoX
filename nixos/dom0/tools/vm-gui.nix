@@ -29,7 +29,7 @@ let
   # session or system bus, no user manager, no other VM's relay sockets; own
   # PID namespace, no capabilities, seccomp, 1 GB at most (no swap). PID 1 in its
   # namespace ignores SIGTERM: stopped with SIGKILL (it keeps no state).
-  # Tried on the hp: ProcSubset=pid together with PrivatePIDs makes wprsc
+  # Tried: ProcSubset=pid together with PrivatePIDs makes wprsc
   # panic, so it is left out
   wprscSandbox = lib.concatMapStringsSep " " (p: "-p ${p}") [
     "PrivateUsers=yes"
@@ -114,7 +114,7 @@ let
     # wprsc and started their own (three for chat, 2026-10-15).
     # wprsc must not inherit the lock fd, it would hold the lock forever.
     # The app answer comes before wprsd listens at boot: the VM refuses the
-    # stream and wprsc exits at once (nvim's foot missing for 3 min, hp
+    # stream and wprsc exits at once (a VM's foot missing for 3 min,
     # 2026-10-19), so start it again until it stays up.
     # wprsc runs as the user unit wprsc@<vm> (transient, gone when it ends;
     # log: journalctl --user -u wprsc@<vm>) in a sandbox: it parses what
@@ -152,7 +152,7 @@ let
     [ -S "$rpc" ] || fail "$rpc missing (is nox-relay-$VM up?)"
     # wprsc first: an app that comes up before any wprsc is attached gets no
     # output from wprsd and ends (the first app after a VM boot never showed
-    # with the sandboxed wprsc, which takes longer to start; hp 2026-10-22).
+    # with the sandboxed wprsc, which takes longer to start; 2026-10-22).
     # At boot wprsd may not listen yet: start_wprsc retries, and runs again
     # after the app start in case the boot took longer than its tries
     start_wprsc

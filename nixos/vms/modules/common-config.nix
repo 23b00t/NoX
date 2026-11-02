@@ -82,7 +82,7 @@ in
 
       # Keyboards live in sys-usb (and in steam via input-to): Ctrl+Alt+Del
       # meant for dom0 (niri quit) rebooted sys-usb, all input dropped
-      # (xmg 2026-10-15). Masked, the guest ignores it
+      # (2026-10-15). Masked, the guest ignores it
       ctrlAltDelUnit = "/dev/null";
 
       tmpfiles.rules = [
@@ -95,7 +95,7 @@ in
     };
     # Xen's vif-bridge adds `iptables -m physdev` rules for every new vif;
     # loading these modules then (modprobe) deadlocked with xenwatch: no
-    # new vifs, usb-helper hung (sys-net 2026-10-16, sys-usb xmg 2026-10-19,
+    # new vifs, usb-helper hung (sys-net 2026-10-16, sys-usb 2026-10-19,
     # Known Issues). Load them at boot in every driver domain
     boot.kernelModules = mkIf (config.microvm.xen.driverDomain or false) [
       "nft_compat"
@@ -129,8 +129,8 @@ in
     nix.package = pkgs.lixPackageSets.latest.lix;
 
     # The RAM balancer (dom0 modules/xen-memory.nix) reacts in 2-4 s; zram
-    # bridges a faster peak instead of the OOM killer (xmg 2026-10-27: magick
-    # took 1.1 GB in nvim between two steps). It counts used swap as usage,
+    # bridges a faster peak instead of the OOM killer (2026-10-27: magick
+    # took 1.1 GB in a VM between two steps). It counts used swap as usage,
     # so the VM grows and the swap drains again. Size from the boot RAM
     zramSwap = {
       enable = lib.mkDefault true;
@@ -139,7 +139,7 @@ in
 
     # The user's session (zellij, nvim, Claude, …) gets 10 s to stop, then
     # SIGKILL: the default 2 min outlasted the runner, which destroys the
-    # domain after 60 s (nvim, xmg 2026-10-27: "A stop job is running for
+    # domain after 60 s (2026-10-27: "A stop job is running for
     # User Manager for UID 1000"), so every restart of such a VM took a minute
     systemd.services."user@".serviceConfig.TimeoutStopSec = lib.mkDefault "10s";
 
@@ -153,7 +153,7 @@ in
       enable = hostSSHKey != null;
       # / is a tmpfs, so sshd-keygen runs on every boot; RSA 4096 delayed
       # sshd (and zellij from dom0) by seconds while all VMs boot at once
-      # (xmg 2026-10-16). dom0 and the image domains use ed25519 only
+      # (2026-10-16). dom0 and the image domains use ed25519 only
       hostKeys = [
         {
           type = "ed25519";

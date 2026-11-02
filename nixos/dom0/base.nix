@@ -111,8 +111,8 @@ in
       services.lvm.enable = true;
     };
     # Mainline kernel, no zen: dom0 gains little from its patches under Xen
-    # (2026-10-14); 6.18 LTS could not drive the xmg panel plus two monitors,
-    # latest tested on the hp (2026-10-15)
+    # (2026-10-14); 6.18 LTS could not drive an internal panel plus two
+    # monitors, latest could (2026-10-15)
     kernelPackages = pkgs.linuxPackages_latest;
 
     kernelParams =
@@ -134,7 +134,7 @@ in
     kernel.sysctl = {
       # All VM disks go through dom0's page cache: with the default ratios a
       # big write fills it and a sync stalls everything on the same disk
-      # (hp, 2026-10-30: dom0 hung up to 15 s, now up to 9.5 s)
+      # (2026-10-30: dom0 hung up to 15 s, now up to 9.5 s)
       "vm.dirty_bytes" = 536870912; # 512 MB
       "vm.dirty_background_bytes" = 134217728; # 128 MB
 

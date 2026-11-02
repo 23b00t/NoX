@@ -129,8 +129,8 @@ in
     # Client bridges; the vif-bridge hotplug script (xl devd) adds the vifs
     network = {
       # Routed (not NATed) twice over Xen vifs, the clients' TCP left sys-net
-      # with broken checksums: ICMP passed, TCP handshakes hung (hp
-      # 2026-10-18). With scatter-gather and segmentation/receive offloads
+      # with broken checksums: ICMP passed, TCP handshakes hung
+      # (2026-10-18). With scatter-gather and segmentation/receive offloads
       # off on the uplink (netfront) and the clients' vifs (netback) the
       # kernel finishes the checksums here. Only the first matching .link
       # applies: keep 99-default.link's naming
@@ -269,7 +269,7 @@ in
     kernel.sysctl."net.ipv4.ip_forward" = 1;
 
     # Loaded at runtime (first bridge rule) these deadlocked with xenwatch
-    # attaching new vifs in sys-net (xmg, 2026-10-16, Known Issues): load them
+    # attaching new vifs in sys-net (2026-10-16, Known Issues): load them
     # at boot
     kernelModules = [
       "nft_meta_bridge"
@@ -277,7 +277,7 @@ in
     ];
 
     # One queue per vif: with several (backend with >1 vCPU) part of the
-    # connections of multi-queue guests stalled (sys-net, xmg 2026-10-11)
+    # connections of multi-queue guests stalled (sys-net, 2026-10-11)
     extraModprobeConfig = ''
       options xen_netback max_queues=1
     '';

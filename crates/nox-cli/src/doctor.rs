@@ -822,7 +822,7 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
     errors_row(&mut t, "kernel errors", &new, &old);
     remember_pending(&dir, &new);
     // xl dmesg: NoX lets the wheel group run exactly `xl dmesg` without a
-    // password (read only), so it works where sudo asks for the rest (xmg)
+    // password (read only), so it works where sudo asks for the rest
     let xerr = match run("sudo", &["-n", "xl", "dmesg"], None) {
         Some(xd) => {
             // Xen's own lines only: (dN) lines are guest consoles. The ring
@@ -1168,9 +1168,9 @@ mod tests {
     #[test]
     fn error_lines_normalized() {
         let a =
-            "Okt 28 23:21:29 xmg kernel: Bluetooth: hci0: FW download error recovery failed (-19)";
+            "Okt 28 23:21:29 host kernel: Bluetooth: hci0: FW download error recovery failed (-19)";
         let b =
-            "Okt 29 08:02:11 xmg kernel: Bluetooth: hci0: FW download error recovery failed (-19)";
+            "Okt 29 08:02:11 host kernel: Bluetooth: hci0: FW download error recovery failed (-19)";
         assert_eq!(normalize(a), normalize(b));
         assert_eq!(
             normalize(a),

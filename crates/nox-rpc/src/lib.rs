@@ -63,7 +63,7 @@ pub fn parse_pair(line: &str) -> Option<(&str, &str)> {
 /// Clears `O_NONBLOCK` on `fd`. A caller may hand nox-rpc non-blocking
 /// stdio (rsync gives its remote shell a non-blocking socket as stdout);
 /// [`pipe`] expects blocking I/O and would stop with EAGAIN as soon as the
-/// reader falls behind (home backup of 5 MB, hp 2026-10-22).
+/// reader falls behind (home backup of 5 MB, 2026-10-22).
 pub fn set_blocking(fd: std::os::fd::RawFd) -> io::Result<()> {
     // SAFETY: fcntl with F_GETFL/F_SETFL only reads and sets the file
     // status flags of `fd`; an invalid fd is reported as an error.

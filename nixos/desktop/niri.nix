@@ -16,7 +16,6 @@ let
     inherit lib theme;
     inherit (config.nox.desktop) keyboard;
   };
-  hostname = config.networking.hostName;
   login = config.nox.desktop.login;
   colorMath = import ../lib/color.nix { inherit lib; };
   # Default wallpaper and lock screen image: the NoX logo in the theme's
@@ -63,21 +62,6 @@ let
     label: vms: labelRule label "^\\[(${lib.concatMapStringsSep "|" (vm: vm.name) vms})\\]( |$)"
   ) (lib.groupBy (vm: vm.label or "untrusted") (vmRegistry.vms ++ vmRegistry.imageDomains));
 
-  # Internal panel per machine. xmg: 2560x1600 at 60 Hz; at its preferred
-  # 300 Hz the i915 cannot drive the two external monitors as well (the
-  # third output stays disabled, page flips fail with EBUSY, 2026-10-14)
-  edp =
-    if hostname == "xmg" then
-      {
-        mode = "2560x1600@60.000";
-        width = 2560;
-      }
-    else
-      {
-        mode = "1920x1080@60.001";
-        width = 1920;
-      };
-
   # Tray apps per VM, started with the session (spawn-at-startup) and again
   # by `vm-tray <vm>` after that VM is (re)started (manage-vms): the VMs'
   # apps with `tray = true` (registry `apps`; sys-net's nm-applet, too)
@@ -110,14 +94,13 @@ let
     ) trayApps
   );
 
-  # Terminals at login (replaced kitty's startup session): dom0's foot (on
-  # the hp with zellij, which stays there) and foot from nvim and coding
-  # over wprs, zellij in the VM, as tabs of one column (Mod+1…3). All start
-  # at once; niri's event stream reports each window as it opens (VMs may
-  # still boot), it goes into the column right away, at its place in the
-  # order dom0, nvim, coding; after 5 min the rest is given up. A VM's foot
-  # could come twice at boot (xmg 2026-10-17, vm-run retried an app start
-  # whose answer got lost): the first window stays, later ones (more zellij
+  # Terminals at login (nox.desktop.login.terminalTabs): dom0's foot and
+  # foot from VMs over wprs, zellij in the VM, as tabs of one column. All
+  # start at once; niri's event stream reports each window as it opens (VMs
+  # may still boot), it goes into the column right away, at its place in
+  # the order of terminalTabs; after 5 min the rest is given up. A VM's foot
+  # could come twice at boot (vm-run retried an app start whose answer got
+  # lost): the first window stays, later ones (more zellij
   # clients of the same session) are closed when they appear. Terminals
   # that are already open are not started again (vm-autostart)
   vmZellij = [
@@ -266,11 +249,6 @@ let
         "pkill rofi || rofi -modi drun,filebrowser,window,run -show drun -theme /etc/xdg/rofi/config.rasi";
     };
 
-    "Mod+B" = {
-      _props."hotkey-overlay-title" = "Open Browser VM";
-      "spawn-sh" = "vm-run net zen";
-    };
-
     "Mod+Alt+L" = {
       _props."hotkey-overlay-title" = "Lock the Screen: swaylock";
       spawn = [
@@ -364,7 +342,7 @@ let
         "hotkey-overlay-title" = "Brightness Up";
         "allow-when-locked" = true;
       };
-      "spawn-sh" = "brightnessctl -d intel_backlight -e4 -n2 set 5%+";
+      "spawn-sh" = "brightnessctl -e4 -n2 set 5%+";
     };
 
     "XF86MonBrightnessDown" = {
@@ -372,7 +350,7 @@ let
         "hotkey-overlay-title" = "Brightness Down";
         "allow-when-locked" = true;
       };
-      "spawn-sh" = "brightnessctl -d intel_backlight -e4 -n2 set 5%-";
+      "spawn-sh" = "brightnessctl -e4 -n2 set 5%-";
     };
 
     # The same without Fn: Mod+PgUp/PgDn/Backspace volume, with Shift brightness
@@ -405,7 +383,7 @@ let
         "hotkey-overlay-title" = "Brightness Up";
         "allow-when-locked" = true;
       };
-      "spawn-sh" = "brightnessctl -d intel_backlight -e4 -n2 set 5%+";
+      "spawn-sh" = "brightnessctl -e4 -n2 set 5%+";
     };
 
     "Mod+Shift+Page_Down" = {
@@ -413,7 +391,7 @@ let
         "hotkey-overlay-title" = "Brightness Down";
         "allow-when-locked" = true;
       };
-      "spawn-sh" = "brightnessctl -d intel_backlight -e4 -n2 set 5%-";
+      "spawn-sh" = "brightnessctl -e4 -n2 set 5%-";
     };
 
     "XF86AudioPlay" = {
@@ -499,7 +477,10 @@ let
           command =
             "niri msg action ${action}" + lib.optionalString (args != [ ]) " -- ${lib.escapeShellArgs args}";
         };
-      grouped = lib.groupBy (e: e.command) (lib.mapAttrsToList entry binds);
+      # The merged binds: NoX's and the user's (nox.desktop.niri.settings)
+      grouped = lib.groupBy (e: e.command) (
+        lib.mapAttrsToList entry config.nox.desktop.niri.settings.binds
+      );
     in
     lib.sortOn (e: lib.toLower e.line) (
       lib.mapAttrsToList (command: es: {
@@ -620,7 +601,7 @@ in
       '') login.windows}
     '')
 
-    # Keybinding viewer: every bind from `binds` above, searchable in rofi;
+    # Keybinding viewer: every bind of the merged niri config, searchable in rofi;
     # Enter runs the bind's action through niri
     (writeShellScriptBin "niri-binds" ''
       cmds=(${lib.escapeShellArgs (map (e: e.command) bindEntries)})
@@ -643,57 +624,6 @@ in
 
         _children = [
           {
-            workspace = {
-              _args = [ "terminal" ];
-              "open-on-output" = "DP-2";
-            };
-          }
-          {
-            workspace = {
-              _args = [ "browser" ];
-              "open-on-output" = "DP-2";
-            };
-          }
-          {
-            workspace = {
-              _args = [ "remote" ];
-              "open-on-output" = "DP-1";
-            };
-          }
-          {
-            output = {
-              _args = [ "eDP-1" ];
-              inherit (edp) mode;
-              scale = 1.0;
-              position._props = {
-                x = 0;
-                y = 0;
-              };
-            };
-          }
-          {
-            output = {
-              _args = [ "DP-2" ];
-              mode = "1920x1080@60.00";
-              scale = 1.0;
-              position._props = {
-                x = edp.width;
-                y = 0;
-              };
-            };
-          }
-          {
-            output = {
-              _args = [ "DP-1" ];
-              mode = "1920x1080@60.00";
-              scale = 1.0;
-              position._props = {
-                x = edp.width + 1920;
-                y = 0;
-              };
-            };
-          }
-          {
             "spawn-at-startup"._args = [
               "systemctl"
               "--user"
@@ -701,38 +631,15 @@ in
               "wpaperd.service"
             ];
           }
-          # Chat apps and zen at startup again: started with the session, wprsd
-          # kept Super as pressed (apps got every key as Super+key); the wprs
-          # modifier sync (our wprs fork, modules/wprs-overlay.nix) releases it
-          # (xen-migration.md, Known Issues). The tray apps (`trayApps` above)
-          # are appended after this list.
-          # (login windows: nox.desktop.login, after this list)
-          {
-            "window-rule"._children = [
-              {
-                match._props = {
-                  "app-id" = "^\\[irc\\] term-irc$";
-                };
-              }
-              { "open-on-workspace" = "remote"; }
-              { "default-column-width".proportion = 1.0; }
-            ];
-          }
-          {
-            "window-rule"._children = [
-              {
-                match._props = {
-                  "app-id" = "^\\[[a-z0-9-]+\\] (zen|app\\.zen_browser\\.zen)$";
-                };
-              }
-              { "open-on-workspace" = "browser"; }
-              { "default-column-width".proportion = 1.0; }
-            ];
-          }
+          # VM apps at session start: wprsd kept Super as pressed (apps got
+          # every key as Super+key); the wprs modifier sync (NoX's wprs fork,
+          # modules/wprs-overlay.nix) releases it. The login windows
+          # (nox.desktop.login) and the tray apps (`trayApps` above) are
+          # appended after this list.
         ]
         ++ base.windowRules
         # The user's login windows (nox.desktop.login): the terminal tabs open as
-        # tabs of one full-width column on the workspace "terminal"
+        # tabs of one full-width column
         ++ lib.optionals (login.terminalTabs != [ ]) [
           {
             "window-rule"._children = [
@@ -743,7 +650,6 @@ in
                   ) login.terminalTabs
                 })$";
               }
-              { "open-on-workspace" = "terminal"; }
               { "default-column-display" = "tabbed"; }
               { "default-column-width".proportion = 1.0; }
             ];
@@ -841,8 +747,8 @@ in
       # Notifications; colors, sizes and fonts from theme.nix. The control
       # center (waybar bell) is a floating panel under the bar, full monitor
       # height: `control-center-height = -1` (fit to content) stays small in
-      # swaync 0.12.6 once notifications of several apps pile up (hp
-      # 2026-10-27: 12 apps, 1.5 visible)
+      # swaync 0.12.6 once notifications of several apps pile up
+      # (2026-10-27: 12 apps, 1.5 visible)
       swaync = {
         enable = true;
         settings = {
