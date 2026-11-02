@@ -1336,6 +1336,126 @@ one of “normal”, “dark”
 
 
 
+### nox\.desktop\.wm\.closeWindow
+
+
+
+` nox-wm close-window <id> `: close the window with that id (from focused-window)\.
+
+
+
+*Type:*
+null or strings concatenated with “\\n”
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.wm\.focusedOutput
+
+
+
+` nox-wm focused-output `: print the name of the focused output (screenrec-full)\.
+
+
+
+*Type:*
+null or strings concatenated with “\\n”
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.wm\.focusedWindow
+
+
+
+` nox-wm focused-window `: print the focused window as ` <id>	<pid>	<app id> ` (empty fields allowed), nothing if none\. Unset: vm-clip refuses, close-guard does nothing\.
+
+
+
+*Type:*
+null or strings concatenated with “\\n”
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.wm\.openTerminals
+
+
+
+` nox-wm open-terminals <tab>… `: open the login terminals (nox\.desktop\.login\.terminalTabs; ` dom0 ` or a VM name, app ids ` term-dom0 ` and ` [<vm>] term-<vm> `)\. Unset: vm-autostart leaves them out\.
+
+
+
+*Type:*
+null or strings concatenated with “\\n”
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.wm\.windows
+
+
+
+` nox-wm windows `: print the app id of every open window, one per line\. Unset: vm-autostart starts the login windows without checking for open ones\.
+
+
+
+*Type:*
+null or strings concatenated with “\\n”
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
 ### nox\.desktop\.wpaperd\.enable
 
 
@@ -2483,8 +2603,6 @@ positive integer, meaning >0
 
 ### nox\.theme\.dark
 
-
-
 GTK and Qt apps in their dark variant (dom0 and the VMs: GTK theme, color-scheme, Qt style)\. false = the light variant; the desktop’s own colors come from the theme\.
 
 
@@ -2625,6 +2743,8 @@ attribute set of string matching the pattern \[0-9a-fA-F]{6}
 
 
 ### nox\.theme\.lock
+
+
 
 Look of the lock screen image (the logo without its o: swaylock’s ring takes its place)\. flavor defaults to neon, shade and decor to the wallpaper’s\.
 

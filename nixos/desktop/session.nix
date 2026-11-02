@@ -28,6 +28,73 @@ let
     };
 
   trayApps = import ./tray-apps.nix { inherit lib vmRegistry; };
+  inherit (config.nox.desktop) login wm;
+  notify = "${pkgs.libnotify}/bin/notify-send";
+
+  # nox-wm <command> [args…]: the compositor hooks (nox.desktop.wm) as one
+  # command; an unset hook fails with exit 2
+  hooks = {
+    focused-window = "focusedWindow";
+    windows = "windows";
+    close-window = "closeWindow";
+    focused-output = "focusedOutput";
+    open-terminals = "openTerminals";
+  };
+  noxWm = pkgs.writeShellScriptBin "nox-wm" ''
+    ${lib.concatStrings (
+      lib.mapAttrsToList (cmd: name: ''
+        hook_${name}() {
+        ${
+          if wm.${name} == null then
+            ''
+              echo "nox-wm: ${cmd} is not set (nox.desktop.wm.${name})" >&2
+              return 2
+            ''
+          else
+            wm.${name}
+        }
+        }
+      '') hooks
+    )}
+    case "''${1:-}" in
+    ${lib.concatStrings (
+      lib.mapAttrsToList (cmd: name: ''
+        ${cmd})
+          shift
+          hook_${name} "$@"
+          ;;
+      '') hooks
+    )}
+      *)
+        echo "usage: nox-wm ${lib.concatStringsSep "|" (lib.attrNames hooks)} [args…]" >&2
+        exit 2
+        ;;
+    esac
+  '';
+
+  # Mod+Q: terminals (foot in dom0 or from a VM, zellij sessions inside)
+  # close only on a second Mod+Q within 3 s, the first one shows a
+  # notification; other windows close right away
+  closeGuard = pkgs.writeShellScriptBin "close-guard" ''
+    w=$(nox-wm focused-window) || exit 1
+    id=$(cut -f1 <<<"$w")
+    app=$(cut -f3- <<<"$w")
+    [ -n "$id" ] || exit 0
+    # VM windows carry "[<vm>] " before the app id (wprsc --app-id-prefix)
+    case "''${app#\[*\] }" in
+      foot | footclient | term-*) ;;
+      *) exec nox-wm close-window "$id" ;;
+    esac
+    mark="''${XDG_RUNTIME_DIR:-/tmp}/close-guard"
+    now=$(date +%s)
+    [ ! -r "$mark" ] || read -r last_id last_t <"$mark" || true
+    if [ "''${last_id:-}" = "$id" ] && [ $((now - ''${last_t:-0})) -le 3 ]; then
+      rm -f "$mark"
+      exec nox-wm close-window "$id"
+    fi
+    echo "$id $now" >"$mark"
+    ${notify} -a close-guard -t 3000 "Close terminal?" "Press Mod+Q again within 3 s"
+  '';
 in
 {
   environment.systemPackages = with pkgs; [
@@ -62,6 +129,59 @@ in
     glib
     dconf
     gsettings-desktop-schemas
+
+    noxWm
+    # Bound by the compositor (on PATH: the keybinding viewer may not name
+    # store paths)
+    closeGuard
+
+    (writeShellScriptBin "screenrec-full" ''
+      #!${pkgs.bash}/bin/bash
+      set -euo pipefail
+
+      # Toggle: wenn schon läuft, Recording stoppen
+      if pgrep -x wl-screenrec >/dev/null; then
+        ${notify} "Screen recording" "Fullscreen recording stopped"
+        pkill -INT wl-screenrec
+        exit 0
+      fi
+
+      OUTDIR="''${XDG_VIDEOS_DIR:-''$HOME/Videos}/ScreenRecordings"
+      mkdir -p "$OUTDIR"
+      FILE="$OUTDIR/full-$(date +'%Y-%m-%d_%H-%M-%S').mp4"
+
+      MONITOR="$(nox-wm focused-output || true)"
+
+      if [[ -z "$MONITOR" ]]; then
+        ${notify} -u critical "Screen recording" "Focused output could not be determined"
+        exit 1
+      fi
+
+      ${notify} "Screen recording" "Fullscreen recording started on $MONITOR → $FILE"
+      wl-screenrec -o "$MONITOR" -f "$FILE" --low-power=off
+    '')
+
+    # vm-autostart [vm…]: opens the login windows that are missing
+    # (nox.desktop.login: terminal tabs, further windows; open ones from
+    # nox-wm windows). With VM names only theirs (manage-vms after a
+    # (re)start, next to vm-tray); tray apps have no window to check, that
+    # is vm-tray
+    (writeShellScriptBin "vm-autostart" ''
+      sel=" $* "
+      pick() { [ "$sel" = "  " ] || [[ "$sel" == *" $1 "* ]]; }
+      open=$(nox-wm windows 2>/dev/null)
+      has() { grep -qxE "$1" <<<"$open"; }
+      terms=()
+      for t in ${lib.escapeShellArgs login.terminalTabs}; do
+        pick "$t" && terms+=("$t")
+      done
+      [ ''${#terms[@]} -eq 0 ] || setsid -f nox-wm open-terminals "''${terms[@]}" >/dev/null 2>&1
+      ${lib.concatMapStrings (w: ''
+        if pick ${w.vm} && ! has ${lib.escapeShellArg "\\[${w.vm}\\] (${w.appId})"}; then
+          setsid -f vm-run ${w.vm} ${lib.escapeShellArgs w.command} >/dev/null 2>&1
+        fi
+      '') login.windows}
+    '')
 
     # Starts the tray apps of one VM again (after a restart the old ones are
     # gone); detached, vm-run waits for the VM itself

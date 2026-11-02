@@ -69,8 +69,31 @@ in
       default = "niri";
       description = "Compositor of dom0's desktop. `null`: none from NoX; bring your own (session, keybinds, window rules), see docs/compositor.md. Waybar, rofi, swaync, wpaperd, swaylock, foot and the GTK/Qt theme stay.";
     };
-    # The user's windows at login (desktop/niri.nix: terminal-tabs,
-    # vm-autostart; manage-vms opens a VM's again after its (re)start)
+    # Compositor hooks: shell snippets behind `nox-wm <command>`
+    # (desktop/session.nix), used by vm-clip, close-guard, screenrec-full,
+    # vm-autostart and nox doctor. The compositor module sets them
+    # (desktop/niri.nix); with nox.desktop.compositor = null they are mine
+    # to write. Unset: the command fails, the tools fall back or refuse.
+    wm =
+      lib.mapAttrs
+        (
+          _: description:
+          lib.mkOption {
+            type = lib.types.nullOr lib.types.lines;
+            default = null;
+            inherit description;
+          }
+        )
+        {
+          focusedWindow = "`nox-wm focused-window`: print the focused window as `<id>\t<pid>\t<app id>` (empty fields allowed), nothing if none. Unset: vm-clip refuses, close-guard does nothing.";
+          windows = "`nox-wm windows`: print the app id of every open window, one per line. Unset: vm-autostart starts the login windows without checking for open ones.";
+          closeWindow = "`nox-wm close-window <id>`: close the window with that id (from focused-window).";
+          focusedOutput = "`nox-wm focused-output`: print the name of the focused output (screenrec-full).";
+          openTerminals = "`nox-wm open-terminals <tab>…`: open the login terminals (nox.desktop.login.terminalTabs; `dom0` or a VM name, app ids `term-dom0` and `[<vm>] term-<vm>`). Unset: vm-autostart leaves them out.";
+        };
+
+    # The user's windows at login (vm-autostart, at session start and from
+    # manage-vms after a VM's (re)start)
     login = {
       terminalTabs = lib.mkOption {
         type = lib.types.listOf lib.types.str;

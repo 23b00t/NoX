@@ -948,7 +948,7 @@ fn wprs_grants(t: &mut Table, vm: &str, wprsc: Option<&(&str, Vec<u8>)>) {
         );
     } else if mapped == 0 {
         // No window, no buffers: nothing to map yet (tray-only VMs)
-        match vm_windows(&output("niri", &["msg", "-j", "windows"]), vm) {
+        match vm_windows(&output("nox-wm", &["windows"]), vm) {
             Some(0) => t.row(Stat::Pass, &check, "broker up, no window open"),
             Some(n) => t.row(
                 Stat::Warn,
@@ -970,20 +970,14 @@ fn wprs_grants(t: &mut Table, vm: &str, wprsc: Option<&(&str, Vec<u8>)>) {
     }
 }
 
-/// The VM's windows in `niri msg -j windows` (wprsc's app id prefix
-/// `[<vm>] `); None if niri gave no list
-pub fn vm_windows(json: &str, vm: &str) -> Option<usize> {
-    let list: Vec<serde_json::Value> = serde_json::from_str(json).ok()?;
+/// The VM's windows in `nox-wm windows` (app ids, one per line; wprsc's
+/// prefix `[<vm>] `); None if the compositor hook gave no list
+pub fn vm_windows(app_ids: &str, vm: &str) -> Option<usize> {
+    if app_ids.trim().is_empty() {
+        return None;
+    }
     let prefix = format!("[{vm}] ");
-    Some(
-        list.iter()
-            .filter(|w| {
-                w.get("app_id")
-                    .and_then(|a| a.as_str())
-                    .is_some_and(|a| a.starts_with(&prefix))
-            })
-            .count(),
-    )
+    Some(app_ids.lines().filter(|a| a.starts_with(&prefix)).count())
 }
 
 /// wprsc's mappings of granted pages (/proc/<pid>/maps)
@@ -1140,7 +1134,7 @@ mod tests {
                     7edd68478000-7edd68bf5000 r--s 00000000 00:07 442                        /dev/xen/gntdev";
         assert_eq!(gntdev_maps(maps), 2);
         assert_eq!(gntdev_maps(""), 0);
-        let windows = r#"[{"id":1,"app_id":"[net] zen"},{"id":2,"app_id":"[netx] a"},{"id":3,"app_id":null}]"#;
+        let windows = "[net] zen\n[netx] a\nfoot";
         assert_eq!(vm_windows(windows, "net"), Some(1));
         assert_eq!(vm_windows(windows, "chat"), Some(0));
         assert_eq!(vm_windows("", "net"), None);

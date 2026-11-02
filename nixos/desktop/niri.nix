@@ -95,30 +95,6 @@ let
     "attach"
     "-c"
   ];
-  # Mod+Q: terminals (foot in dom0 or from a VM, zellij sessions inside)
-  # close only on a second Mod+Q within 3 s, the first one shows a
-  # notification; other windows close right away
-  closeGuard = pkgs.writeShellScriptBin "close-guard" ''
-    w=$(niri msg --json focused-window)
-    id=$(${pkgs.jq}/bin/jq -r '.id // empty' <<<"$w")
-    app=$(${pkgs.jq}/bin/jq -r '.app_id // ""' <<<"$w")
-    [ -n "$id" ] || exit 0
-    # VM windows carry "[<vm>] " before the app id (wprsc --app-id-prefix)
-    case "''${app#\[*\] }" in
-      foot | footclient | term-*) ;;
-      *) exec niri msg action close-window --id "$id" ;;
-    esac
-    mark="''${XDG_RUNTIME_DIR:-/tmp}/close-guard"
-    now=$(date +%s)
-    [ ! -r "$mark" ] || read -r last_id last_t <"$mark" || true
-    if [ "''${last_id:-}" = "$id" ] && [ $((now - ''${last_t:-0})) -le 3 ]; then
-      rm -f "$mark"
-      exec niri msg action close-window --id "$id"
-    fi
-    echo "$id $now" >"$mark"
-    ${pkgs.libnotify}/bin/notify-send -a niri -t 3000 "Close terminal?" "Press Mod+Q again within 3 s"
-  '';
-
   # terminal-tabs [tab…] (default: all of nox.desktop.login.terminalTabs)
   terminalTabs = pkgs.writeShellScript "terminal-tabs" ''
     set -u
@@ -498,56 +474,6 @@ in
       # niri starts Xwayland with it on demand
       xwayland-satellite
 
-      (writeShellScriptBin "screenrec-full" ''
-        #!${pkgs.bash}/bin/bash
-        set -euo pipefail
-
-        # Toggle: wenn schon läuft, Recording stoppen
-        if pgrep -x wl-screenrec >/dev/null; then
-          ${pkgs.libnotify}/bin/notify-send "Screen recording" "Fullscreen recording stopped"
-          pkill -INT wl-screenrec
-          exit 0
-        fi
-
-        OUTDIR="''${XDG_VIDEOS_DIR:-''$HOME/Videos}/ScreenRecordings"
-        mkdir -p "$OUTDIR"
-        FILE="$OUTDIR/full-$(date +'%Y-%m-%d_%H-%M-%S').mp4"
-
-        MONITOR="$(${pkgs.niri}/bin/niri msg --json focused-output | ${pkgs.python3}/bin/python3 -c 'import json, sys; data = json.load(sys.stdin); print(data.get("name", "") if isinstance(data, dict) else "")')"
-
-        if [[ -z "$MONITOR" ]]; then
-          ${pkgs.libnotify}/bin/notify-send -u critical "Screen recording" "Focused output could not be determined"
-          exit 1
-        fi
-
-        ${pkgs.libnotify}/bin/notify-send "Screen recording" "Fullscreen recording started on $MONITOR → $FILE"
-        wl-screenrec -o "$MONITOR" -f "$FILE" --low-power=off
-      '')
-
-      # Mod+Q (on PATH: the keybinding viewer may not name store paths)
-      closeGuard
-
-      # vm-autostart [vm…]: opens the login windows that are missing (niri IPC,
-      # nox.desktop.login: terminal tabs, further windows). With VM names only
-      # theirs (manage-vms after a (re)start, next to vm-tray); tray apps have
-      # no window to check, that is vm-tray
-      (writeShellScriptBin "vm-autostart" ''
-        sel=" $* "
-        pick() { [ "$sel" = "  " ] || [[ "$sel" == *" $1 "* ]]; }
-        open=$(niri msg --json windows | ${pkgs.jq}/bin/jq -r '.[].app_id // empty')
-        has() { grep -qxE "$1" <<<"$open"; }
-        terms=()
-        for t in ${lib.escapeShellArgs login.terminalTabs}; do
-          pick "$t" && terms+=("$t")
-        done
-        [ ''${#terms[@]} -eq 0 ] || setsid -f ${terminalTabs} "''${terms[@]}" >/dev/null 2>&1
-        ${lib.concatMapStrings (w: ''
-          if pick ${w.vm} && ! has ${lib.escapeShellArg "\\[${w.vm}\\] (${w.appId})"}; then
-            setsid -f vm-run ${w.vm} ${lib.escapeShellArgs w.command} >/dev/null 2>&1
-          fi
-        '') login.windows}
-      '')
-
       # Keybinding viewer: every bind of the merged niri config, searchable in rofi;
       # Enter runs the bind's action through niri
       (writeShellScriptBin "niri-binds" ''
@@ -564,6 +490,26 @@ in
 
     nox = {
       desktop = {
+        # niri's answers to the compositor hooks (nox-wm, desktop/session.nix)
+        wm = {
+          focusedWindow = ''
+            niri msg --json focused-window |
+              ${pkgs.jq}/bin/jq -r 'select(. != null) | "\(.id)\t\(.pid // "")\t\(.app_id // "")"'
+          '';
+          windows = ''
+            niri msg --json windows | ${pkgs.jq}/bin/jq -r '.[].app_id // empty'
+          '';
+          closeWindow = ''
+            niri msg action close-window --id "$1"
+          '';
+          focusedOutput = ''
+            niri msg --json focused-output | ${pkgs.jq}/bin/jq -r '.name // empty'
+          '';
+          openTerminals = ''
+            exec ${terminalTabs} "$@"
+          '';
+        };
+
         niri.settings = base.settings // {
           "screenshot-path" = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png";
 

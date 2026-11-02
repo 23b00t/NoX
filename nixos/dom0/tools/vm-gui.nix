@@ -202,10 +202,12 @@ let
     }
 
     # Domain of the focused window: VM windows belong to dom0's wprsc for
-    # that VM (vm-gui), everything else is dom0
+    # that VM (vm-gui), everything else is dom0. Without the compositor
+    # hook (nox-wm focused-window) nothing is copied
     focused_domain() {
-      local pid args dom
-      pid="$(niri msg --json focused-window | ${pkgs.jq}/bin/jq -r '.pid // empty')"
+      local w pid args dom
+      w="$(nox-wm focused-window)" || fail "No compositor hook for the focused window (nox.desktop.wm.focusedWindow)"
+      pid="$(cut -f2 <<<"$w")"
       [ -n "$pid" ] || fail "No focused window"
       args="$(tr '\0' '\n' <"/proc/$pid/cmdline")" || fail "Window process $pid not found"
       case "$args" in
