@@ -43,6 +43,30 @@ let
     $xl destroy "$dom" || true
   '';
 
+  # OnFailure of microvm@ and xen-image@: tells the desktop that a VM did
+  # not start, with xl's first error line of the last try (e.g. "can't
+  # allocate low memory for domain: Out of memory"; the lines after it are
+  # libxl cleaning up). microvm@ retries every 5 s and only fails once its
+  # start limit is hit; reset-failed clears that limit, so a start by hand
+  # works right away again
+  vmFailed = pkgs.writeShellScript "nox-vm-failed" ''
+    for u in "microvm@$1" "xen-image@$1"; do
+      [ "$(systemctl show -p ActiveState --value "$u")" = failed ] && unit=$u
+    done
+    [ -n "''${unit:-}" ] || exit 0
+    line="$(journalctl -b -u "$unit" -o cat -n 200 --no-pager |
+      ${pkgs.gawk}/bin/awk '/^Started / { e = "" } e == "" && tolower($0) ~ /error/ { e = $0 } END { print e }')"
+    [ -n "$line" ] || line="Result: $(systemctl show -p Result --value "$unit"), see journalctl -u $unit"
+    echo "$unit: $line"
+    uid="$(id -u ${config.nox.user})"
+    if [ -S "/run/user/$uid/bus" ]; then
+      ${pkgs.util-linux}/bin/runuser -u ${config.nox.user} -- \
+        env DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" \
+        ${pkgs.libnotify}/bin/notify-send -u critical -a nox "VM $1 did not start" "$line" || true
+    fi
+    systemctl reset-failed "$unit"
+  '';
+
   # Emergency exit if sys-net does not come up: give the WLAN card back to dom0
   sysNetRescue = pkgs.writeShellScriptBin "sys-net-rescue" ''
     set -u
@@ -634,7 +658,25 @@ in
           # The same after a stop: steam stayed behind as "--ps--" after
           # `systemctl stop microvm@steam` and kept its 16 GB (xmg, 2026-10-14).
           # Returns at once when the domain is gone.
-          "microvm@".serviceConfig.ExecStopPost = [ "${destroyLeftoverDomain} %i" ];
+          "microvm@" = {
+            serviceConfig.ExecStopPost = [ "${destroyLeftoverDomain} %i" ];
+            # Three failed tries in a minute (Restart=always every 5 s, e.g.
+            # not enough memory) end in failed and a notification instead of
+            # retrying silently forever
+            startLimitIntervalSec = 60;
+            startLimitBurst = 3;
+            onFailure = [ "nox-vm-failed@%i.service" ];
+          };
+          "xen-image@" = lib.mkIf (config.services.xen-image-domains.domains != { }) {
+            onFailure = [ "nox-vm-failed@%i.service" ];
+          };
+          "nox-vm-failed@" = {
+            description = "Notify that VM %i did not start";
+            serviceConfig = {
+              Type = "oneshot";
+              ExecStart = "${vmFailed} %i";
+            };
+          };
 
           # steam: shutting it down from inside Steam must keep it off. Guest
           # poweroff and reboot both end `xl create -F` with exit code 0; steam
