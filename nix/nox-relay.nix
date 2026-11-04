@@ -19,6 +19,10 @@ rustPlatform.buildRustPackage {
     "-p"
     "nox-relay"
   ];
+  cargoTestFlags = [
+    "-p"
+    "nox-relay"
+  ];
   buildInputs = [ vchan-libs ];
 
   meta = {
