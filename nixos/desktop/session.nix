@@ -117,7 +117,10 @@ in
       FILE="$OUTDIR/region-$(date +'%Y-%m-%d_%H-%M-%S').mp4"
 
       ${pkgs.libnotify}/bin/notify-send "Screen recording" "Region recording started → $FILE"
-      wl-screenrec -g "$(slurp)" -f "$FILE" --low-power=off
+      # profile=main: not every VA-API driver encodes H.264 High (AMD on
+      # the hp lacks it and wl-screenrec hangs); Main works everywhere.
+      wl-screenrec -g "$(slurp)" -f "$FILE" --low-power=off \
+        --ffmpeg-encoder-options profile=main
     '')
 
     rofimoji
@@ -158,7 +161,10 @@ in
       fi
 
       ${notify} "Screen recording" "Fullscreen recording started on $MONITOR → $FILE"
-      wl-screenrec -o "$MONITOR" -f "$FILE" --low-power=off
+      # profile=main: not every VA-API driver encodes H.264 High (AMD on
+      # the hp lacks it and wl-screenrec hangs); Main works everywhere.
+      wl-screenrec -o "$MONITOR" -f "$FILE" --low-power=off \
+        --ffmpeg-encoder-options profile=main
     '')
 
     # vm-autostart [vm…]: opens the login windows that are missing
