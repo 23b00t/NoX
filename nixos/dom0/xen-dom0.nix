@@ -346,6 +346,7 @@ in
     ../modules/xen-lab.nix
     ./vm-audio.nix
     ./screencast.nix
+    ../development
     inputs.nox.nixosModules.relay
     inputs.nox.nixosModules.rpc
     inputs.nox.nixosModules.cli
