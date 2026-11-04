@@ -18,6 +18,12 @@ let
   # An empty file (e.g. from a failed `ssh … > signing-key.pub`) counts as no key
   builderKey = if keyText != "" then keyText else null;
 
+  # Builder output (nom on stderr) reaches dom0's terminal only through this
+  # positive-list filter: colors and cursor movement stay; OSC 52
+  # (clipboard), titles and queries (the terminal's answer would go back to
+  # the builder) are dropped
+  termFilter = pkgs.writeCBin "nox-term-filter" (builtins.readFile ./term-filter.c);
+
   dom0Update = pkgs.writeShellScriptBin "dom0-update" ''
     set -euo pipefail
 
@@ -73,6 +79,17 @@ let
       trap 'kill "$keepalive" 2>/dev/null' EXIT
     fi
 
+    unexpected() {
+      printf 'dom0-update: unexpected builder output: %q\n' "$1" >&2
+      exit 1
+    }
+    # stdout of a builder command: its last line; its stderr goes to the
+    # terminal through the filter
+    from_builder() {
+      { ssh ${builderIp} "$@" 2>&1 >&3 3>&- |
+        ${termFilter}/bin/nox-term-filter >&2 3>&-; } 3>&1 | tail -n 1
+    }
+
     # The builder doesn't autostart: start it and wait for SSH (over vchan).
     # Started here = stopped again after a successful update.
     started_builder=0
@@ -88,7 +105,7 @@ let
       sudo systemctl start "microvm@$iso_vm"
     fi
     for _ in $(seq 120); do
-      ssh -o ConnectTimeout=5 ${builderIp} true 2>/dev/null && break
+      ssh -o ConnectTimeout=5 ${builderIp} true >/dev/null 2>&1 && break
       sleep 2
     done
 
@@ -97,11 +114,8 @@ let
     # call: the copy policy doesn't ask), then deleted in the builder. The
     # broker gives the manifest 10 s, so the stream starts only after the build
     if [ "$action" = iso ]; then
-      out="$(ssh ${builderIp} builder-build --iso "$branch" | tail -n 1)"
-      case "$out" in
-        /nix/store/*-nox-installer.iso) ;;
-        *) echo "dom0-update: unexpected builder output: $out" >&2; exit 1 ;;
-      esac
+      out="$(from_builder builder-build --iso "$branch")"
+      [[ "$out" =~ ^/nix/store/[0-9a-z]{32}-nox-installer\.iso$ ]] || unexpected "$out"
       # The VM may still be booting: wait until its rpc side answers (a
       # side-effect-free `send list` of a missing path answers "error: …
       # not found"; while booting the relay drops the call without one)
@@ -110,27 +124,26 @@ let
         sleep 1
       done
       echo "dom0-update: copying the ISO to $iso_vm" >&2
-      answer="$(ssh ${builderIp} "nox-pack $out/iso/*.iso" |
+      answer="$(ssh ${builderIp} "nox-pack $out/iso/*.iso" 2> >(${termFilter}/bin/nox-term-filter >&2) |
         nox-rpc --broker copy "$iso_vm" as=builder)" || true
       echo "$answer"
       if [[ "$answer" != ok* ]]; then
         echo "dom0-update: copy to $iso_vm failed; the ISO stays in the builder's store until its GC (another --iso doesn't build it again)" >&2
         exit 1
       fi
-      ssh ${builderIp} nix store delete "$out" 2>/dev/null ||
+      ssh ${builderIp} nix store delete "$out" >/dev/null 2>&1 ||
         echo "dom0-update: could not delete $out in the builder, its GC takes it" >&2
       echo "dom0-update: ISO in $iso_vm: ~/Incoming/builder/nox-installer.iso" >&2
     else
       # Runs as the calling user (ssh config/key for ${builderIp}); the nix-daemon
       # verifies the builder signature when the paths are added
-      out="$(ssh ${builderIp} builder-build "''${bump[@]}" "$machine" "$branch" | tail -n 1)"
-      case "$out" in
-        /nix/store/*-nixos-system-*) ;;
-        *) echo "dom0-update: unexpected builder output: $out" >&2; exit 1 ;;
-      esac
+      out="$(from_builder builder-build "''${bump[@]}" "$machine" "$branch")"
+      [[ "$out" =~ ^/nix/store/[0-9a-z]{32}-nixos-system-[A-Za-z0-9._+-]+$ ]] || unexpected "$out"
 
       echo "dom0-update: copying $out" >&2
-      ${config.nix.package}/bin/nix copy --from ssh-ng://${builderIp} "$out"
+      # stderr carries the builder's nix-daemon output too: filtered
+      ${config.nix.package}/bin/nix copy --from ssh-ng://${builderIp} "$out" \
+        2> >(${termFilter}/bin/nox-term-filter >&2)
 
       sudo ${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set "$out"
       sudo "$out/bin/switch-to-configuration" "$action"
