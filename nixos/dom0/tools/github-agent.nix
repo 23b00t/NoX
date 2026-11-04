@@ -20,7 +20,9 @@ let
       0) [ -n "$vms" ] && who="<b>$vms</b>" || who="<b>dom0</b>" ;;
       *) who="one of <b>$(printf '%s' "$vms" | ${pkgs.coreutils}/bin/paste -sd, | ${pkgs.gnused}/bin/sed 's/,/, /g')</b>" ;;
     esac
-    msg="$who wants to use the GitHub key"$'\n'"$(printf '%s' "$1" | ${pkgs.gnused}/bin/sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
+    # The fingerprint gets its own line: rofi sizes the message box by its
+    # newlines, so a line that wraps is cut off at the bottom.
+    msg="$who wants to use the GitHub key"$'\n'"$(printf '%s' "$1" | ${pkgs.gnused}/bin/sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/^Key fingerprint /Key fingerprint\n/')"
     answer="$(printf 'Deny\nAllow\n' | ${pkgs.coreutils}/bin/timeout 30 ${pkgs.rofi}/bin/rofi -dmenu \
       -theme /etc/xdg/rofi/config.rasi \
       -theme-str 'mainbox { children: [ "inputbar", "message", "listview" ]; }
