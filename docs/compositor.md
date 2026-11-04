@@ -54,6 +54,8 @@ A build warning lists the open points while `nox.desktop.wm` hooks are unset.
    | `closeWindow` | `nox-wm close-window <id>` | closes the window | close-guard does nothing |
    | `focusedOutput` | `nox-wm focused-output` | the focused output's name | screenrec-full refuses |
    | `openTerminals` | `nox-wm open-terminals <tab>…` | opens the login terminals | vm-autostart leaves them out |
+   | `castTargets` | `nox-wm cast-targets` | what a VM may be shown: `window\t<id>\t<label>` / `output\t<name>\t<label>`, one per line | VMs with `screenShare` get no screen |
+   | `cast` | `nox-wm cast window <id>\|output <name>` | casts it as a PipeWire stream, prints the node id, ends when stdin closes | as above |
 
 4. **Trust label colors** (security relevant: they show which VM a window
    belongs to). `nox.desktop.labels` holds one entry per label: `appId`

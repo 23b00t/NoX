@@ -64,6 +64,7 @@
         nox-relay = final.callPackage ./nix/nox-relay.nix { vchan-libs = final.nox-vchan-libs; };
         nox-rpc = final.callPackage ./nix/nox-rpc.nix { };
         nox-cli = final.callPackage ./nix/nox-cli.nix { };
+        nox-screencast = final.callPackage ./nix/nox-screencast.nix { };
       };
 
       packages = forAllSystems (
@@ -83,6 +84,7 @@
             nox-relay
             nox-rpc
             nox-cli
+            nox-screencast
             ;
           options-doc = pkgs.callPackage ./nix/options-doc.nix { };
           # Hardware check for a NoX machine (report, --nix: machines/hardware.nix)

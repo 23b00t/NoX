@@ -39,6 +39,8 @@ let
     close-window = "closeWindow";
     focused-output = "focusedOutput";
     open-terminals = "openTerminals";
+    cast-targets = "castTargets";
+    cast = "cast";
   };
   noxWm = pkgs.writeShellScriptBin "nox-wm" ''
     ${lib.concatStrings (

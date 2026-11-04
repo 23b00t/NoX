@@ -2,6 +2,7 @@
   pkgs,
   lib,
   config,
+  inputs,
   vmRegistry,
   ...
 }:
@@ -496,6 +497,20 @@ in
           '';
           openTerminals = ''
             exec ${terminalTabs} "$@"
+          '';
+          # What dom0 may show a VM (dom0/screencast.nix): outputs, then the
+          # windows with their app id (VM windows: "[<vm>] …") and title
+          castTargets = ''
+            niri msg --json outputs |
+              ${pkgs.jq}/bin/jq -r 'to_entries[] | select(.value.logical != null) | "output\t\(.key)\tScreen \(.key)"'
+            niri msg --json windows |
+              ${pkgs.jq}/bin/jq -r '.[] | "window\t\(.id)\t\((.app_id // "?") + "  " + (.title // "") | gsub("[\\t\\n\\r]"; " "))"'
+          '';
+          # niri offers org.gnome.Mutter.ScreenCast (for xdg-desktop-portal-gnome)
+          cast = ''
+            exec ${
+              inputs.nox.packages.${pkgs.stdenv.hostPlatform.system}.nox-screencast
+            }/bin/nox-mutter-cast "$@"
           '';
         };
 

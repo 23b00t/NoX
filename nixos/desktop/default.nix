@@ -75,7 +75,8 @@ in
     };
     # Compositor hooks: shell snippets behind `nox-wm <command>`
     # (desktop/session.nix), used by vm-clip, close-guard, screenrec-full,
-    # vm-autostart and nox doctor. The compositor module sets them
+    # vm-autostart, nox doctor and screen sharing (dom0/screencast.nix). The
+    # compositor module sets them
     # (desktop/niri.nix); with nox.desktop.compositor = null the own config
     # writes them. Unset: the command fails, the tools fall back or refuse.
     wm =
@@ -94,6 +95,8 @@ in
           closeWindow = "`nox-wm close-window <id>`: close the window with that id (from focused-window).";
           focusedOutput = "`nox-wm focused-output`: print the name of the focused output (screenrec-full).";
           openTerminals = "`nox-wm open-terminals <tab>…`: open the login terminals (nox.desktop.login.terminalTabs; `dom0` or a VM name, app ids `term-dom0` and `[<vm>] term-<vm>`). Unset: vm-autostart leaves them out.";
+          castTargets = "`nox-wm cast-targets`: print what can be shared with a VM (registry `screenShare`), one per line as `window\t<id>\t<label>` or `output\t<name>\t<label>`. Unset: VMs get no screen.";
+          cast = "`nox-wm cast window <id>|output <name>`: cast it as a PipeWire stream, print the node id, keep the cast until stdin closes (niri: nox-mutter-cast).";
         };
 
     # The user's windows at login (vm-autostart, at session start and from
@@ -299,7 +302,7 @@ in
             unset = lib.attrNames (lib.filterAttrs (_: v: v == null) cfg.wm);
           in
           lib.optional (unset != [ ])
-            "nox.desktop.compositor is null and nox.desktop.wm.{${lib.concatStringsSep "," unset}} unset: vm-clip refuses without focusedWindow, close-guard and screenrec-full do nothing, vm-autostart skips its checks and the login terminals (docs/compositor.md)."
+            "nox.desktop.compositor is null and nox.desktop.wm.{${lib.concatStringsSep "," unset}} unset: vm-clip refuses without focusedWindow, close-guard and screenrec-full do nothing, vm-autostart skips its checks and the login terminals, VMs get no screen to share (docs/compositor.md)."
           ++ lib.optional (
             cfg.niri.settings != { }
           ) "nox.desktop.niri.settings is set, but nox.desktop.compositor is null: ignored."

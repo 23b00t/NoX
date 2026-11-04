@@ -24,6 +24,17 @@ let
       echo "{\"text\": \" $vol\", \"tooltip\": \"VMs may not record (nox mic on), scroll: volume\"}"
     fi
   '';
+  # custom/screencast: a VM sees a window or screen (dom0/screencast.nix),
+  # one instance of nox-screencast-<vm>@ per share
+  screencast = pkgs.writeShellScript "waybar-screencast" ''
+    vms=$(systemctl --user list-units --plain --no-legend --state=active 'nox-screencast-*@*.service' |
+      sed -n 's/^nox-screencast-\(.*\)@.*/\1/p' | sort -u | paste -sd " ")
+    if [ -n "$vms" ]; then
+      echo "{\"text\": \"󰹑 $vms\", \"class\": \"on\", \"tooltip\": \"$vms sees a window or screen: click to stop\"}"
+    else
+      echo "{\"text\": \"\"}"
+    fi
+  '';
 in
 {
   environment.systemPackages = with pkgs; [
@@ -98,6 +109,7 @@ in
         #tray,
         #custom-bluetooth,
         #custom-vm-mic,
+        #custom-screencast,
         #custom-swaync,
         #custom-cputemp {
           padding: 0 10px;
@@ -133,6 +145,9 @@ in
 
         /* the VMs may record (nox mic on) */
         #custom-vm-mic.on {
+          color: @urgent;
+        }
+        #custom-screencast.on {
           color: @urgent;
         }
 
@@ -242,6 +257,7 @@ in
             "custom/bluetooth",
             "pulseaudio",
             "custom/vm-mic",
+            "custom/screencast",
             "battery",
             "custom/swaync",
           ],
@@ -315,6 +331,14 @@ in
             "on-click": "nox mic off",
             "on-scroll-up": "wpctl set-volume -l 1 @DEFAULT_AUDIO_SOURCE@ 5%+",
             "on-scroll-down": "wpctl set-volume @DEFAULT_AUDIO_SOURCE@ 5%-"
+          },
+
+          // A VM sees a window or screen (NoX dom0/screencast.nix); click: stop sharing
+          "custom/screencast": {
+            "return-type": "json",
+            "exec": "${screencast}",
+            "interval": 2,
+            "on-click": "systemctl --user stop 'nox-screencast-*@*.service'"
           },
 
           "battery": {

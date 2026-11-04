@@ -345,6 +345,7 @@ in
     ../modules/xen-vnc.nix
     ../modules/xen-lab.nix
     ./vm-audio.nix
+    ./screencast.nix
     inputs.nox.nixosModules.relay
     inputs.nox.nixosModules.rpc
     inputs.nox.nixosModules.cli
@@ -465,6 +466,11 @@ in
               // lib.optionalAttrs wprs { pulse = "/run/user/1000/nox-pulse-vm/native"; }
               // lib.optionalAttrs (wprs && (vm.microphone or false)) {
                 pulse-mic = "/run/user/1000/nox-pulse-mic/native";
+              }
+              # screen sharing (screencast.nix): the VM's portal asks, dom0
+              # picks and sends the picture back on the same connection
+              // lib.optionalAttrs (wprs && (vm.screenShare or false)) {
+                screencast = "/run/user/1000/nox-screencast/${name}.sock";
               };
             listen =
               lib.optionalAttrs wprs {

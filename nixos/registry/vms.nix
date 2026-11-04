@@ -314,6 +314,11 @@ let
       default = null;
       description = "dom0's microphone for apps in the VM (wprs VMs), only while dom0 allows it: `nox mic on|off` (off after every boot). Without it the VM can play sound but never record. Default: false.";
     };
+    screenShare = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Apps in the VM may share a screen (portal ScreenCast, wprs VMs): dom0 asks every time which window or output of the whole desktop, in rofi, and sends only that picture. The VM's apps then use its own session bus; notifications and the tray still reach dom0 (nox-bus-bridge). Default: false.";
+    };
     wprsSharedMemory = mkOption {
       type = types.nullOr types.bool;
       default = null;

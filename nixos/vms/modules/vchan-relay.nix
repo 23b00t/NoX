@@ -30,6 +30,9 @@ let
   wprsGrants = wprs && (vm.wprsSharedMemory or true);
   # dom0's microphone (registry `microphone`, while `nox mic on` in dom0)
   microphone = wprs && (vm.microphone or false);
+  # Screen sharing (registry `screenShare`, screencast.nix): the portal asks
+  # dom0 over `screencast`; the apps use the VM's own session bus
+  screenShare = wprs && (vm.screenShare or false);
   ssh = config.services.openssh.enable;
   sshSocket = "/run/sshd-vchan.sock";
   # The fleet's theme: dark/light and the cursor of apps over RPC
@@ -57,6 +60,7 @@ in
   imports = [
     inputs.nox.nixosModules.relay
     inputs.nox.nixosModules.rpc
+    ./screencast.nix
   ];
 
   config = lib.mkIf (config.microvm.hypervisor == "xen" && (githubAgent || dbus || wprs || ssh)) (
@@ -86,6 +90,12 @@ in
             // lib.optionalAttrs microphone {
               pulse-mic = {
                 path = "/tmp/wprs-pulse-mic";
+                inherit owner;
+              };
+            }
+            // lib.optionalAttrs screenShare {
+              screencast = {
+                path = "/run/nox-screencast.sock";
                 inherit owner;
               };
             };
@@ -247,9 +257,11 @@ in
               XCURSOR_THEME = theme.cursor.name;
               # dom0's filtered bus where forwarded, else the VM's own
               # session bus: without one dconf can't save (Bottles closed
-              # every bottle it opened, win 2026-10-16)
+              # every bottle it opened, win 2026-10-16). With screenShare the
+              # own bus too (portals pass fds), nox-bus-bridge carries
+              # notifications and the tray to dom0 (screencast.nix)
               DBUS_SESSION_BUS_ADDRESS =
-                if dbus then "unix:path=/tmp/ssh_dbus.sock" else "unix:path=/run/user/1000/bus";
+                if dbus && !screenShare then "unix:path=/tmp/ssh_dbus.sock" else "unix:path=/run/user/1000/bus";
             };
           };
         };
