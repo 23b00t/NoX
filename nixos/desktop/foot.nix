@@ -14,7 +14,12 @@ let
   };
   # locked-title: programs in dom0's terminal can't set a title like
   # "[vault] …" and get that VM's border in niri
-  settings = lib.recursiveUpdate theme.foot { main.locked-title = "yes"; };
+  # osc52 = disabled: output of untrusted programs (builder logs,
+  # `xl console`) can neither write nor read dom0's clipboard
+  settings = lib.recursiveUpdate theme.foot {
+    main.locked-title = "yes";
+    security.osc52 = "disabled";
+  };
   hidden = name: {
     inherit name;
     exec = "false";
