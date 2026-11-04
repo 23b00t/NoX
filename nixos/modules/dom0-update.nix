@@ -21,8 +21,8 @@ let
   # Builder output (nom on stderr) reaches dom0's terminal only through this
   # positive-list filter: colors and cursor movement stay; OSC 52
   # (clipboard), titles and queries (the terminal's answer would go back to
-  # the builder) are dropped
-  termFilter = pkgs.writeCBin "nox-term-filter" (builtins.readFile ./term-filter.c);
+  # the builder) are dropped (nox-cli src/term_filter.rs)
+  termFilter = "${config.programs.nox.package}/bin/nox term-filter";
 
   dom0Update = pkgs.writeShellScriptBin "dom0-update" ''
     set -euo pipefail
@@ -87,7 +87,7 @@ let
     # terminal through the filter
     from_builder() {
       { ssh ${builderIp} "$@" 2>&1 >&3 3>&- |
-        ${termFilter}/bin/nox-term-filter >&2 3>&-; } 3>&1 | tail -n 1
+        ${termFilter} >&2 3>&-; } 3>&1 | tail -n 1
     }
 
     # The builder doesn't autostart: start it and wait for SSH (over vchan).
@@ -124,7 +124,7 @@ let
         sleep 1
       done
       echo "dom0-update: copying the ISO to $iso_vm" >&2
-      answer="$(ssh ${builderIp} "nox-pack $out/iso/*.iso" 2> >(${termFilter}/bin/nox-term-filter >&2) |
+      answer="$(ssh ${builderIp} "nox-pack $out/iso/*.iso" 2> >(${termFilter} >&2) |
         nox-rpc --broker copy "$iso_vm" as=builder)" || true
       echo "$answer"
       if [[ "$answer" != ok* ]]; then
@@ -143,7 +143,7 @@ let
       echo "dom0-update: copying $out" >&2
       # stderr carries the builder's nix-daemon output too: filtered
       ${config.nix.package}/bin/nix copy --from ssh-ng://${builderIp} "$out" \
-        2> >(${termFilter}/bin/nox-term-filter >&2)
+        2> >(${termFilter} >&2)
 
       sudo ${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set "$out"
       sudo "$out/bin/switch-to-configuration" "$action"

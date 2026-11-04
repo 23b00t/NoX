@@ -3,7 +3,8 @@
 //! Moving from scripts to Rust tool by tool (xen-migration.md, nox-cli
 //! spec): `doctor`, `backup`, `vm-run` and `manage-vms` run here (src/doctor.rs,
 //! src/backup.rs, src/run.rs, src/manage.rs; their old names are links to nox, picked by
-//! argv[0]); every other subcommand execs the script that does the work
+//! argv[0]), so does the hidden `term-filter` (src/term_filter.rs, for
+//! dom0-update); every other subcommand execs the script that does the work
 //! (vm-clip, nox-copy, dom0-update, update-all, vm-usb, …), found on PATH,
 //! so its output and exit code are the script's own.
 
@@ -18,6 +19,7 @@ mod manage;
 mod registry;
 mod run;
 mod sys;
+mod term_filter;
 
 use sys::exec;
 
@@ -290,6 +292,10 @@ enum Cmd {
     Nix(Pick),
     /// The most useful admin commands: pick one by number, edit it, run it
     Root(Pick),
+    /// Filter untrusted terminal output (stdin -> stdout): only text and the
+    /// sequences that draw pass (dom0-update, builder output)
+    #[command(hide = true)]
+    TermFilter,
 }
 
 /// `nox backup --help`: what a target is and the generations
@@ -922,6 +928,7 @@ fn main() -> ExitCode {
         Cmd::Xen(p) => pick("xen", p),
         Cmd::Nix(p) => pick("nix", p),
         Cmd::Root(p) => pick("root", p),
+        Cmd::TermFilter => term_filter::main(),
     }
 }
 
