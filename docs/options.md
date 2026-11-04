@@ -1422,6 +1422,54 @@ JSON value
 
 
 
+### nox\.desktop\.wm\.cast
+
+
+
+` nox-wm cast window <id>|output <name> `: cast it as a PipeWire stream, print the node id, keep the cast until stdin closes (niri: nox-mutter-cast)\.
+
+
+
+*Type:*
+null or strings concatenated with “\\n”
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.wm\.castTargets
+
+
+
+` nox-wm cast-targets `: print what can be shared with a VM (registry ` screenShare `), one per line as ` window	<id>	<label> ` or ` output	<name>	<label> `\. Unset: VMs get no screen\.
+
+
+
+*Type:*
+null or strings concatenated with “\\n”
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
 ### nox\.desktop\.wm\.closeWindow
 
 
@@ -2519,8 +2567,6 @@ string
 
 ### nox\.storeGroups\.\<name>\.unfree
 
-
-
 Members may bring unfree packages; in any other group the VM’s build fails on one\.
 
 
@@ -2574,6 +2620,8 @@ submodule
 
 
 ### nox\.theme\.colors
+
+
 
 Overrides of the theme’s semantic roles (hex without ‘\#’): bg, bgDark, border, fg, fgActive, accent, accentStrong, accent2, muted, urgent, warn, ok, info, shadow\. Logo and wallpaper colors follow them where the theme derives them from roles\.
 
@@ -4176,6 +4224,30 @@ null
 
 
 
+### nox\.vms\.\<name>\.screenShare
+
+
+
+Apps in the VM may share a screen (portal ScreenCast, wprs VMs): dom0 asks every time which window or output of the whole desktop, in rofi, and sends only that picture\. The VM’s apps then use its own session bus; notifications and the tray still reach dom0 (nox-bus-bridge)\. Default: false\.
+
+
+
+*Type:*
+null or boolean
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.vms\.\<name>\.short
 
 
@@ -4228,7 +4300,7 @@ null
 
 
 
-Free space in the store overlay in MB below which Nix collects garbage during a build or download\. Every VM with a store overlay (builder, VMs with ` services.persistentStoreOverlay `)\. Default (null): 15 % of the overlay\. The store stays nearly full, which keeps build tools and old paths for fast rebuilds\. On a small disk set it and ` store.maxFree ` higher (e\.g\. builder 40000/60000) or ` store.size ` lower: less space used in dom0, longer builds (cost not measured)\. Must stay below ` store.maxFree `\.
+Free space in the store overlay in MB below which Nix collects garbage during a build or download\. Every VM with a store overlay (builder, VMs with ` services.persistentStoreOverlay `)\. Default (null): 15 % of the overlay\. In the builder this is the only GC: its store stays nearly full, which keeps build tools and old paths for fast rebuilds\. The other VMs also collect all dead paths after each boot and daily (` services.persistentStoreOverlay.gcTimer `)\. On a small disk set it and ` store.maxFree ` higher (e\.g\. builder 40000/60000) or ` store.size ` lower: less space used in dom0, longer builds (cost not measured)\. Must stay below ` store.maxFree `\.
 
 
 

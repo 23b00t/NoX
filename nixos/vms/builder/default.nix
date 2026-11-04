@@ -215,6 +215,8 @@ in
       enable = true;
       # registry `store.size` (registry/infra.nix, vms.nix may change it)
       overlaySize = reg.storeSize;
+      # GC only by min-free: build tools and old paths stay for fast rebuilds
+      gcTimer = false;
     };
   };
 

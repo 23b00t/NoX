@@ -209,7 +209,7 @@ let
     store.minFree = mkOption {
       type = types.nullOr types.ints.positive;
       default = null;
-      description = "Free space in the store overlay in MB below which Nix collects garbage during a build or download. Every VM with a store overlay (builder, VMs with `services.persistentStoreOverlay`). Default (null): 15 % of the overlay. The store stays nearly full, which keeps build tools and old paths for fast rebuilds. On a small disk set it and `store.maxFree` higher (e.g. builder 40000/60000) or `store.size` lower: less space used in dom0, longer builds (cost not measured). Must stay below `store.maxFree`.";
+      description = "Free space in the store overlay in MB below which Nix collects garbage during a build or download. Every VM with a store overlay (builder, VMs with `services.persistentStoreOverlay`). Default (null): 15 % of the overlay. In the builder this is the only GC: its store stays nearly full, which keeps build tools and old paths for fast rebuilds. The other VMs also collect all dead paths after each boot and daily (`services.persistentStoreOverlay.gcTimer`). On a small disk set it and `store.maxFree` higher (e.g. builder 40000/60000) or `store.size` lower: less space used in dom0, longer builds (cost not measured). Must stay below `store.maxFree`.";
     };
     store.maxFree = mkOption {
       type = types.nullOr types.ints.positive;

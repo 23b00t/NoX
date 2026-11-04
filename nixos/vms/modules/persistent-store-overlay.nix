@@ -154,6 +154,12 @@ in
       description = "Free space in the overlay in MB up to which such a collection deletes dead paths. null: 30 % of `overlaySize`.";
     };
 
+    gcTimer = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = "Collect all dead paths 3 min after each boot and then daily, and trim afterwards. Without it only `minFree` triggers a GC, so dead paths stay until the overlay is nearly full.";
+    };
+
     dbDirSize = lib.mkOption {
       type = lib.types.int;
       default = 512;
@@ -215,6 +221,27 @@ in
       min-free = minFree * 1024 * 1024;
       max-free = maxFree * 1024 * 1024;
     };
+
+    # min-free alone keeps dead paths until the overlay is nearly full (nox:
+    # 81 % dead, 2026-10-31). The 03:15 calendar timer with Persistent= would
+    # keep its stamp on the tmpfs root (same trap as fstrim, registry
+    # definitions.nix): run after each boot and daily instead
+    nix.gc = lib.mkIf cfg.gcTimer {
+      automatic = true;
+      persistent = false;
+    };
+    systemd.timers.nix-gc.timerConfig = lib.mkIf cfg.gcTimer {
+      OnCalendar = lib.mkForce [ ];
+      OnBootSec = "3min";
+      OnUnitActiveSec = "1d";
+    };
+    systemd.services.nix-gc = lib.mkIf cfg.gcTimer {
+      # root uses the local store directly, not the daemon that waits for it
+      after = [ "nix-db-restore.service" ];
+      # give the freed blocks back to dom0 right away
+      onSuccess = [ "fstrim.service" ];
+    };
+
     systemd.services.nix-db-backup = {
       description = "Backup overlay-related Nix DB entries on shutdown";
       wantedBy = [ "multi-user.target" ];
