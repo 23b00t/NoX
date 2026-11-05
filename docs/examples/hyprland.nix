@@ -17,8 +17,6 @@ let
   lua = s: "[==[${s}]==]";
 in
 {
-  nox.desktop.compositor = null;
-
   # Session: UWSM starts graphical-session.target, which waybar, swaync and
   # wpaperd need
   programs.hyprland = {
@@ -27,32 +25,35 @@ in
   };
   services.displayManager.defaultSession = "hyprland-uwsm";
 
-  nox.desktop.waybar.workspaces.module = "hyprland/workspaces";
+  nox.desktop = {
+    compositor = null;
+    waybar.workspaces.module = "hyprland/workspaces";
 
-  # The compositor hooks behind nox-wm (window id = Hyprland's address)
-  nox.desktop.wm = {
-    focusedWindow = ''
-      hyprctl -j activewindow | ${jq} -r 'select(.address != null) | "\(.address)\t\(.pid // "")\t\(.class // "")"'
-    '';
-    windows = ''
-      hyprctl -j clients | ${jq} -r '.[].class // empty'
-    '';
-    closeWindow = ''
-      hyprctl dispatch "hl.dsp.window.close({ window = \"address:$1\" })"
-    '';
-    focusedOutput = ''
-      hyprctl -j monitors | ${jq} -r '.[] | select(.focused) | .name'
-    '';
-    # The login terminals as plain windows (no tabs)
-    openTerminals = ''
-      for t in "$@"; do
-        if [ "$t" = dom0 ]; then
-          setsid -f foot -a term-dom0 ${lib.escapeShellArgs d.login.dom0Command}
-        else
-          setsid -f vm-run "$t" foot -a "term-$t" zellij --layout tabs attach -c
-        fi
-      done
-    '';
+    # The compositor hooks behind nox-wm (window id = Hyprland's address)
+    wm = {
+      focusedWindow = ''
+        hyprctl -j activewindow | ${jq} -r 'select(.address != null) | "\(.address)\t\(.pid // "")\t\(.class // "")"'
+      '';
+      windows = ''
+        hyprctl -j clients | ${jq} -r '.[].class // empty'
+      '';
+      closeWindow = ''
+        hyprctl dispatch "hl.dsp.window.close({ window = \"address:$1\" })"
+      '';
+      focusedOutput = ''
+        hyprctl -j monitors | ${jq} -r '.[] | select(.focused) | .name'
+      '';
+      # The login terminals as plain windows (no tabs)
+      openTerminals = ''
+        for t in "$@"; do
+          if [ "$t" = dom0 ]; then
+            setsid -f foot -a term-dom0 ${lib.escapeShellArgs d.login.dom0Command}
+          else
+            setsid -f vm-run "$t" foot -a "term-$t" zellij --layout tabs attach -c
+          fi
+        done
+      '';
+    };
   };
 
   environment.etc."xdg/hypr/hyprland.lua".text = ''

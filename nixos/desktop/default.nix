@@ -220,7 +220,7 @@ in
               description = "waybar's workspaces module, e.g. `hyprland/workspaces`.";
             };
             settings = lib.mkOption {
-              type = (pkgs.formats.json { }).type;
+              inherit (pkgs.formats.json { }) type;
               default = { };
               description = "The module's waybar settings.";
             };

@@ -91,29 +91,28 @@ in
           RestartSec = 2;
         };
       };
-    };
 
-    # xdg-desktop-portal requires graphical-session.target; the VM's
-    # graphical session is wprsd (nothing else here is wanted by the target)
-    systemd.user.services.nox-wprs-session = {
-      description = "wprsd as the graphical session (for the portals)";
-      wantedBy = [ "default.target" ];
-      bindsTo = [ "wprsd.service" ];
-      after = [ "wprsd.service" ];
-      wants = [ "graphical-session.target" ];
-      before = [ "graphical-session.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = "${pkgs.coreutils}/bin/true";
+      # xdg-desktop-portal requires graphical-session.target; the VM's
+      # graphical session is wprsd (nothing else here is wanted by the target)
+      nox-wprs-session = {
+        description = "wprsd as the graphical session (for the portals)";
+        wantedBy = [ "default.target" ];
+        bindsTo = [ "wprsd.service" ];
+        after = [ "wprsd.service" ];
+        wants = [ "graphical-session.target" ];
+        before = [ "graphical-session.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = "${pkgs.coreutils}/bin/true";
+        };
       };
-    };
 
-    # On the own bus the apps also find the other portals (gtk: file
-    # chooser, settings) and prefer them: the gtk backend draws over wprs
-    # like an app, the user manager has no display of its own
-    systemd.user.services.xdg-desktop-portal-gtk.environment =
-      config.services.nox-rpc.guest.apps.environment;
+      # On the own bus the apps also find the other portals (gtk: file
+      # chooser, settings) and prefer them: the gtk backend draws over wprs
+      # like an app, the user manager has no display of its own
+      xdg-desktop-portal-gtk.environment = config.services.nox-rpc.guest.apps.environment;
+    };
 
     # Apps started from dom0 wait for the bridge (their tray and
     # notifications go through it)

@@ -230,65 +230,69 @@ in
       automatic = true;
       persistent = false;
     };
-    systemd.timers.nix-gc.timerConfig = lib.mkIf cfg.gcTimer {
-      OnCalendar = lib.mkForce [ ];
-      OnBootSec = "3min";
-      OnUnitActiveSec = "1d";
-    };
-    systemd.services.nix-gc = lib.mkIf cfg.gcTimer {
-      # root uses the local store directly, not the daemon that waits for it
-      after = [ "nix-db-restore.service" ];
-      # give the freed blocks back to dom0 right away
-      onSuccess = [ "fstrim.service" ];
-    };
-
-    systemd.services.nix-db-backup = {
-      description = "Backup overlay-related Nix DB entries on shutdown";
-      wantedBy = [ "multi-user.target" ];
-      before = [ "shutdown.target" ];
-      after = [ "local-fs.target" ];
-
-      unitConfig.RequiresMountsFor = [
-        "/nix"
-        "/persist"
-      ];
-
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = "${pkgs.coreutils}/bin/true";
-        ExecStop = "${nixDumpOverlayDb}";
-        User = "root";
-        TimeoutStopSec = "5min";
+    systemd = {
+      timers.nix-gc.timerConfig = lib.mkIf cfg.gcTimer {
+        OnCalendar = lib.mkForce [ ];
+        OnBootSec = "3min";
+        OnUnitActiveSec = "1d";
       };
-    };
+      services = {
+        nix-gc = lib.mkIf cfg.gcTimer {
+          # root uses the local store directly, not the daemon that waits for it
+          after = [ "nix-db-restore.service" ];
+          # give the freed blocks back to dom0 right away
+          onSuccess = [ "fstrim.service" ];
+        };
 
-    systemd.services.nix-db-restore = {
-      description = "Restore overlay-related Nix DB entries at boot";
-      # nix-daemon waits for it: until then the overlay's paths count as
-      # invalid, Nix fetches or builds them again and a GC deletes them. The
-      # socket queues connections meanwhile (builder-build came in 3 s into
-      # the 17 s restore, 2026-11-02)
-      wantedBy = [
-        "multi-user.target"
-        "nix-daemon.service"
-      ];
-      before = [
-        "multi-user.target"
-        "nix-daemon.service"
-      ];
-      after = [ "local-fs.target" ];
+        nix-db-backup = {
+          description = "Backup overlay-related Nix DB entries on shutdown";
+          wantedBy = [ "multi-user.target" ];
+          before = [ "shutdown.target" ];
+          after = [ "local-fs.target" ];
 
-      unitConfig.RequiresMountsFor = [
-        "/nix"
-        "/persist"
-      ];
+          unitConfig.RequiresMountsFor = [
+            "/nix"
+            "/persist"
+          ];
 
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${nixLoadOverlayDb}";
-        User = "root";
-        TimeoutSec = "5min";
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            ExecStart = "${pkgs.coreutils}/bin/true";
+            ExecStop = "${nixDumpOverlayDb}";
+            User = "root";
+            TimeoutStopSec = "5min";
+          };
+        };
+
+        nix-db-restore = {
+          description = "Restore overlay-related Nix DB entries at boot";
+          # nix-daemon waits for it: until then the overlay's paths count as
+          # invalid, Nix fetches or builds them again and a GC deletes them. The
+          # socket queues connections meanwhile (builder-build came in 3 s into
+          # the 17 s restore, 2026-11-02)
+          wantedBy = [
+            "multi-user.target"
+            "nix-daemon.service"
+          ];
+          before = [
+            "multi-user.target"
+            "nix-daemon.service"
+          ];
+          after = [ "local-fs.target" ];
+
+          unitConfig.RequiresMountsFor = [
+            "/nix"
+            "/persist"
+          ];
+
+          serviceConfig = {
+            Type = "oneshot";
+            ExecStart = "${nixLoadOverlayDb}";
+            User = "root";
+            TimeoutSec = "5min";
+          };
+        };
       };
     };
   };

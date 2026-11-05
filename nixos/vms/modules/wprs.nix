@@ -45,16 +45,23 @@ in
     wantedBy = [ "default.target" ];
   };
 
-  environment.systemPackages = [
-    pkgs.wprs
-    pkgs.xwayland
-    clipboard.helper
-    # Real wl-copy/wl-paste against wprsd (nvim, yazi, ...); replaces the old
-    # fake that wrote to /tmp/fake-clipboard
-    pkgs.wl-clipboard
-    # Terminal for `vm-run <vm> foot`, configured like dom0's foot
-    pkgs.foot
-  ];
+  environment = {
+    systemPackages = [
+      pkgs.wprs
+      pkgs.xwayland
+      clipboard.helper
+      # Real wl-copy/wl-paste against wprsd (nvim, yazi, ...); replaces the old
+      # fake that wrote to /tmp/fake-clipboard
+      pkgs.wl-clipboard
+      # Terminal for `vm-run <vm> foot`, configured like dom0's foot
+      pkgs.foot
+    ];
+    etc."xdg/foot/foot.ini".text = lib.generators.toINI { } theme.foot;
+    # mpv plays through the PipeWire below (services.pipewire)
+    etc."mpv/mpv.conf".text = lib.mkBefore ''
+      ao=pipewire
+    '';
+  };
 
   # An old copy of the unit in the home (chat, from before it was a system
   # unit) shadowed this one, without the clipboard isolation (2026-10-16)
@@ -62,8 +69,6 @@ in
     "r /home/user/.config/systemd/user/default.target.wants/wprsd.service"
     "r /home/user/.config/systemd/user/wprsd.service"
   ];
-
-  environment.etc."xdg/foot/foot.ini".text = lib.generators.toINI { } theme.foot;
 
   # The fonts foot.ini names (theme.nix), also in VMs without common-config
   # (steam: foot fell back to DejaVu Sans, not monospace)
@@ -115,7 +120,4 @@ in
             );
         };
       };
-  environment.etc."mpv/mpv.conf".text = lib.mkBefore ''
-    ao=pipewire
-  '';
 }
