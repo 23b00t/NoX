@@ -1,4 +1,4 @@
-# dom0-update (v2.4): dom0 pulls its system from the builder VM instead of
+# dom0-update (v2.4): dom0 pulls its system from the builder VM instead of        ${pkgs.gawk}/bin/awk '!/cache\.nixos\.org-1:/ { print $2 "\t" $1 }' |
 # evaluating and building itself. The builder signs the whole closure; dom0's
 # nix-daemon only accepts it with a valid signature from the builder key
 # (registry `builderKeys`/signing-key-<machine>.pub: every machine has its own builder
@@ -137,16 +137,47 @@ let
     else
       # Runs as the calling user (ssh config/key for ${builderIp}); the nix-daemon
       # verifies the builder signature when the paths are added
+      # Duration of each step on stderr and in the journal
+      # (journalctl -t dom0-update); the builder's own steps are in its
+      # journal (journalctl -t builder-build)
+      t0=$SECONDS
+      t_start=$SECONDS
+      timing() {
+        local now=$SECONDS
+        echo "dom0-update: timing $1 $((now - t0)) s" >&2
+        ${pkgs.util-linux}/bin/logger -t dom0-update "timing $machine $1 $((now - t0)) s" || true
+        t0=$now
+      }
       out="$(from_builder builder-build "''${bump[@]}" "$machine" "$branch")"
       [[ "$out" =~ ^/nix/store/[0-9a-z]{32}-nixos-system-[A-Za-z0-9._+-]+$ ]] || unexpected "$out"
+      timing builder
 
       echo "dom0-update: copying $out" >&2
       # stderr carries the builder's nix-daemon output too: filtered
       ${config.nix.package}/bin/nix copy --from ssh-ng://${builderIp} "$out" \
         2> >(${termFilter} >&2)
+      timing copy
+
+      # What only the builder vouches for (no Hydra signature): own builds,
+      # Cachix paths, the store images. Summary and the largest here, the
+      # whole list in ~/.cache/nox/builder-only-paths
+      list="''${XDG_CACHE_HOME:-$HOME/.cache}/nox/builder-only-paths"
+      mkdir -p "''${list%/*}"
+      ${config.nix.package}/bin/nix path-info -r -s --sigs "$out" |
+        ${pkgs.gawk}/bin/awk '!/cache\.nixos\.org-1:/ { print $2 "\t" $1 }' |
+        sort -rn > "$list"
+      ${pkgs.gawk}/bin/awk -F '\t' '
+        { n++; s += $1; if ($2 ~ /-microvm-store-disk\./) { i++; is += $1 } }
+        END { printf "dom0-update: %d paths without a Hydra signature, %.2f GiB (%d store images, %.2f GiB)\n", n, s / 2^30, i, is / 2^30 }
+      ' "$list" | tee >(${pkgs.util-linux}/bin/logger -t dom0-update) >&2
+      ${pkgs.gawk}/bin/awk -F '\t' '$2 !~ /-microvm-store-disk\./ && n++ < 15 { printf "  %8.1f MiB  %s\n", $1 / 2^20, $2 }' "$list" >&2
+      echo "dom0-update: full list in $list" >&2
 
       sudo ${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set "$out"
       sudo "$out/bin/switch-to-configuration" "$action"
+      timing "$action"
+      t0=$t_start
+      timing total
       echo "dom0-update: $action done ($out)" >&2
     fi
 

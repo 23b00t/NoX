@@ -153,6 +153,29 @@ let
       rm -f "${stateDir}/systems/$machine"
     fi
 
+    # Duration of each step on stderr and in the builder's journal
+    # (journalctl -t builder-build), to measure the build time
+    timing() {
+      local now=$SECONDS
+      echo "builder-build: timing $1 $((now - t0)) s" >&2
+      ${pkgs.util-linux}/bin/logger -t builder-build "timing $machine $1 $((now - t0)) s" || true
+      t0=$now
+    }
+    t0=$SECONDS
+    t_start=$SECONDS
+
+    # Evaluation first, in its own process: its heap is freed before the
+    # build, and the eval time is measured on its own
+    drv="$(${config.nix.package}/bin/nix eval --raw "$repo#$attr.drvPath")"
+    timing eval
+    # Store images this build creates (not yet in the store): their
+    # mkfs.erofs time is read from the build log afterwards
+    new_images=()
+    for d in $(${config.nix.package}/bin/nix-store -qR "$drv" | grep -E -- '-microvm-store-disk\.(erofs|squashfs)\.drv$' || true); do
+      ${config.nix.package}/bin/nix-store --check-validity "$(${config.nix.package}/bin/nix-store -q --outputs "$d")" 2>/dev/null ||
+        new_images+=("$d")
+    done
+
     # Progress through nom (nix-output-monitor) on stderr, which ssh brings
     # to dom0's terminal; the store path stays on stdout for dom0-update.
     # pipefail: a failed build fails here although nom exits 0
@@ -160,9 +183,18 @@ let
       ${config.nix.package}/bin/nix build --print-out-paths \
         "''${link[@]}" \
         --log-format internal-json -v \
-        "$repo#$attr" \
+        "$drv^*" \
         2>&1 1>&3 | ${pkgs.nix-output-monitor}/bin/nom --json >&2
     } 3>&1 )"
+    timing "build (''${#new_images[@]} new store images)"
+    # store-disk.nix runs mkfs.erofs under GNU time: "… 1:48.12elapsed …"
+    for d in "''${new_images[@]}"; do
+      img="$(${config.nix.package}/bin/nix-store -q --outputs "$d")"
+      el="$(${config.nix.package}/bin/nix log "$d" 2>/dev/null | grep -o '[0-9:.]*elapsed' | tail -n 1 || true)"
+      sz="$(du -m --apparent-size "$img" | cut -f1)"
+      echo "builder-build: timing mkfs ''${img##*/} ''${el:-?} ''${sz} MB" >&2
+      ${pkgs.util-linux}/bin/logger -t builder-build "timing $machine mkfs ''${img##*/} ''${el:-?} ''${sz} MB" || true
+    done
 
     # The ISO leaves as a file stream, not into a store: no signature
     if [ "$machine" = installer-iso ]; then
@@ -170,9 +202,27 @@ let
       exit 0
     fi
 
-    # Re-sign the whole closure: substituted paths only carry the cache's
-    # signature, dom0 trusts nothing but this key
-    ${config.nix.package}/bin/nix store sign --recursive --key-file "$key" "$out"
+    # Sign what Hydra didn't: own builds, Cachix paths (dom0 trusts no
+    # Cachix key), store images. Hydra paths keep only their own signature,
+    # so dom0 sees what the builder alone vouches for (builder-trust.md 3.3)
+    mapfile -t unsigned < <(${config.nix.package}/bin/nix path-info -r --sigs "$out" |
+      ${pkgs.gawk}/bin/awk '!/cache\.nixos\.org-1:/ { print $1 }')
+    ${config.nix.package}/bin/nix store sign --key-file "$key" "''${unsigned[@]}"
+    timing "sign (''${#unsigned[@]} paths)"
+
+    # Store images the new system doesn't use are dead weight (several GB
+    # each; GC by min-free alone kept 17 old ones, 23 GiB, 2026-11-05):
+    # delete them now. The new system's images stay, so an unchanged one
+    # isn't rebuilt next time
+    mapfile -t dead < <(${config.nix.package}/bin/nix-store --gc --print-dead 2>/dev/null |
+      grep -E -- '-microvm-store-disk\.(erofs|squashfs)$' || true)
+    if [ "''${#dead[@]}" -gt 0 ]; then
+      ${config.nix.package}/bin/nix-store --delete "''${dead[@]}" >/dev/null 2>&1 ||
+        echo "builder-build: could not delete all old store images, the min-free GC takes them" >&2
+    fi
+    timing "delete (''${#dead[@]} old store images)"
+    t0=$t_start
+    timing total
 
     echo "$out"
   '';
@@ -311,6 +361,9 @@ in
     # (default /nix/var/nix/b is on the 2 GB tmpfs). Lix uses build-dir, not
     # the daemon's TMPDIR (the daemon is socket-activated per connection).
     build-dir = "${stateDir}/build";
+    # Evaluation runs no build steps (import from derivation): code from the
+    # flake inputs only runs in the sandboxed builds (builder-trust.md 3.2)
+    allow-import-from-derivation = false;
     # min-free/max-free: persistent-store-overlay (15/30 % of the overlay).
     # The store overlay holds this machine's last closure; builder-build
     # unroots it before the next build, so GC during builds when space runs
