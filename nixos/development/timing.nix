@@ -1,8 +1,10 @@
 # Boot and RAM timing of dom0 (nox.development.timing): only journal lines,
 # nothing waits on them.
-#   nox-mem (system):         dom0 RAM, zram, Xen free memory, PSI, swap and
-#                             major-fault rates; every 10 s for the first
-#                             10 min after boot, then every 60 s
+#   nox-mem (system):         dom0 RAM (used = MemTotal - MemAvailable,
+#                             available, cache, shmem), zram RAM, Xen free
+#                             memory, PSI, swap and major-fault rates;
+#                             every 10 s for the first 10 min after boot,
+#                             then every 60 s
 #   nox-timing (user):        "session start" with the niri session, then
 #                             "window <app id>" per new window for 5 min;
 #                             terminal-tabs adds "tabs: done"
@@ -33,8 +35,13 @@ let
     while :; do
       in=$(vm pswpin) out=$(vm pswpout) maj=$(vm pgmajfault)
       xenfree=$(${xl} info 2>/dev/null | awk '$1 == "free_memory" { print $3 }')
-      echo "avail=$(mib MemAvailable)M cache=$(mib Cached)M" \
-        "swap=$(( $(mib SwapTotal) - $(mib SwapFree) ))M xenfree=''${xenfree:-?}M" \
+      # zram's own RAM (compressed data + overhead), mm_stat field 3 in bytes
+      zram=$(awk '{ printf "%d", $3 / 1048576 }' /sys/block/zram0/mm_stat 2>/dev/null)
+      avail=$(mib MemAvailable)
+      echo "used=$(( $(mib MemTotal) - avail ))M avail=''${avail}M" \
+        "cache=$(mib Cached)M shmem=$(mib Shmem)M" \
+        "swap=$(( $(mib SwapTotal) - $(mib SwapFree) ))M zram=''${zram:-?}M" \
+        "xenfree=''${xenfree:-?}M" \
         "psi_mem=$(avg10 memory some)/$(avg10 memory full) psi_io=$(avg10 io some)" \
         "swapin=$((in - pin)) swapout=$((out - pout)) majflt=$((maj - pmaj))"
       pin=$in pout=$out pmaj=$maj
@@ -79,16 +86,19 @@ let
       shift
     done
     fmt='"\(.__MONOTONIC_TIMESTAMP | tonumber / 1e6) \(
-      (.UNIT // ._SYSTEMD_UNIT // ._SYSTEMD_USER_UNIT // .SYSLOG_IDENTIFIER // "?")
+      (.UNIT // (.SYSLOG_IDENTIFIER | select(. == "nox-timing" or . == "nox-mem"))
+        // ._SYSTEMD_USER_UNIT // ._SYSTEMD_UNIT // .SYSLOG_IDENTIFIER // "?")
       | sub("\\.service$"; "")) \(.MESSAGE | strings)"'
-    q() { journalctl -b "$boot" -o json --no-pager "$@" | jq -r "$fmt"; }
+    # systemd logs the unit's description, not its name: pick by UNIT
+    units='select((.UNIT // "") | test("^((microvm|xen-image)@|nox-sys\\.target)")) | '
+    q() { journalctl -b "$boot" -o json --no-pager "$@" | jq -r "''${pre:-}$fmt"; }
     {
-      q _PID=1 --grep '^(Starting|Started|Reached target|Failed).*((microvm|xen-image)@|nox-sys)'
+      pre=$units q _PID=1 --grep '^(Starting|Started|Reached target|Failed)'
       q -u 'nox-relay-*' --grep 'peer connected' 2>/dev/null
       q -u nox-sys-ready
       q -t nox-timing
       [ "$mem" -eq 0 ] || q -t nox-mem
-    } | sort -n | awk '
+    } | LC_ALL=C sort -n | awk '
       { line[NR] = $0; t[NR] = $1 }
       t0 == "" && /session start/ { t0 = $1 }
       END {
