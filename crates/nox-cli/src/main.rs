@@ -254,28 +254,24 @@ enum Cmd {
         #[arg(long, conflicts_with = "verbose")]
         ack: bool,
     },
-    /// Run a VM from an older system generation, or its images from the snapshot
+    /// Run a VM from an older system generation or its mark (configuration, not data)
     #[command(
-        after_help = "Without --gen/--reset/--data: the generations with another runner for VM.\n\
-        A rollback holds until a switch installs a changed runner for that VM."
+        after_help = "Without --gen/--mark/--reset: the generations (and the mark) with a runner for VM.\n\
+        A rollback holds over reboots until another system is activated (update, rebuild) or --reset.\n\
+        The mark (one per VM) survives nox gc."
     )]
     Rollback {
         /// VM name
         vm: String,
-        /// Generation whose runner to use (restarts the VM)
-        #[arg(long, value_name = "N", conflicts_with_all = ["reset", "data"])]
-        gen: Option<u32>,
+        /// Generation whose runner to use, or `mark` (restarts the VM)
+        #[arg(long, value_name = "N|mark", value_parser = parse_gen, conflicts_with_all = ["reset", "mark"])]
+        gen: Option<String>,
+        /// Mark the VM's current runner as known good (replaces the last mark)
+        #[arg(long, conflicts_with = "reset")]
+        mark: bool,
         /// Back to the running system's runner (restarts the VM)
-        #[arg(long, conflicts_with = "data")]
-        reset: bool,
-        /// Images back from the snapshot (`nox snapshot`), VM stopped
         #[arg(long)]
-        data: bool,
-    },
-    /// Copy a stopped VM's images (one snapshot per VM, replaces the last)
-    Snapshot {
-        /// VM name
-        vm: String,
+        reset: bool,
     },
     /// Delete old system generations, then collect garbage
     Gc {
@@ -403,6 +399,15 @@ fn generation(s: &str) -> Result<String, String> {
         Ok(s.into())
     } else {
         Err("a generation like 2026-10-21_201500 (names: nox backup list)".into())
+    }
+}
+
+/// `nox rollback --gen`: a system generation number or `mark`
+fn parse_gen(s: &str) -> Result<String, String> {
+    if s == "mark" || (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())) {
+        Ok(s.into())
+    } else {
+        Err("a generation number or `mark` (list: nox rollback <vm>)".into())
     }
 }
 
@@ -899,25 +904,20 @@ fn main() -> ExitCode {
         Cmd::Rollback {
             vm,
             gen,
+            mark,
             reset,
-            data,
         } => {
-            let mut a: Vec<String> = Vec::new();
-            if data {
-                a.push("--data".into());
-                a.push(vm);
-            } else {
-                a.push(vm);
-                if let Some(n) = gen {
-                    a.push("--gen".into());
-                    a.push(n.to_string());
-                } else if reset {
-                    a.push("--reset".into());
-                }
+            let mut a = vec![vm];
+            if let Some(g) = gen {
+                a.push("--gen".into());
+                a.push(g);
+            } else if mark {
+                a.push("--mark".into());
+            } else if reset {
+                a.push("--reset".into());
             }
             exec("vm-rollback", a)
         }
-        Cmd::Snapshot { vm } => exec("vm-snapshot", [vm]),
         Cmd::Gc { keep, dry_run } => {
             let mut a = vec!["--keep".to_string(), keep.to_string()];
             if dry_run {
@@ -939,6 +939,35 @@ mod tests {
     #[test]
     fn cli_is_consistent() {
         Cli::command().debug_assert();
+    }
+
+    #[test]
+    fn rollback_gen() {
+        for (arg, ok) in [
+            ("720", true),
+            ("mark", true),
+            ("", false),
+            ("7x", false),
+            ("-1", false),
+        ] {
+            assert_eq!(parse_gen(arg).is_ok(), ok, "{arg:?}");
+        }
+        let cli = Cli::try_parse_from(["nox", "rollback", "steam", "--gen", "mark"]).unwrap();
+        let Some(Cmd::Rollback {
+            vm,
+            gen,
+            mark,
+            reset,
+        }) = cli.command
+        else {
+            panic!("not rollback")
+        };
+        assert_eq!(
+            (vm.as_str(), gen.as_deref(), mark, reset),
+            ("steam", Some("mark"), false, false)
+        );
+        assert!(Cli::try_parse_from(["nox", "rollback", "steam", "--mark", "--reset"]).is_err());
+        assert!(Cli::try_parse_from(["nox", "snapshot", "steam"]).is_err());
     }
 
     #[test]

@@ -196,11 +196,25 @@ fn or_dash(s: &str) -> &str {
     }
 }
 
-fn row(cols: [&str; 6]) -> String {
+fn row(cols: [&str; 7]) -> String {
     format!(
-        "{:<14} {:<10} {:<12} {:<10} {:<9} {:<6}",
-        cols[0], cols[1], cols[2], cols[3], cols[4], cols[5]
+        "{:<14} {:<10} {:<12} {:<10} {:<9} {:<6} {}",
+        cols[0], cols[1], cols[2], cols[3], cols[4], cols[5], cols[6]
     )
+    .trim_end()
+    .to_string()
+}
+
+/// `nox rollback`: "gen <n>" / "mark" while the VM is rolled back, else "-"
+/// (vm-rollback.nix: line 2 of /var/lib/microvms/<vm>/rollback.info)
+pub fn rollback_label(vm: &str) -> Option<String> {
+    let info = std::fs::read_to_string(Path::new(STATE_DIR).join(vm).join("rollback.info")).ok()?;
+    let label = info.lines().nth(1)?.trim();
+    Some(match label {
+        "" => return None,
+        "mark" => "mark".into(),
+        n => format!("gen {n}"),
+    })
 }
 
 fn status(targets: &[&Domain]) {
@@ -208,7 +222,7 @@ fn status(targets: &[&Domain]) {
     let states = unit_states(&units);
     println!(
         "{}",
-        row(["VM", "ACTIVE", "SUBSTATE", "ENABLED", "GROUP", "IMAGE"])
+        row(["VM", "ACTIVE", "SUBSTATE", "ENABLED", "GROUP", "IMAGE", "ROLLBACK"])
     );
     println!(
         "{}",
@@ -218,12 +232,14 @@ fn status(targets: &[&Domain]) {
             "------------",
             "----------",
             "---------",
-            "------"
+            "------",
+            "--------"
         ])
     );
     for d in targets {
         let empty = (String::new(), String::new(), String::new());
         let (active, sub, enabled) = states.get(&d.service()).unwrap_or(&empty);
+        let rollback = rollback_label(&d.name);
         println!(
             "{}",
             row([
@@ -237,6 +253,7 @@ fn status(targets: &[&Domain]) {
                 or_dash(enabled),
                 d.store_group.as_deref().unwrap_or("-"),
                 image_state(&d.name),
+                rollback.as_deref().unwrap_or("-"),
             ])
         );
     }

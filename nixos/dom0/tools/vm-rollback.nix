@@ -1,10 +1,16 @@
-# Rollback (`nox rollback|gc|snapshot`, xen-migration.md "Konzept Rollback"):
-# - vm-rollback <vm> [--gen n | --reset]: a VM's runner from an older system
-#   generation as its `current`, VM restarted. Holds until a switch installs
-#   a changed runner for that VM (or --reset). Configuration only, not data
-# - vm-rollback --data <vm>: the VM's images back from its snapshot
-# - vm-snapshot <vm>: sparse copy of the VM's images (VM stopped), one per VM
+# Rollback (`nox rollback|gc`, xen-migration.md "Konzept Rollback"):
+# - vm-rollback <vm> [--gen n|mark | --mark | --reset]: a MicroVM's runner
+#   from an older system generation (or its mark) as its `current`, VM
+#   restarted. Configuration only, not data (that is `nox backup`)
 # - vm-gc [--keep n] [--dry-run]: delete old system generations, then GC
+#
+# State in /var/lib/microvms/<vm> (root's):
+# - `rollback`: the runner the VM is rolled back to (indirect GC root),
+#   `rollback.info`: line 1 the system it was made under, line 2 the label
+#   (generation number or "mark"). Holds over reboots of that system; the
+#   activation of any other system (switch, update, rebuild, another boot
+#   entry) drops it and sets `current` back to that system's runner
+# - `mark`: one known-good runner per VM (indirect GC root): survives `nox gc`
 {
   lib,
   pkgs,
@@ -12,54 +18,77 @@
   ...
 }:
 let
-  imageDomains = config.services.xen-image-domains.domains or { };
   microvms = builtins.attrNames (config.microvm.vms or { });
-  # Image domains: one disk image, unit xen-image@<name>
-  imageCases = lib.concatStrings (
-    lib.mapAttrsToList (n: d: "    ${n}) echo ${lib.escapeShellArg d.image} ;;\n") imageDomains
-  );
 
   common = ''
-    set -euo pipefail
-    MICROVMS=" ${lib.concatStringsSep " " microvms} "
     state=/var/lib/microvms
-    snapdir=/var/lib/microvms/.snapshots
-    image_of() { # image domains: their disk image
-      case "$1" in
-    ${imageCases}    *) return 1 ;;
-      esac
-    }
-    unit_of() {
-      if [[ $MICROVMS == *" $1 "* ]]; then
-        echo "microvm@$1.service"
-      elif image_of "$1" >/dev/null; then
-        echo "xen-image@$1.service"
-      else
-        echo "unknown VM: $1" >&2
-        exit 2
-      fi
-    }
-  '';
-
-  vmRollback = pkgs.writeShellScriptBin "vm-rollback" ''
-    ${common}
-    usage() {
-      cat >&2 <<EOF
-    usage: vm-rollback <vm>             generations with another runner for <vm>
-           vm-rollback <vm> --gen <n>   run <vm> from generation <n> (restarts it)
-           vm-rollback <vm> --reset     back to the running system's runner
-           vm-rollback --data <vm>      images back from the snapshot (vm-snapshot)
-    --gen/--reset ask for sudo themselves: run vm-rollback as yourself, not with sudo
-    EOF
-      exit 2
-    }
-
-    # Runner the install unit of a system generation links as `current`
+    # Runner the install unit of a system links as `current`
     runner_of() { # <system> <vm>
       local unit="$1/etc/systemd/system/install-microvm-$2.service" exe
       [ -e "$unit" ] || return 1
       exe="$(sed -n 's/^ExecStart=\([^ ]*\).*/\1/p' "$unit")"
       sed -n 's|^ln -sTf \(/nix/store/[^ ]*\) current$|\1|p' "$exe"
+    }
+  '';
+
+  # Activation (switch and boot): a rollback made under another system is
+  # dropped, `current` goes back to the new system's runner. A VM still
+  # running the old runner shows as stale (nox doctor "runners current")
+  rollbackSync = pkgs.writeShellScript "vm-rollback-sync" ''
+    # The activation's PATH has no sed
+    PATH=${
+      lib.makeBinPath [
+        pkgs.coreutils
+        pkgs.gnused
+      ]
+    }:$PATH
+    ${common}
+    sys="$1"
+    for info in "$state"/*/rollback.info; do
+      [ -e "$info" ] || continue
+      dir="''${info%/rollback.info}"
+      vm="''${dir##*/}"
+      [ "$(head -n1 "$info")" = "$sys" ] && continue
+      if r="$(runner_of "$sys" "$vm")" && [ -n "$r" ]; then
+        ln -sTf "$r" "$dir/current"
+      fi
+      rm -f "$dir/rollback" "$info"
+      echo "vm-rollback: rollback of $vm dropped (new system)"
+    done
+  '';
+
+  # Boot: the install units set `current` to the system's runner; a rollback
+  # made under this system is put back before the VMs start
+  rollbackRestore = pkgs.writeShellScript "vm-rollback-restore" ''
+    PATH=${lib.makeBinPath [ pkgs.coreutils ]}:$PATH
+    ${common}
+    sys="$(readlink -f /run/current-system)"
+    for info in "$state"/*/rollback.info; do
+      [ -e "$info" ] || continue
+      dir="''${info%/rollback.info}"
+      [ "$(head -n1 "$info")" = "$sys" ] || continue
+      [ -e "$dir/rollback" ] || continue
+      ln -sTf "$(readlink "$dir/rollback")" "$dir/current"
+      echo "''${dir##*/}: rolled back ($(sed -n 2p "$info"))"
+    done
+  '';
+
+  vmRollback = pkgs.writeShellScriptBin "vm-rollback" ''
+    set -euo pipefail
+    ${common}
+    MICROVMS=" ${lib.concatStringsSep " " microvms} "
+    usage() {
+      cat >&2 <<EOF
+    usage: vm-rollback <vm>             generations (and the mark) with a runner for <vm>
+           vm-rollback <vm> --gen <n>   run <vm> from generation <n> (restarts it)
+           vm-rollback <vm> --gen mark  run <vm> from its mark (restarts it)
+           vm-rollback <vm> --mark      mark <vm>'s current runner as known good (one per VM)
+           vm-rollback <vm> --reset     back to the running system's runner
+    A rollback holds over reboots until another system is activated (update,
+    rebuild) or --reset. The mark survives nox gc.
+    --gen/--mark/--reset ask for sudo themselves: run vm-rollback as yourself, not with sudo
+    EOF
+      exit 2
     }
 
     restart() {
@@ -67,34 +96,16 @@ let
       manage-vms restart "$1"
     }
 
-    if [ "''${1:-}" = --data ]; then
-      [ $# -eq 2 ] || usage
-      vm="$2"
-      unit="$(unit_of "$vm")"
-      [ -d "$snapdir/$vm" ] || { echo "no snapshot of $vm (vm-snapshot $vm)" >&2; exit 1; }
-      if systemctl is-active --quiet "$unit"; then
-        echo "$vm is running: stop it first (nox stop $vm)" >&2
-        exit 1
-      fi
-      echo "snapshot of $vm from $(cat "$snapdir/$vm/.taken")"
-      read -r -p "replace the current images of $vm with it? [y/N] " a
-      [ "$a" = y ] || exit 1
-      for f in "$snapdir/$vm"/*; do
-        dst="$(cat "$f.path" 2>/dev/null)" || continue
-        echo "$dst"
-        cp --sparse=always "$f" "$dst.rollback"
-        chgrp kvm "$dst.rollback" && chmod 664 "$dst.rollback"
-        mv "$dst.rollback" "$dst"
-      done
-      exit 0
-    fi
-
     [ $# -ge 1 ] || usage
     vm="$1"
     shift
-    [[ $MICROVMS == *" $vm "* ]] || { echo "$vm: not a MicroVM (image domains: --data only)" >&2; exit 2; }
-    cur="$(readlink "$state/$vm/current")"
+    [[ $MICROVMS == *" $vm "* ]] || { echo "$vm: not a MicroVM (image domains have no runner to roll back)" >&2; exit 2; }
+    dir="$state/$vm"
+    cur="$(readlink "$dir/current")"
     sys="$(runner_of /run/current-system "$vm")"
+    mark="$(readlink "$dir/mark" 2>/dev/null || true)"
+
+    when() { date -d "@$(stat -c %Y "$1")" '+%F %R'; }
 
     case "''${1:-}" in
       "")
@@ -106,83 +117,65 @@ let
           [ "$(readlink -f "$g")" = "$running" ] && found=1
           r="$(runner_of "$g" "$vm")" || continue
           [ -n "$r" ] || continue
-          mark=""
-          [ "$r" = "$sys" ] && mark+=" (running system)"
-          [ "$r" = "$cur" ] && mark+=" (current)"
-          printf '%-6s %-20s %s%s\n' "$n" "$(date -d "@$(stat -c %Y "$g")" '+%F %R')" "''${r#/nix/store/}" "$mark"
+          m=""
+          [ "$r" = "$sys" ] && m+=" (running system)"
+          [ "$r" = "$cur" ] && m+=" (current)"
+          [ "$r" = "$mark" ] && m+=" (mark)"
+          printf '%-6s %-20s %s%s\n' "$n" "$(when "$g")" "''${r#/nix/store/}" "$m"
         done
         # Activated without a generation (switch-to-configuration test)
         if [ "$found" = 0 ]; then
-          mark=" (running system)"
-          [ "$sys" = "$cur" ] && mark+=" (current)"
-          printf '%-6s %-20s %s%s\n' - "$(date -d "@$(stat -c %Y /run/current-system)" '+%F %R')" "''${sys#/nix/store/}" "$mark"
+          m=" (running system)"
+          [ "$sys" = "$cur" ] && m+=" (current)"
+          [ "$sys" = "$mark" ] && m+=" (mark)"
+          printf '%-6s %-20s %s%s\n' - "$(when /run/current-system)" "''${sys#/nix/store/}" "$m"
+        fi
+        if [ -n "$mark" ]; then
+          m=""
+          [ "$mark" = "$cur" ] && m=" (current)"
+          printf '%-6s %-20s %s%s\n' mark "$(when "$dir/mark")" "''${mark#/nix/store/}" "$m"
         fi
         ;;
       --gen)
         [ $# -eq 2 ] || usage
-        g="/nix/var/nix/profiles/system-$2-link"
-        [ -e "$g" ] || { echo "no generation $2" >&2; exit 1; }
-        r="$(runner_of "$g" "$vm")"
-        [ -n "$r" ] || { echo "generation $2 has no $vm" >&2; exit 1; }
-        # $state/<vm> belongs to the microvm user: the link needs root
-        sudo ln -sTf "$r" "$state/$vm/current"
-        # GC root: the generation can be deleted (vm-gc) while the VM runs it
-        # (after the link: a failed sudo leaves no root behind)
-        root="''${XDG_STATE_HOME:-$HOME/.local/state}/vm-rollback"
-        mkdir -p "$root"
-        nix-store --realise "$r" --add-root "$root/$vm" >/dev/null
-        echo "$vm: current = generation $2 (until a switch installs a new $vm or --reset)"
+        if [ "$2" = mark ]; then
+          [ -n "$mark" ] || { echo "$vm has no mark (nox rollback $vm --mark)" >&2; exit 1; }
+          r="$mark"
+        else
+          [[ $2 =~ ^[0-9]+$ ]] || usage
+          g="/nix/var/nix/profiles/system-$2-link"
+          [ -e "$g" ] || { echo "no generation $2" >&2; exit 1; }
+          r="$(runner_of "$g" "$vm")"
+          [ -n "$r" ] || { echo "generation $2 has no $vm" >&2; exit 1; }
+        fi
+        if [ "$r" = "$sys" ]; then
+          echo "$vm: generation $2 has the running system's runner, use --reset" >&2
+          exit 1
+        fi
+        # $state/<vm> belongs to the microvm user: the links need root.
+        # rollback: GC root, the generation can be deleted (vm-gc) while
+        # the rollback holds
+        sudo nix-store --realise "$r" --add-root "$dir/rollback" >/dev/null
+        printf '%s\n%s\n' "$(readlink -f /run/current-system)" "$2" | sudo tee "$dir/rollback.info" >/dev/null
+        sudo ln -sTf "$r" "$dir/current"
+        if [ "$2" = mark ]; then what=mark; else what="generation $2"; fi
+        echo "$vm: current = $what (until another system is activated or --reset)"
         restart "$vm"
+        ;;
+      --mark)
+        [ $# -eq 1 ] || usage
+        sudo nix-store --realise "$cur" --add-root "$dir/mark" >/dev/null
+        echo "$vm: mark = ''${cur#/nix/store/} (back to it with: nox rollback $vm --gen mark)"
         ;;
       --reset)
         [ $# -eq 1 ] || usage
-        sudo ln -sTf "$sys" "$state/$vm/current"
-        rm -f "''${XDG_STATE_HOME:-$HOME/.local/state}/vm-rollback/$vm"
+        sudo ln -sTf "$sys" "$dir/current"
+        sudo rm -f "$dir/rollback" "$dir/rollback.info"
         echo "$vm: current = running system"
         restart "$vm"
         ;;
       *) usage ;;
     esac
-  '';
-
-  vmSnapshot = pkgs.writeShellScriptBin "vm-snapshot" ''
-    ${common}
-    [ $# -eq 1 ] || { echo "usage: vm-snapshot <vm>   (VM stopped; one snapshot per VM, replaces the last)" >&2; exit 2; }
-    vm="$1"
-    unit="$(unit_of "$vm")"
-    if systemctl is-active --quiet "$unit"; then
-      echo "$vm is running: stop it first (nox stop $vm)" >&2
-      exit 1
-    fi
-    if img="$(image_of "$vm")"; then
-      images=("$img")
-    else
-      # The VM's own volumes; the store overlay comes from the store
-      images=()
-      for f in "$state/$vm"/*.img; do
-        case "''${f##*/}" in nix-store-overlay.img | log.img) continue ;; esac
-        images+=("$f")
-      done
-    fi
-    [ "''${#images[@]}" -gt 0 ] || { echo "$vm has no images" >&2; exit 1; }
-    need=$(du -k --total "''${images[@]}" | tail -1 | cut -f1)
-    free=$(df -k --output=avail "$state" | tail -1)
-    if [ "$need" -gt $((free - 10 * 1024 * 1024)) ]; then
-      echo "not enough space: $((need / 1024)) MB needed, $((free / 1024)) MB free (keeps 10 GB)" >&2
-      exit 1
-    fi
-    tmp="$snapdir/.$vm.new"
-    rm -rf "$tmp"
-    mkdir -p "$tmp"
-    for f in "''${images[@]}"; do
-      echo "$f ($(du -h "$f" | cut -f1))"
-      cp --sparse=always "$f" "$tmp/''${f##*/}"
-      echo "$f" >"$tmp/''${f##*/}.path"
-    done
-    date '+%F %R' >"$tmp/.taken"
-    rm -rf "''${snapdir:?}/$vm"
-    mv "$tmp" "$snapdir/$vm"
-    echo "snapshot of $vm in $snapdir/$vm (back with: nox rollback --data $vm)"
   '';
 
   vmGc = pkgs.writeShellScriptBin "vm-gc" ''
@@ -225,7 +218,32 @@ in
 {
   environment.systemPackages = [
     vmRollback
-    vmSnapshot
     vmGc
   ];
+
+  # Runs on every switch and boot
+  system.activationScripts.vmRollback = lib.mkIf (microvms != [ ]) ''
+    ${rollbackSync} "$systemConfig"
+  '';
+
+  systemd.services.vm-rollback-restore = lib.mkIf (microvms != [ ]) {
+    description = "Put back the VM rollbacks made under this system";
+    after = map (n: "install-microvm-${n}.service") microvms;
+    # Everything the install unit is before: set-booted, tap, pci, … read
+    # `current` and must see the rollback runner
+    before = lib.concatMap (
+      n:
+      map (u: "${u}@${n}.service") [
+        "microvm"
+        "microvm-set-booted"
+        "microvm-tap-interfaces"
+        "microvm-macvtap-interfaces"
+        "microvm-pci-devices"
+        "microvm-virtiofsd"
+      ]
+    ) microvms;
+    wantedBy = [ "microvms.target" ];
+    serviceConfig.Type = "oneshot";
+    script = "${rollbackRestore}";
+  };
 }

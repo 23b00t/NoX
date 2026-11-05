@@ -260,8 +260,7 @@ output and exit code through. The built-in tools read their data from
 | `nox lab list\|attach\|detach [vm]` | `vm-lab status\|attach\|detach …`: a labTarget VM on sys-firewall's lab bridge while kali tests it |
 | `nox doctor [-v\|-vv]` | built in (src/doctor.rs; `vm-doctor` is a link to nox): smoke test of the running system; prints the result line and the failures with their details, `-v` every check, `-vv` every check with details |
 | `nox doctor --ack` | the kernel / `xl dmesg` errors the runs reported become known noise of this machine (no longer a failure; list in `~/.local/state/vm-doctor/errors-known`, delete a line to forget it) |
-| `nox rollback <vm> [--gen n\|--reset]` | `vm-rollback …`: runner of an older system generation as the VM's `current` |
-| `nox rollback --data <vm>`, `nox snapshot <vm>` | `vm-rollback --data`, `vm-snapshot` (copy of a stopped VM's images) |
+| `nox rollback <vm> [--gen n\|mark \| --mark \| --reset]` | `vm-rollback …`: runner of an older system generation (or the VM's mark) as its `current`, VM restarted; holds over reboots until another system is activated (update, rebuild) or `--reset`. `--mark`: the VM's current runner as known good, one per VM, survives `nox gc`. `nox list` (ROLLBACK) and `nox doctor` (WARN) show rolled back VMs. Configuration only; data comes back with `nox backup restore` |
 | `nox gc [--keep n] [-n]` | `vm-gc …` (old system generations, then GC; default keeps 3) |
 
 `nox help <command>`, `nox <command> --help` and `nox <command>… help` (e.g.

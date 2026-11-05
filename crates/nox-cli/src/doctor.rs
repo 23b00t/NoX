@@ -3,7 +3,7 @@
 //! Starts no VMs, checks only what runs: autostart domains, rpc and relay
 //! per VM, network over sys-firewall (and the tunnel for sys-vpn clients),
 //! app start by RPC, clipboard round trip, wprs (and its grants), D-Bus,
-//! backup age, stale runners, disk, failed units, kernel/Xen errors. Table of
+//! backup age, stale runners, rollbacks, disk, failed units, kernel/Xen errors. Table of
 //! PASS/FAIL/WARN/SKIP, exit 1 on any FAIL. The data per domain comes from
 //! `/etc/nox/registry.json` (`doctor`), written by NoX's vm-doctor module;
 //! the tools it asks (systemctl, nox-rpc, journalctl, xl, wl-clipboard, df)
@@ -761,6 +761,31 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
             Stat::Fail,
             "runners current",
             &format!("restart: {}", stale.join(" ")),
+        );
+    }
+
+    // nox rollback: a VM on an older runner is a temporary state
+    let mut rolled: Vec<String> = fs::read_dir("/var/lib/microvms")
+        .map(|it| {
+            it.filter_map(|e| e.ok())
+                .filter_map(|e| {
+                    let vm = e.file_name().to_string_lossy().into_owned();
+                    crate::manage::rollback_label(&vm).map(|l| format!("{vm} ({l})"))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    rolled.sort();
+    if rolled.is_empty() {
+        t.row(Stat::Pass, "rollbacks", "no VM rolled back");
+    } else {
+        t.row(
+            Stat::Warn,
+            "rollbacks",
+            &format!(
+                "{} (nox rollback <vm> --reset, or the next update)",
+                rolled.join(" ")
+            ),
         );
     }
 
