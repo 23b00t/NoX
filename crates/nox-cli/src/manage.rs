@@ -109,9 +109,19 @@ fn store_image(runner: &Path) -> Option<String> {
     if !runner.exists() {
         return None;
     }
-    sys::output("nix-store", [OsString::from("-qR"), runner.into()])?
-        .lines()
-        .find(|l| l.contains("-microvm-store-disk."))
+    let closure = sys::output("nix-store", [OsString::from("-qR"), runner.into()])?;
+    if let Some(l) = closure.lines().find(|l| l.contains("-microvm-store-disk.")) {
+        return Some(l.to_string());
+    }
+    // Images outside the store (dom0/store-images.nix): only the xl.cfg names it
+    let cfg = closure.lines().find(|l| l.ends_with("-xl.cfg"))?;
+    image_in_xl_cfg(&std::fs::read_to_string(cfg).ok()?)
+}
+
+/// The store image file a runner's xl.cfg boots from (/var/lib/nox/images/…)
+pub fn image_in_xl_cfg(text: &str) -> Option<String> {
+    text.split(|c: char| c == '"' || c == ',' || c == '=' || c.is_whitespace())
+        .find(|t| t.starts_with("/var/lib/nox/images/"))
         .map(str::to_string)
 }
 
@@ -419,6 +429,16 @@ mod tests {
         assert!(matches!(p(&["status", "--group"]), Parsed::Usage));
         assert!(matches!(p(&["status", "--bogus"]), Parsed::Usage));
         assert!(matches!(p(&["status", "help"]), Parsed::Usage));
+    }
+
+    #[test]
+    fn image_from_xl_cfg() {
+        let cfg = "disk = [ \"format=raw, vdev=xvda, access=ro, target=/var/lib/nox/images/desktop/abc-microvm-store-disk.erofs\", \"format=raw, vdev=xvdb, access=rw, target=/var/lib/microvms/chat/home.img\" ]\n";
+        assert_eq!(
+            image_in_xl_cfg(cfg).as_deref(),
+            Some("/var/lib/nox/images/desktop/abc-microvm-store-disk.erofs")
+        );
+        assert_eq!(image_in_xl_cfg("disk = [ ]\n"), None);
     }
 
     #[test]

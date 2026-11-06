@@ -40,7 +40,9 @@ let
     fi
     machine="''${1:?usage: builder-build [--bump] <machine> [branch] | --iso <branch>}"
     branch="''${2:-$machine}"
-    attr="nixosConfigurations.$machine.config.system.build.toplevel"
+    # The toplevel (system) and the store images as files (images/), one
+    # build: dom0/store-images.nix
+    attr="nixosConfigurations.$machine.config.system.build.builderOutputs"
     # The out-link is the GC root of the last build per machine
     link=(--out-link "${stateDir}/systems/$machine")
     if [ "$machine" = --iso ]; then
@@ -53,8 +55,11 @@ let
     repo="${stateDir}/repo"
     key="${stateDir}/signing-key"
     bumpkey="${stateDir}/bump-key"
+    imagekey="${stateDir}/image-key"
 
     [ -r "$key" ] || { echo "builder-build: signing key $key missing" >&2; exit 1; }
+    [ "$machine" = installer-iso ] || [ -r "$imagekey" ] ||
+      { echo "builder-build: image key $imagekey missing" >&2; exit 1; }
     if [ "$bump" = 1 ]; then
       [ -r "$bumpkey" ] || { echo "builder-build: bump key $bumpkey missing" >&2; exit 1; }
       ${lib.optionalString (!hasBumpSigners) ''
@@ -201,14 +206,37 @@ let
       echo "$out"
       exit 0
     fi
+    bundle="$out"
+    out="$(readlink -f "$bundle/system")"
 
     # Sign what Hydra didn't: own builds, Cachix paths (dom0 trusts no
-    # Cachix key), store images. Hydra paths keep only their own signature,
-    # so dom0 sees what the builder alone vouches for (builder-trust.md 3.3)
+    # Cachix key). Hydra paths keep only their own signature, so dom0 sees
+    # what the builder alone vouches for (builder-trust.md 3.3)
     mapfile -t unsigned < <(${config.nix.package}/bin/nix path-info -r --sigs "$out" |
       ${pkgs.gawk}/bin/awk '!/cache\.nixos\.org-1:/ { print $1 }')
     ${config.nix.package}/bin/nix store sign --key-file "$key" "''${unsigned[@]}"
     timing "sign (''${#unsigned[@]} paths)"
+
+    # The store images leave as files, not through Nix (dom0/store-images.nix):
+    # a manifest "<dir> <store path> <sha256>" per image, signed with the
+    # image key (ssh-keygen -Y, namespace nox-image). The sha256 of an image
+    # is computed once (image-sha/<name>)
+    mkdir -p ${stateDir}/images ${stateDir}/image-sha
+    manifest="${stateDir}/images/$machine.manifest"
+    : > "$manifest.new"
+    for l in "$bundle"/images/*/*; do
+      [ -e "$l" ] || continue
+      p="$(readlink -f "$l")"
+      d="''${l%/*}"
+      d="''${d##*/}"
+      c="${stateDir}/image-sha/''${p##*/}"
+      [ -s "$c" ] || sha256sum "$p" | cut -d' ' -f1 > "$c"
+      echo "$d $p $(cat "$c")" >> "$manifest.new"
+    done
+    mv -f "$manifest.new" "$manifest"
+    rm -f "$manifest.sig"
+    ${pkgs.openssh}/bin/ssh-keygen -q -Y sign -n nox-image -f "$imagekey" "$manifest"
+    timing "manifest ($(wc -l < "$manifest") store images)"
 
     # Store images the new system doesn't use are dead weight (several GB
     # each; GC by min-free alone kept 17 old ones, 23 GiB, 2026-11-05):
@@ -220,6 +248,9 @@ let
       ${config.nix.package}/bin/nix-store --delete "''${dead[@]}" >/dev/null 2>&1 ||
         echo "builder-build: could not delete all old store images, the min-free GC takes them" >&2
     fi
+    for c in ${stateDir}/image-sha/*; do
+      [ ! -e "$c" ] || [ -e "/nix/store/''${c##*/}" ] || rm -f "$c"
+    done
     timing "delete (''${#dead[@]} old store images)"
     t0=$t_start
     timing total
@@ -318,9 +349,11 @@ in
       # Same for the deploy key: an SSH key for a private config repo, read
       # only, registered at GitHub as that repo's deploy key (README "Builder"),
       # and the bump key: signs and pushes flake.lock (nox update), a deploy
-      # key with write access, its public part in vms/builder/bump-signers
+      # key with write access, its public part in vms/builder/bump-signers;
+      # and the image key: signs the store image manifest (ssh-keygen -Y,
+      # namespace nox-image), its public part trusted by dom0-update (imageKey)
       builder-signing-key = {
-        description = "Generate the builder's Nix signing key, deploy key and bump key";
+        description = "Generate the builder's Nix signing key, deploy, bump and image key";
         wantedBy = [ "multi-user.target" ];
         after = [ "local-fs.target" ];
         unitConfig.RequiresMountsFor = [ stateDir ];
@@ -339,7 +372,7 @@ in
             nix key convert-secret-to-public < ${stateDir}/signing-key > ${stateDir}/signing-key.pub
             chmod 644 ${stateDir}/signing-key.pub
           fi
-          for k in deploy bump; do
+          for k in deploy bump image; do
             if [ ! -e ${stateDir}/$k-key ]; then
               ssh-keygen -q -t ed25519 -N "" -C builder-vm-$k -f ${stateDir}/$k-key
               chmod 644 ${stateDir}/$k-key.pub

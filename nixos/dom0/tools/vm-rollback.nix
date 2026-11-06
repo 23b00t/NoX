@@ -205,7 +205,12 @@ let
         exit 1
       fi
     done
-    [ "$dry" = 0 ] || exit 0
+    if [ "$dry" = 1 ]; then
+      # Store images outside the store (dom0/store-images.nix) the
+      # deletion would free
+      ! command -v nox-image >/dev/null || nox-image gc -n --drop "''${old[@]}"
+      exit 0
+    fi
     if [ "''${#old[@]}" -gt 0 ]; then
       sudo nix-env -p /nix/var/nix/profiles/system --delete-generations "''${old[@]}"
       # Boot menu without the deleted generations; the default entry stays the
@@ -213,6 +218,8 @@ let
       sudo "$(readlink -f /nix/var/nix/profiles/system)/bin/switch-to-configuration" boot
     fi
     sudo nix-store --gc
+    # Store images no remaining generation, rollback or mark boots from
+    ! command -v nox-image >/dev/null || sudo nox-image gc
   '';
 in
 {

@@ -166,6 +166,7 @@ in
   imports = [
     inputs.microvm.nixosModules.host
     ./unfree.nix
+    ./store-images.nix
     ./user.nix
     # Desktop (niri, waybar, …) without home-manager
     ../desktop
@@ -383,6 +384,8 @@ in
             imports = [
               vmDefinitions.${vm.name}.module
               (storeGroups.moduleFor vm.name)
+              # Boot from a copy outside the store (dom0/store-images.nix)
+              (storeGroups.imageFileModuleFor config.nox.storeImages.asFiles vm.name)
             ];
           };
           specialArgs = {
