@@ -77,6 +77,15 @@ let
         inputs.microvm.nixosModules.microvm
         vmDefinition.module
         (storeGroups.moduleFor name)
+        # Plain lz4 + tailpacking: ~30-40 % faster mkfs than the fork's
+        # default (lz4hc + fragments), ~7 % larger (builder-trust.md N4).
+        # Set for every VM, store groups need equal flags
+        {
+          microvm.storeDiskErofsFlags = [
+            "-zlz4"
+            "-Eztailpacking"
+          ];
+        }
       ];
     };
 
