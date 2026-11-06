@@ -473,6 +473,11 @@ in
               default = false;
               description = "Members may bring unfree packages; in any other group the VM's build fails on one.";
             };
+            builder = mkOption {
+              type = types.str;
+              default = "builder";
+              description = "Builder VM that builds the group's image (builder-trust.md 3.8): `builder` (evaluates and builds dom0, default) or `builder-apps` (`nox.infra.builder-apps`, builds from the derivations dom0 hands over). Only with `nox.storeImages.asFiles`: dom0 takes the image only with that builder's image key (`services.dom0-update.imageKeys`). The sys group stays with `builder`.";
+            };
           };
         }
       );

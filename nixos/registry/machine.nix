@@ -111,6 +111,8 @@ let
       ) hostVms;
       vmHasFeature = feature: builtins.filter (vm: builtins.elem feature (vm.features or [ ])) hostVms;
       globalExtraSSH = [ ];
+      # Store group -> the builder VM that builds its image (nox.storeGroups.<g>.builder)
+      storeGroupBuilders = lib.mapAttrs (_: g: g.builder) (noxFor host).storeGroups;
       hardware = mkHardware host;
       hostProfile = machines.${host}.profile or { };
       # nox.theme: the same on every machine (VMs share store images), so
