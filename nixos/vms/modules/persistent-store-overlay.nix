@@ -77,6 +77,22 @@ let
       [ -r "$reg" ] && ${nix}/bin/nix-store --load-db < "$reg"
     fi
 
+    # In a store group: the whole image's registration and GC roots on all
+    # its members' toplevels (vms/store-groups.nix groupInfos), so the GC
+    # never deletes another member's paths from the image and an imperative
+    # install reuses them. Roots in /nix/var, recreated on every boot
+    if [[ "$(${pkgs.coreutils}/bin/cat /proc/cmdline)" =~ noxStoreGroup=/nix/store/([^\ /]+) ]]; then
+      group="/nix/.ro-store/''${BASH_REMATCH[1]}"
+      if [ -r "$group/registration" ]; then
+        ${nix}/bin/nix-store --load-db < "$group/registration"
+        mkdir -p /nix/var/nix/gcroots/nox-image
+        while read -r p; do
+          [[ "$p" =~ ^/nix/store/[0-9a-z]{32}-[^/]+$ ]] || continue
+          ln -sfn "$p" "/nix/var/nix/gcroots/nox-image/''${p#/nix/store/}"
+        done < "$group/roots"
+      fi
+    fi
+
     if [ -f /persist/overlay.db ] && [ -s /persist/overlay.db ]; then
       # --load-db is all or nothing: drop entries whose files or references
       # are gone (e.g. paths of an older store image), repeated until stable.
