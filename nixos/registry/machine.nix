@@ -18,7 +18,7 @@
   builderKeys ? null,
 }:
 let
-  # nox.* of one machine (host null: all definitions, for the lookups by name)
+  # nox.* of one machine (host null: all definitions, for the VM definitions)
   noxFor =
     host:
     let
@@ -35,24 +35,28 @@ let
     nox // { vms = nox.vms // import ./disposables.nix { inherit lib; } nox; };
   # … in the registry's entry format
   domainsFor = host: import ./legacy.nix { inherit lib; } (noxFor host);
-  all = domainsFor null;
-  inherit (all) vms;
 
   # Lookups by name cover all VMs (IPs, keys, store groups), also those not on
   # the current machine; the lists per machine come from `forHost` below.
-  byName = builtins.listToAttrs (
-    map (vm: {
-      inherit (vm) name;
-      value = vm;
-    }) vms
-  );
+  # Built from the machine's own evaluation, so `if host == …` in a field
+  # holds there too (a VM reads its own entry here, e.g. hostSSHKey)
+  mkByName =
+    vms:
+    builtins.listToAttrs (
+      map (vm: {
+        inherit (vm) name;
+        value = vm;
+      }) vms
+    );
 
-  byShort = builtins.listToAttrs (
-    map (vm: {
-      name = vm.short;
-      value = vm;
-    }) (builtins.filter (vm: vm.short != null) vms)
-  );
+  mkByShort =
+    vms:
+    builtins.listToAttrs (
+      map (vm: {
+        name = vm.short;
+        value = vm;
+      }) (builtins.filter (vm: vm.short != null) vms)
+    );
 
   mkHardware =
     host:
@@ -92,10 +96,10 @@ let
       hostVms = domains.vmsOnHost;
     in
     {
+      byName = mkByName domains.vms;
+      byShort = mkByShort domains.vms;
       inherit
         host
-        byName
-        byShort
         backupLuksUuids
         builderKeys
         ;
