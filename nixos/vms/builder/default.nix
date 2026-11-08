@@ -337,7 +337,7 @@ in
     # `memoryMax` (defaults in registry/infra.nix, vms.nix may raise them)
     mem = reg.memoryMax;
     balloon = true;
-    initialBalloonMem = reg.memory;
+    initialBalloonMem = reg.memoryMax - reg.memory;
     vcpu = 8;
   };
 

@@ -143,7 +143,7 @@ in
     ];
     mem = reg.memoryMax;
     balloon = true;
-    initialBalloonMem = reg.memory;
+    initialBalloonMem = reg.memoryMax - reg.memory;
     vcpu = 8;
   };
 

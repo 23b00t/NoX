@@ -75,7 +75,8 @@ in
       # Boots with `memory`, the RAM balancer grows it up to `memoryMax`
       mem = vm.memoryMax;
       balloon = true;
-      initialBalloonMem = vm.memory;
+      # initialBalloonMem is what is taken away from `mem` at boot
+      initialBalloonMem = vm.memoryMax - vm.memory;
     }
     // lib.optionalAttrs (vm.memoryMax == null && vm.memory != null) { mem = vm.memory; }
     // lib.optionalAttrs (vm.gpu == true) {
