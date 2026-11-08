@@ -421,6 +421,12 @@ let
         exit 1
       fi
 
+      if [ "$started_builder" = 1 ]; then
+        # RAM for the VMs the switch restarts (without group builders the
+        # builder still runs here, ballooned up by the build)
+        sudo systemctl stop microvm@builder
+        started_builder=0
+      fi
       sudo ${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set "$out"
       sudo "$out/bin/switch-to-configuration" "$action"
       timing "$action"
