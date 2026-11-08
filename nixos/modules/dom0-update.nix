@@ -267,10 +267,14 @@ let
       # Images of other builders (nox.storeGroups.<g>.builder, variant B):
       # their derivations come from the sys builder (it evaluated them) and
       # go to that builder, which builds without a checkout or evaluation
-      # (builder-trust.md 3.2, 3.6). Derivations are content-addressed: no
-      # signature needed. The sys builder's own builds (non-Hydra paths of
-      # the new system, signed by it) go along, so the app builder doesn't
-      # build them again (3.7)
+      # (builder-trust.md 3.2, 3.6). The derivations carry neither a CA
+      # field nor a signature in the sys builder's store, so both copies
+      # skip the signature check (--no-check-sigs; dom0's user and the group
+      # builders' login user are trusted-users): dom0 trusts the sys builder
+      # anyway (it signs dom0's system) and only passes them on, the group
+      # builder trusts dom0 (builder-trust.md 13.1). The sys builder's own
+      # builds (non-Hydra paths of the new system, signed by it) go along,
+      # so the app builder doesn't build them again (3.7)
       mapfile -t others < <("$ni" missing "$out" | ${pkgs.gawk}/bin/awk '$3 != "builder" { print $3 }' | sort -u)
       # --builder: only these (the check before activating catches what is
       # still missing)
@@ -291,7 +295,7 @@ let
         [[ $b =~ ^[a-z0-9-]+$ ]] || unexpected "$b"
         mapfile -t pairs < <("$ni" drvs "$out" "$b")
         handover[$b]="''${pairs[*]}"
-        ${config.nix.package}/bin/nix copy --derivation --from ssh-ng://builder-vm \
+        ${config.nix.package}/bin/nix copy --derivation --no-check-sigs --from ssh-ng://builder-vm \
           "''${pairs[@]#*=}" 2> >(${termFilter} >&2)
       done
       if [ "$started_builder" = 1 ] && [ "''${#others[@]}" -gt 0 ]; then
@@ -327,7 +331,7 @@ let
           ssh -o ConnectTimeout=5 "$b-vm" true >/dev/null 2>&1 && break
           sleep 2
         done
-        ${config.nix.package}/bin/nix copy --derivation --to "ssh-ng://$b-vm" \
+        ${config.nix.package}/bin/nix copy --derivation --no-check-sigs --to "ssh-ng://$b-vm" \
           "''${pairs[@]#*=}" 2> >(${termFilter} >&2)
         # Of those only what this group's derivations build on (outputs in
         # their closure that dom0 has: wprs, nox-rpc, nox-relay …), not the
