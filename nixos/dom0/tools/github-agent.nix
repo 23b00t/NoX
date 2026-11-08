@@ -80,8 +80,15 @@ pkgs.writeShellScriptBin "github-agent" ''
     [ "$status" -eq 0 ] || [ "$status" -eq 1 ]
   }
 
+  # The env file survives reboots, its PID may belong to another process by
+  # now (2026-11-08: xdg-dbus-proxy got `ssh-agent -k`'s SIGTERM, no tray
+  # icons from any VM): only a live ssh-agent counts
+  agent_pid_alive() {
+    [ -n "''${SSH_AGENT_PID:-}" ] && [ "$(cat "/proc/$SSH_AGENT_PID/comm" 2>/dev/null)" = ssh-agent ]
+  }
+
   reset_agent_state() {
-    if [ -n "''${SSH_AGENT_PID:-}" ] && kill -0 "$SSH_AGENT_PID" 2>/dev/null; then
+    if agent_pid_alive; then
       SSH_AUTH_SOCK="''${SSH_AUTH_SOCK:-$SOCKET_PATH}" \
         SSH_AGENT_PID="$SSH_AGENT_PID" \
         ${pkgs.openssh}/bin/ssh-agent -k >/dev/null 2>&1 || true
@@ -112,7 +119,7 @@ pkgs.writeShellScriptBin "github-agent" ''
     export SSH_AGENT_PID=""
   fi
 
-  if [ ! -S "$SOCKET_PATH" ] || [ "''${GITHUB_AGENT_CONFIRM:-}" != 1 ] || [ -z "''${SSH_AGENT_PID:-}" ] || ! kill -0 "$SSH_AGENT_PID" 2>/dev/null || ! agent_is_reachable; then
+  if [ ! -S "$SOCKET_PATH" ] || [ "''${GITHUB_AGENT_CONFIRM:-}" != 1 ] || ! agent_pid_alive || ! agent_is_reachable; then
     reset_agent_state
     start_agent
   fi

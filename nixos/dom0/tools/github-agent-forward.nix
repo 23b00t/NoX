@@ -47,7 +47,6 @@ in
       github-agent = {
         description = "Ensure dedicated GitHub SSH agent is running";
         after = [ "default.target" ];
-        wants = [ "default.target" ];
         wantedBy = [ "default.target" ];
         serviceConfig = {
           Type = "oneshot";
