@@ -26,11 +26,15 @@ let
 
   # Targets: kind vm (its volumes, disk = file name without .img),
   # image (one raw file), dom0 (only ~/.ssh: the images have their own
-  # targets, the rest comes back from the config), builder (its signing key)
+  # targets, the rest comes back from the config), builder (its signing key).
+  # Group builders (builder-<name>, store group `builders`) are no target:
+  # only cache and build state (W2: builders without cache); a lost image
+  # key is made anew on boot, its .pub is pinned again in the config
   vmTargets = lib.concatLists (
     lib.mapAttrsToList (
       name: vm:
       let
+        groupBuilder = name != "builder" && regByName.${name}.storeGroup or null == "builders";
         disposable = regByName.${name}.disposable or false;
         volumes = builtins.filter (v: !(disposable && builtins.elem (baseNameOf v.image) wiped)) (
           vm.config.config.microvm.volumes or [ ]
@@ -63,7 +67,7 @@ let
           }
         ]
       else
-        lib.optional (disks != [ ] && name != "disp-backup") {
+        lib.optional (disks != [ ] && name != "disp-backup" && !groupBuilder) {
           inherit name disks disposable;
           kind = "vm";
         }
