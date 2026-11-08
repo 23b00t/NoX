@@ -22,7 +22,27 @@ let
     if builderKey != null then lib.head (lib.splitString ":" builderKey) else "builder-vm-1";
   # The image key (signs the store image manifest, ssh-keygen -Y)
   imageKeyFile = vmRegistry.builderKeys + "/image-key-${config.networking.hostName}.pub";
-  imageKeys = cfg.imageKeys // lib.optionalAttrs (cfg.imageKey != null) { builder = cfg.imageKey; };
+  # Group builders' image keys from image-key-<builder>-<machine>.pub next to it
+  fileImageKeys = lib.listToAttrs (
+    lib.concatMap (
+      b:
+      let
+        f = vmRegistry.builderKeys + "/image-key-${b}-${config.networking.hostName}.pub";
+      in
+      lib.optional (b != "builder" && builtins.pathExists f) (
+        lib.nameValuePair b (lib.trim (builtins.readFile f))
+      )
+    ) (lib.unique (lib.attrValues (vmRegistry.storeGroupBuilders or { })))
+  );
+  imageKeys =
+    fileImageKeys
+    // cfg.imageKeys
+    // lib.optionalAttrs (cfg.imageKey != null) { builder = cfg.imageKey; };
+  groupBuilderVms = lib.filter (
+    vm:
+    vm.name != "builder"
+    && builtins.elem vm.name (lib.attrValues (vmRegistry.storeGroupBuilders or { }))
+  ) vmRegistry.vms;
 
   # Builder output (nom on stderr) reaches dom0's terminal only through this
   # positive-list filter: colors and cursor movement stay; OSC 52
@@ -45,7 +65,16 @@ let
     --iso <vm>: builds the config's installer ISO instead and copies it
     from the builder straight to <vm> (~/Incoming/builder/nox-installer.iso
     there; started if it is off), nothing goes through dom0's store.
-    Defaults: --machine ${cfg.machine} --branch ${cfg.branch}
+    Group builders (nox.builders, the images of their store groups):
+    --parallel <n>: how many run at the same time (their output then goes
+    to ~/.local/state/nox/update-<builder>.log, the terminal gets the
+    timing and error lines); --builder <name>: only this one (repeatable;
+    the update stops before activating if images are still missing).
+    --max-jobs <n>, --cores <n>: Nix max-jobs/cores of every builder for
+    this run.
+    Defaults: --machine ${cfg.machine} --branch ${cfg.branch} --parallel ${toString cfg.parallel}${
+      lib.optionalString (cfg.maxJobs != null) " --max-jobs ${toString cfg.maxJobs}"
+    }${lib.optionalString (cfg.cores != null) " --cores ${toString cfg.cores}"}
     EOF
       exit 1
     }
@@ -55,6 +84,10 @@ let
     iso_vm=""
     machine=${lib.escapeShellArg cfg.machine}
     branch=${lib.escapeShellArg cfg.branch}
+    parallel=${toString cfg.parallel}
+    max_jobs=${lib.optionalString (cfg.maxJobs != null) (toString cfg.maxJobs)}
+    cores=${lib.optionalString (cfg.cores != null) (toString cfg.cores)}
+    only=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --switch) action=switch ;;
@@ -62,6 +95,11 @@ let
         --iso) [ $# -ge 2 ] || usage; action=iso; iso_vm="$2"; shift ;;
         --machine) [ $# -ge 2 ] || usage; machine="$2"; shift ;;
         --branch) [ $# -ge 2 ] || usage; branch="$2"; shift ;;
+        --parallel) [[ ''${2:-} =~ ^[1-9][0-9]?$ ]] || usage; parallel="$2"; shift ;;
+        --max-jobs) [[ ''${2:-} =~ ^[1-9][0-9]{0,2}$ ]] || usage; max_jobs="$2"; shift ;;
+        --cores) [[ ''${2:-} =~ ^[0-9]{1,3}$ ]] || usage; cores="$2"; shift ;;
+        # builder-desktop or desktop
+        --builder) [[ ''${2:-} =~ ^[a-z0-9][a-z0-9-]*$ ]] || usage; only+=("builder-''${2#builder-}"); shift ;;
         -h|--help) usage ;;
         *) echo "Unknown argument: $1" >&2; usage ;;
       esac
@@ -69,6 +107,13 @@ let
     done
     # The ISO is built from the branch as it is
     [ "$action" != iso ] || [ "''${#bump[@]}" = 0 ] || usage
+    nixjobs=()
+    [ -z "$max_jobs" ] || nixjobs+=(--max-jobs "$max_jobs")
+    [ -z "$cores" ] || nixjobs+=(--cores "$cores")
+    # The group builders' memoryMax (MB), for the RAM check of --parallel
+    declare -A memoryMax=(${
+      lib.concatMapStrings (vm: " [${vm.name}]=${toString (vm.memoryMax or 8192)}") groupBuilderVms
+    } )
 
     ${lib.optionalString (builderKey == null) ''
       echo "dom0-update: vms/builder/signing-key-${config.networking.hostName}.pub is missing, dom0 does not trust the builder yet" >&2
@@ -82,8 +127,38 @@ let
       sudo -v
       while sleep 60; do sudo -n -v 2>/dev/null || exit; done &
       keepalive=$!
-      trap 'kill "$keepalive" 2>/dev/null' EXIT
     fi
+
+    # Builder VMs this run started: stopped again when it fails (on success
+    # each one is stopped after its step; builder-trust.md 13.6)
+    started=()
+    cleanup() {
+      local rc=$? vm
+      if [ "$rc" != 0 ]; then
+        for vm in "''${started[@]}"; do
+          systemctl is-active --quiet "microvm@$vm" || continue
+          echo "dom0-update: failed, stopping $vm" >&2
+          sudo systemctl stop "microvm@$vm" || true
+        done
+      fi
+      rm -f "''${signed:-}"
+      [ -z "''${keepalive:-}" ] || kill "$keepalive" 2>/dev/null || true
+    }
+    trap cleanup EXIT
+    # Ctrl-C and the like: through cleanup too (an untrapped signal skips
+    # the EXIT trap)
+    trap 'exit 130' INT TERM HUP
+
+    # Free space for the builders' volumes and the fetched images: below
+    # minFree the builders could fill dom0's disk (builder-trust.md 13.7)
+    for d in /var/lib/microvms /var/lib/nox/images; do
+      [ -d "$d" ] || continue
+      avail="$(df --output=avail -BG "$d" | tail -n 1 | tr -dc 0-9)"
+      if [ "$avail" -lt ${toString cfg.minFree} ]; then
+        echo "dom0-update: only $avail GB free for $d, at least ${toString cfg.minFree} GB needed (services.dom0-update.minFree); free space first (nox gc, the builders' store volumes)" >&2
+        exit 1
+      fi
+    done
 
     unexpected() {
       printf 'dom0-update: unexpected builder output: %q\n' "$1" >&2
@@ -97,10 +172,11 @@ let
     }
 
     # The builder doesn't autostart: start it and wait for SSH (over vchan).
-    # Started here = stopped again after a successful update.
+    # Started here = stopped again afterwards.
     started_builder=0
     if ! systemctl is-active --quiet microvm@builder; then
       echo "dom0-update: starting the builder VM" >&2
+      started+=(builder)
       sudo systemctl start microvm@builder
       started_builder=1
     fi
@@ -120,7 +196,7 @@ let
     # call: the copy policy doesn't ask), then deleted in the builder. The
     # broker gives the manifest 10 s, so the stream starts only after the build
     if [ "$action" = iso ]; then
-      out="$(from_builder builder-build --iso "$branch")"
+      out="$(from_builder builder-build "''${nixjobs[@]}" --iso "$branch")"
       [[ "$out" =~ ^/nix/store/[0-9a-z]{32}-nox-installer\.iso$ ]] || unexpected "$out"
       # The VM may still be booting: wait until its rpc side answers (a
       # side-effect-free `send list` of a missing path answers "error: …
@@ -154,7 +230,7 @@ let
         ${pkgs.util-linux}/bin/logger -t dom0-update "timing $machine $1 $((now - t0)) s" || true
         t0=$now
       }
-      out="$(from_builder builder-build "''${bump[@]}" "$machine" "$branch")"
+      out="$(from_builder builder-build "''${bump[@]}" "''${nixjobs[@]}" "$machine" "$branch")"
       [[ "$out" =~ ^/nix/store/[0-9a-z]{32}-nixos-system-[A-Za-z0-9._+-]+$ ]] || unexpected "$out"
       timing builder
 
@@ -196,6 +272,20 @@ let
       # the new system, signed by it) go along, so the app builder doesn't
       # build them again (3.7)
       mapfile -t others < <("$ni" missing "$out" | ${pkgs.gawk}/bin/awk '$3 != "builder" { print $3 }' | sort -u)
+      # --builder: only these (the check before activating catches what is
+      # still missing)
+      if [ "''${#only[@]}" -gt 0 ]; then
+        declare -A want=()
+        for b in "''${only[@]}"; do want[$b]=1; done
+        picked=()
+        for b in "''${others[@]}"; do
+          [ -z "''${want[$b]:-}" ] || { picked+=("$b"); unset "want[$b]"; }
+        done
+        for b in "''${!want[@]}"; do
+          echo "dom0-update: $b has no missing images" >&2
+        done
+        others=("''${picked[@]}")
+      fi
       declare -A handover=()
       for b in "''${others[@]}"; do
         [[ $b =~ ^[a-z0-9-]+$ ]] || unexpected "$b"
@@ -209,9 +299,25 @@ let
         sudo systemctl stop microvm@builder
         started_builder=0
       fi
+      # Only paths with the sys builder's signature: the group builders
+      # trust that key, a single path without it would abort the whole copy.
+      # Once for all of them (sorted: run_builder intersects it per group)
+      signed="$(mktemp)"
+      # The ones run_builder starts (in a subshell when parallel): noted
+      # here for cleanup
       for b in "''${others[@]}"; do
+        systemctl is-active --quiet "microvm@$b" || started+=("$b")
+      done
+      if [ "''${#others[@]}" -gt 0 ]; then
+        cut -f2 "$list" | xargs -r ${config.nix.package}/bin/nix path-info --sigs |
+          ${pkgs.gawk}/bin/awk -v k=${lib.escapeShellArg "${signKeyName}:"} 'index($0, k) { print $1 }' |
+          sort -u > "$signed"
+      fi
+
+      # One group builder: start, hand over, build, fetch, stop
+      run_builder() {
+        local b=$1 started_b=0 pairs
         read -r -a pairs <<< "''${handover[$b]}"
-        started_b=0
         if ! systemctl is-active --quiet "microvm@$b"; then
           echo "dom0-update: starting $b" >&2
           sudo systemctl start "microvm@$b"
@@ -223,22 +329,93 @@ let
         done
         ${config.nix.package}/bin/nix copy --derivation --to "ssh-ng://$b-vm" \
           "''${pairs[@]#*=}" 2> >(${termFilter} >&2)
-        # Only paths with the sys builder's signature: $b trusts that key, a
-        # single path without it would abort the whole copy
-        cut -f2 "$list" | xargs -r ${config.nix.package}/bin/nix path-info --sigs |
-          ${pkgs.gawk}/bin/awk -v k=${lib.escapeShellArg "${signKeyName}:"} 'index($0, k) { print $1 }' |
+        # Of those only what this group's derivations build on (outputs in
+        # their closure that dom0 has: wprs, nox-rpc, nox-relay …), not the
+        # whole dom0 closure (builder-trust.md 13.2)
+        comm -12 "$signed" <(${config.nix.package}/bin/nix-store -q --requisites --include-outputs \
+          "''${pairs[@]#*=}" | sort -u) |
           xargs -r ${config.nix.package}/bin/nix copy --to "ssh-ng://$b-vm" \
           2> >(${termFilter} >&2) ||
           echo "dom0-update: could not hand the builder's own builds to $b, it builds them itself" >&2
-        { ssh "$b-vm" builder-images "$machine" "''${pairs[@]}" 2>&1 >&3 3>&- |
+        { ssh "$b-vm" builder-images "''${nixjobs[@]}" "$machine" "''${pairs[@]}" 2>&1 >&3 3>&- |
           ${termFilter} >&2 3>&-; } 3>&1 | tail -n 1 >/dev/null
         "$ni" fetch "$out" "$b" "$machine"
         timing "images of $b"
         if [ "$started_b" = 1 ]; then
           sudo systemctl stop "microvm@$b"
         fi
-      done
+      }
+
+      if [ "$parallel" -le 1 ] || [ "''${#others[@]}" -le 1 ]; then
+        for b in "''${others[@]}"; do
+          run_builder "$b"
+        done
+      else
+        # RAM: n builders at their memoryMax next to the running VMs
+        need=0
+        for b in "''${others[@]:0:$parallel}"; do
+          need=$((need + ''${memoryMax[$b]:-8192}))
+        done
+        free="$(sudo -n ${pkgs.xen}/bin/xl info free_memory 2>/dev/null || true)"
+        if [[ $free =~ ^[0-9]+$ ]] && [ "$need" -gt "$free" ]; then
+          echo "dom0-update: warning: $parallel builders may grow to $need MB, Xen has $free MB free (ballooning may cover it; --parallel 1 if builds fail)" >&2
+        fi
+        logs="''${XDG_STATE_HOME:-$HOME/.local/state}/nox"
+        status="$(mktemp -d)"
+        mkdir -p "$logs"
+        echo "dom0-update: ''${#others[@]} group builders, $parallel at a time; logs in $logs/update-<builder>.log" >&2
+        # Own list of the builder jobs: `jobs` and a bare `wait` would count
+        # and wait for the sudo keepalive too (builder-trust.md 13.1)
+        pids=()
+        for b in "''${others[@]}"; do
+          while :; do
+            running=0
+            for p in "''${pids[@]}"; do
+              ! kill -0 "$p" 2>/dev/null || running=$((running + 1))
+            done
+            [ "$running" -ge "$parallel" ] || break
+            wait -n "''${pids[@]}" || true
+          done
+          : > "$logs/update-$b.log"
+          # The full (filtered) output to the log; to the terminal only
+          # the lines that say something, without escape sequences
+          (
+            set +e
+            (set -e; run_builder "$b")
+            echo $? > "$status/$b"
+          ) </dev/null 2> >(tee -a "$logs/update-$b.log" |
+            ${pkgs.gnused}/bin/sed -u -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' |
+            grep -a --line-buffered -E '^(dom0-update|nox-image|builder-images: timing)|(^|[[:space:]])(error|warning):' |
+            grep -av --line-buffered -e '┃' -e '┗' |
+            ${pkgs.gnused}/bin/sed -u -e "s/^/[$b] /" >&2) &
+          pids+=("$!")
+        done
+        for p in "''${pids[@]}"; do
+          wait "$p" || true
+        done
+        # The builders' timing counts from the start of this phase; the
+        # next step from its end
+        t0=$SECONDS
+        failed=()
+        for b in "''${others[@]}"; do
+          [ "$(cat "$status/$b" 2>/dev/null)" = 0 ] || failed+=("$b")
+        done
+        rm -rf "$status"
+        if [ "''${#failed[@]}" -gt 0 ]; then
+          echo "dom0-update: failed: ''${failed[*]} (logs in $logs), not activated" >&2
+          exit 1
+        fi
+      fi
       echo "dom0-update: $n new store images" >&2
+
+      # Every image the new system expects is here, else it isn't activated
+      # (--builder, a builder that failed)
+      mapfile -t still < <("$ni" missing "$out")
+      if [ "''${#still[@]}" -gt 0 ]; then
+        printf 'dom0-update: still missing: %s\n' "''${still[@]}" >&2
+        echo "dom0-update: not activated" >&2
+        exit 1
+      fi
 
       sudo ${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set "$out"
       sudo "$out/bin/switch-to-configuration" "$action"
@@ -281,13 +458,37 @@ in
       description = "Public part of the builder's image key (/var/lib/builder/image-key.pub): dom0-update only takes the builder's store images listed in a manifest signed with it (namespace nox-image). Same as `imageKeys.builder`.";
     };
 
+    parallel = lib.mkOption {
+      type = lib.types.ints.between 1 99;
+      default = 1;
+      description = "How many group builders (nox.builders) build at the same time; `nox update --parallel` overrides it. Each may grow to its `memoryMax`: dom0-update warns when they don't fit into Xen's free memory.";
+    };
+
+    minFree = lib.mkOption {
+      type = lib.types.ints.unsigned;
+      default = 30;
+      description = "GB that must be free for /var/lib/microvms and /var/lib/nox/images before an update starts: the builders' store volumes grow on dom0's disk while they build, the fetched images land there. 0 turns the check off.";
+    };
+
+    maxJobs = lib.mkOption {
+      type = lib.types.nullOr (lib.types.ints.between 1 999);
+      default = null;
+      description = "Nix `max-jobs` of every builder (the builder and the group builders) during an update, instead of their own `nix.settings`; `nox update --max-jobs` overrides it. null: each builder's own (nox.builders.<name>.maxJobs, one per 8 GB of memoryMax).";
+    };
+
+    cores = lib.mkOption {
+      type = lib.types.nullOr (lib.types.ints.between 0 999);
+      default = null;
+      description = "Nix `cores` per job of every builder during an update (0: all); `nox update --cores` overrides it. null: each builder's own.";
+    };
+
     imageKeys = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = { };
       example = {
-        builder-apps = "ssh-ed25519 AAAA… builder-apps-image";
+        builder-desktop = "ssh-ed25519 AAAA… builder-desktop-image";
       };
-      description = "Image keys of further builders (nox.storeGroups.<g>.builder), by builder VM name: dom0 takes an image only with the key of the builder its group names.";
+      description = "Image keys of further builders (nox.storeGroups.<g>.builder), by builder VM name: dom0 takes an image only with the key of the builder its group names. Default: the files `image-key-<builder>-<machine>.pub` next to the signing key (registry `builderKeys`).";
     };
   };
 

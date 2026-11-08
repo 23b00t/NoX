@@ -14,7 +14,10 @@
   vmSystems,
 }:
 let
-  groupOf = name: vmRegistry.byName.${name}.storeGroup or null;
+  # The machine's entries (`vms`): `byName` is evaluated without a host, so
+  # a per-machine storeGroup (`if host == …`) is only right in `vms`
+  hostByName = lib.listToAttrs (map (vm: lib.nameValuePair vm.name vm) vmRegistry.vms);
+  groupOf = name: (hostByName.${name} or vmRegistry.byName.${name} or { }).storeGroup or null;
 
   members = builtins.filter (
     vm:
@@ -96,6 +99,14 @@ in
     {
       microvm = {
         registerClosure = lib.mkDefault (config.services.persistentStoreOverlay.enable or false);
+        # Plain lz4 + tailpacking: ~30-40 % faster mkfs than the fork's
+        # default (lz4hc + fragments), ~7 % larger (builder-trust.md N4).
+        # Here, because both evaluations of a VM (nixosConfigurations.<vm>
+        # and dom0's microvm.vms) take this module; equal in every group
+        storeDiskErofsFlags = [
+          "-zlz4"
+          "-Eztailpacking"
+        ];
       }
       // lib.optionalAttrs (groupOf name != null && builtins.any (vm: vm.name == name) vmRegistry.vms) {
         storeDisk = lib.mkIf config.microvm.storeOnDisk images.${groupOf name};

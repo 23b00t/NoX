@@ -86,6 +86,48 @@ struct Fresh {
     fresh: bool,
 }
 
+/// The builders of `update`/`rebuild` (defaults: services.dom0-update.parallel,
+/// maxJobs, cores)
+#[derive(Args)]
+struct Builders {
+    /// Group builders (nox.builders) building at the same time
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u8).range(1..100))]
+    parallel: Option<u8>,
+    /// Nix max-jobs of every builder for this run
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u16).range(1..1000))]
+    max_jobs: Option<u16>,
+    /// Nix cores per job of every builder for this run (0: all)
+    #[arg(long, value_name = "N", value_parser = clap::value_parser!(u16).range(0..1000))]
+    cores: Option<u16>,
+    /// Only this group builder (builder-<name> or <name>; repeatable). The
+    /// update stops before activating if images are still missing
+    #[arg(long = "builder", value_name = "NAME")]
+    only: Vec<String>,
+}
+
+impl Builders {
+    fn args(&self) -> Vec<OsString> {
+        let mut a: Vec<OsString> = Vec::new();
+        let mut push = |flag: &str, v: String| {
+            a.push(flag.into());
+            a.push(v.into());
+        };
+        if let Some(n) = self.parallel {
+            push("--parallel", n.to_string());
+        }
+        if let Some(n) = self.max_jobs {
+            push("--max-jobs", n.to_string());
+        }
+        if let Some(n) = self.cores {
+            push("--cores", n.to_string());
+        }
+        for b in &self.only {
+            push("--builder", b.clone());
+        }
+        a
+    }
+}
+
 #[derive(Subcommand)]
 enum Cmd {
     /// List VMs: state, store group, image (ok/stale)
@@ -204,6 +246,8 @@ enum Cmd {
         /// Branch to update and build (default: the script's)
         #[arg(long, value_name = "BRANCH")]
         branch: Option<String>,
+        #[command(flatten)]
+        builders: Builders,
     },
     /// Rebuild dom0 from the builder VM as the branch is (no new inputs);
     /// --iso: the installer ISO instead, from the builder straight to a VM
@@ -220,6 +264,8 @@ enum Cmd {
         /// Branch to build (default: the script's)
         #[arg(long, value_name = "BRANCH")]
         branch: Option<String>,
+        #[command(flatten)]
+        builders: Builders,
     },
     /// dom0's microphone for the VMs with the registry field `microphone`:
     /// on until `off` or the next boot; off ends running recordings
@@ -857,9 +903,11 @@ fn main() -> ExitCode {
             switch,
             machine,
             branch,
+            builders,
         } => {
             let mut a: Vec<OsString> = vec!["--bump".into()];
             a.extend(build_args(switch, None, machine, branch));
+            a.extend(builders.args());
             exec(if all { "update-all" } else { "dom0-update" }, a)
         }
         Cmd::Rebuild {
@@ -867,7 +915,12 @@ fn main() -> ExitCode {
             iso,
             machine,
             branch,
-        } => exec("dom0-update", build_args(switch, iso, machine, branch)),
+            builders,
+        } => {
+            let mut a = build_args(switch, iso, machine, branch);
+            a.extend(builders.args());
+            exec("dom0-update", a)
+        }
         Cmd::Mic { action } => mic(action),
         Cmd::Usb { action } => match action {
             Usb::List => exec("vm-usb", ["list"]),
@@ -1045,6 +1098,7 @@ mod tests {
             iso,
             machine,
             branch,
+            ..
         }) = cli.command
         else {
             panic!("not rebuild")
@@ -1065,12 +1119,52 @@ mod tests {
             switch,
             machine,
             branch,
+            ..
         }) = cli.command
         else {
             panic!("not update")
         };
         assert!(all);
         assert_eq!(build_args(switch, None, machine, branch), ["--switch"]);
+    }
+
+    #[test]
+    fn update_builders() {
+        let cli = Cli::try_parse_from([
+            "nox",
+            "update",
+            "--parallel",
+            "2",
+            "--max-jobs",
+            "4",
+            "--cores",
+            "0",
+            "--builder",
+            "desktop",
+            "--builder",
+            "builder-dev",
+        ])
+        .unwrap();
+        let Some(Cmd::Update { builders, .. }) = cli.command else {
+            panic!("not update")
+        };
+        assert_eq!(
+            builders.args(),
+            [
+                "--parallel",
+                "2",
+                "--max-jobs",
+                "4",
+                "--cores",
+                "0",
+                "--builder",
+                "desktop",
+                "--builder",
+                "builder-dev"
+            ]
+        );
+        assert!(Cli::try_parse_from(["nox", "update", "--parallel", "0"]).is_err());
+        assert!(Cli::try_parse_from(["nox", "rebuild", "--max-jobs", "0"]).is_err());
     }
 
     #[test]

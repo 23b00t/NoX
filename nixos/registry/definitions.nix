@@ -69,10 +69,34 @@ let
     packages = _: { };
   };
   infra = lib.filterAttrs (name: i: i.enable && cfg.vms.${name}.role == null) cfg.infra;
+
+  # Group builders (builders.nix): one module for all, told its name
+  mkBuilderDefinition = name: b: {
+    module = {
+      imports = [
+        ../vms/builder-group
+        vmBase
+        cfg.vmModule
+        {
+          _module.args = {
+            builderName = name;
+            builderSettings = { inherit (b) maxJobs cores; };
+          };
+        }
+      ]
+      ++ lib.optional (cfg.vms.${name}.module != null) cfg.vms.${name}.module;
+    };
+    specialArgs = { };
+    packages = _: { };
+  };
+  builders = lib.mapAttrs' (
+    n: b: lib.nameValuePair "builder-${n}" (mkBuilderDefinition "builder-${n}" b)
+  ) cfg.builders;
 in
 {
   inherit appsOf;
   definitions =
-    lib.mapAttrs mkInfraDefinition infra
+    builders
+    // lib.mapAttrs mkInfraDefinition infra
     // lib.mapAttrs mkDefinition (lib.filterAttrs (_: vm: vm.role != null) cfg.vms);
 }

@@ -394,6 +394,7 @@ in
     ./roles.nix
     ./apps.nix
     ./infra.nix
+    ./builders.nix
   ];
 
   options.nox = {
@@ -476,7 +477,7 @@ in
             builder = mkOption {
               type = types.str;
               default = "builder";
-              description = "Builder VM that builds the group's image (builder-trust.md 3.8): `builder` (evaluates and builds dom0, default) or `builder-apps` (`nox.infra.builder-apps`, builds from the derivations dom0 hands over). Only with `nox.storeImages.asFiles`: dom0 takes the image only with that builder's image key (`services.dom0-update.imageKeys`). The sys group stays with `builder`.";
+              description = "Builder VM that builds the group's image (builder-trust.md 3.8): `builder` (evaluates everything and builds dom0, default) or a group builder `builder-<name>` (`nox.builders.<name>`, builds from the derivations dom0 hands over). Only with `nox.storeImages.asFiles`: dom0 takes the image only with that builder's image key (`services.dom0-update.imageKeys`). The group `builders` stays with `builder`; the builder of `sys` builds no other group.";
             };
           };
         }

@@ -26,7 +26,8 @@ rec {
   prefixLength = 24;
   port = 3240;
 
-  # VMs that never get USB devices from sys-usb
+  # VMs that never get USB devices from sys-usb; nor do the group builders
+  # (nox.builders, store group `builders`)
   noTarget = [
     "sys-net"
     "sys-usb"
@@ -34,7 +35,11 @@ rec {
     "sys-firewall"
     "builder"
   ];
-  isTarget = name: vmRegistry.byName ? ${name} && !builtins.elem name noTarget;
+  isTarget =
+    name:
+    vmRegistry.byName ? ${name}
+    && !builtins.elem name noTarget
+    && (vmRegistry.byName.${name}.storeGroup or null) != "builders";
 
   # VMs whose network goes through an image domain (irc: Whonix-Gateway, Tor
   # only) never get USB: the USB/IP vif would be a second link next to the

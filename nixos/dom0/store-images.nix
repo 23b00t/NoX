@@ -7,7 +7,7 @@
 # - system.build.builderOutputs: what the (sys) builder builds for this
 #   machine, `system` (the toplevel) and `images/<dir>/<file>` of its own
 #   images; dom0-update copies the toplevel through Nix and the images as
-#   files with a signed manifest. Images of another builder (builder-apps)
+#   files with a signed manifest. Images of a group builder (nox.builders)
 #   are built there from the derivations dom0 hands over
 # - nox-image: list/missing/drvs (anyone), fetch (as the user, sudo for
 #   put), put/install-local/gc (root)
@@ -15,10 +15,13 @@
   lib,
   pkgs,
   config,
+  vmRegistry,
   ...
 }:
 let
   root = "/var/lib/nox/images";
+  groupBuilders = vmRegistry.storeGroupBuilders or { };
+  sysBuilder = groupBuilders.sys or "builder";
 
   vmImages = lib.filter (i: i != null) (
     lib.mapAttrsToList (_: vm: vm.config.config.nox.storeImage or null) (config.microvm.vms or { })
@@ -38,6 +41,13 @@ let
     ) byFile
   );
   ownImages = lib.filterAttrs (_: i: i.builder == "builder") byFile;
+
+  # Free space put leaves on dom0's disk, whatever a builder sends
+  reserveMB = 10240;
+  reserveBytes = reserveMB * 1024 * 1024;
+  # Builder stderr only through the terminal filter (modules/dom0-update.nix)
+  termFilter =
+    if config.programs ? nox then "${config.programs.nox.package}/bin/nox term-filter" else "cat";
 
   noxImage = pkgs.writeShellScriptBin "nox-image" ''
     set -euo pipefail
@@ -63,7 +73,7 @@ let
                                           name) from it (as yourself; sudo for put)
            nox-image install-local [<system>]
                                           copy missing images from dom0's own store (root)
-           nox-image put --system <system> <dir> <store path> <sha256> < image
+           nox-image put --system <system> <dir> <store path> <sha256> [<size>] < image
                                           check and store one image (root)
            nox-image gc                    delete images no system, rollback or mark needs (root)
            nox-image gc -n [--drop <gen>…] only list them (as if generations <gen>… were deleted)
@@ -111,7 +121,7 @@ let
         ;;
       fetch)
         # The builder's manifest (builder-build, builder-images): "<dir>
-        # <store path> <sha256>" per image, signed with its image key; the
+        # <store path> <sha256> <size>" per image, signed with its image key; the
         # keys this system trusts are in <system>/etc/nox/image-signers
         # (dom0-update imageKeys), one per builder, and only the key of
         # the image's own builder counts. Each image streams through put,
@@ -128,8 +138,12 @@ let
         }
         mdir="$(mktemp -d)"
         trap 'rm -rf "$mdir"' EXIT
-        ssh "$builder-vm" cat "/var/lib/builder/images/$machine.manifest" > "$mdir/manifest"
-        ssh "$builder-vm" cat "/var/lib/builder/images/$machine.manifest.sig" > "$mdir/manifest.sig"
+        # The builder's stderr only through the terminal filter (OSC 52,
+        # titles, queries dropped; modules/dom0-update.nix)
+        ssh "$builder-vm" cat "/var/lib/builder/images/$machine.manifest" \
+          > "$mdir/manifest" 2> >(${termFilter} >&2)
+        ssh "$builder-vm" cat "/var/lib/builder/images/$machine.manifest.sig" \
+          > "$mdir/manifest.sig" 2> >(${termFilter} >&2)
         if ! ${pkgs.openssh}/bin/ssh-keygen -Y verify -f "$signers" -I "$builder" \
           -n nox-image -s "$mdir/manifest.sig" < "$mdir/manifest" >/dev/null; then
           echo "nox-image: $builder's image manifest has no valid signature of its image key: rejected" >&2
@@ -138,13 +152,16 @@ let
         for e in "''${need[@]}"; do
           dir="''${e%% *}" path="''${e#* }"
           valid "$dir" "$path" || { echo "nox-image: invalid entry $e" >&2; exit 1; }
-          sha="$(awk -v d="$dir" -v p="$path" '$1 == d && $2 == p { print $3 }' "$mdir/manifest")"
-          [ -n "$sha" ] || {
+          # sha256 and size (bytes; missing in manifests of older builders)
+          sha="" size=""
+          read -r sha size < <(awk -v d="$dir" -v p="$path" '$1 == d && $2 == p { print $3, $4; exit }' "$mdir/manifest") || true
+          [ -n "''${sha:-}" ] || {
             echo "nox-image: $dir $path is not in $builder's manifest: rejected" >&2
             exit 1
           }
           echo "nox-image: fetching $dir/''${path##*/} from $builder" >&2
-          ssh "$builder-vm" cat "$path" | sudo "$0" put --system "$sys" "$dir" "$path" "$sha"
+          ssh "$builder-vm" cat "$path" 2> >(${termFilter} >&2) |
+            sudo "$0" put --system "$sys" "$dir" "$path" "$sha" ''${size:+"$size"}
         done
         ;;
       install-local)
@@ -166,16 +183,40 @@ let
         exit "$rc"
         ;;
       put)
-        [ "''${1:-}" = --system ] && [ $# -eq 5 ] || usage
-        sys="$2" dir="$3" path="$4" sha="$5"
+        [ "''${1:-}" = --system ] && [ $# -ge 5 ] && [ $# -le 6 ] || usage
+        sys="$2" dir="$3" path="$4" sha="$5" size="''${6:-}"
         valid "$dir" "$path" || { echo "nox-image: invalid entry $dir $path" >&2; exit 1; }
         [[ $sha =~ ^[0-9a-f]{64}$ ]] || { echo "nox-image: invalid sha256 $sha" >&2; exit 1; }
+        [[ -z $size || $size =~ ^[0-9]{1,15}$ ]] || { echo "nox-image: invalid size $size" >&2; exit 1; }
         expected "$sys" | awk -v d="$dir" -v p="$path" '$1 == d && $2 == p { f = 1 } END { exit !f }' ||
           { echo "nox-image: $sys doesn't expect $dir $path" >&2; exit 1; }
         mkdir -p "$root/.incoming"
+        # Never more than the free space minus a reserve, never more than
+        # the size the manifest names: a builder can't fill dom0's disk
+        # (builder-trust.md 13.5)
+        avail="$(df --output=avail -B1 "$root/.incoming" | tail -n 1 | tr -d ' ')"
+        max=$((avail - ${toString reserveBytes}))
+        if [ -n "$size" ]; then
+          [ "$size" -le "$max" ] || {
+            echo "nox-image: $path: $((size >> 20)) MB, only $((max > 0 ? max >> 20 : 0)) MB free above the reserve of ${toString reserveMB} MB: rejected" >&2
+            exit 1
+          }
+          max=$size
+        fi
+        [ "$max" -gt 0 ] || { echo "nox-image: $root: less than ${toString reserveMB} MB free: rejected" >&2; exit 1; }
         tmp="$root/.incoming/''${path##*/}.$$"
         trap 'rm -f "$tmp"' EXIT
-        cat > "$tmp"
+        # One byte more than allowed: tells a longer stream from an exact one
+        head -c "$((max + 1))" > "$tmp"
+        got_size="$(stat -c %s "$tmp")"
+        if [ "$got_size" -gt "$max" ]; then
+          echo "nox-image: $path: more than $max bytes: rejected" >&2
+          exit 1
+        fi
+        if [ -n "$size" ] && [ "$got_size" != "$size" ]; then
+          echo "nox-image: $path: $got_size bytes, the manifest says $size: rejected" >&2
+          exit 1
+        fi
         got="$(sha256sum "$tmp" | cut -d' ' -f1)"
         if [ "$got" != "$sha" ]; then
           echo "nox-image: $path: sha256 $got, the manifest says $sha: rejected" >&2
@@ -256,6 +297,28 @@ in
   };
 
   config = {
+    # builder-trust.md 3.8: every group's builder exists; the builder VMs'
+    # image comes from the builder (no group builder runs on an image it
+    # built); the sys builder builds no other group
+    assertions = lib.optionals cfg.asFiles (
+      lib.mapAttrsToList (g: b: {
+        assertion = b == "builder" || builtins.any (vm: vm.name == b) vmRegistry.vms;
+        message = "nox.storeGroups.${g}.builder: no builder VM ${b} on this machine (nox.builders, nox.vms.${b}.enable)";
+      }) groupBuilders
+      ++ [
+        {
+          assertion = (groupBuilders.builders or "builder") == "builder";
+          message = "nox.storeGroups.builders.builder must stay \"builder\": a group builder may not build the builders' image";
+        }
+        {
+          assertion =
+            sysBuilder == "builder"
+            || lib.all (g: g == "sys" || groupBuilders.${g} != sysBuilder) (lib.attrNames groupBuilders);
+          message = "nox.storeGroups: ${sysBuilder} builds sys and may build no other group";
+        }
+      ]
+    );
+
     environment.etc."nox/images".text = lib.optionalString cfg.asFiles expected;
 
     # A switch to a system whose images are missing: its VMs won't start
@@ -283,5 +346,16 @@ in
     environment.systemPackages = [ noxImage ];
 
     systemd.tmpfiles.rules = [ "d ${root} 0755 root root -" ];
+
+    # Store images and VM volumes hang in dom0 as loop devices with content
+    # dom0 doesn't trust (a group builder's image, a VM's home.img): no
+    # blkid on them, so no /dev/disk/by-label|by-uuid links, and LVM, bcache
+    # and md, which go by blkid's ID_FS_TYPE, never look at them
+    # (builder-trust.md 13.3). Before 60-persistent-storage.rules
+    services.udev.packages = [
+      (pkgs.writeTextDir "lib/udev/rules.d/59-nox-vm-volumes.rules" ''
+        SUBSYSTEM=="block", KERNEL=="loop[0-9]*", ACTION!="remove", ATTR{loop/backing_file}=="${root}/*|/var/lib/microvms/*", ENV{UDEV_DISABLE_PERSISTENT_STORAGE_RULES_FLAG}="1"
+      '')
+    ];
   };
 }

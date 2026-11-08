@@ -34,11 +34,22 @@ let
     # build's result doesn't wait for it; the store's content stays
     trap '/run/wrappers/bin/sudo -n ${config.systemd.package}/bin/systemctl start --no-block fstrim.service >/dev/null 2>&1 || true' EXIT
     bump=0
-    if [ "''${1:-}" = --bump ]; then
-      bump=1
-      shift
-    fi
-    machine="''${1:?usage: builder-build [--bump] <machine> [branch] | --iso <branch>}"
+    # --max-jobs/--cores: for this build only, instead of nix.settings
+    # (dom0-update --max-jobs/--cores, services.dom0-update.maxJobs/cores)
+    jobs=()
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --bump) bump=1; shift ;;
+        --max-jobs)
+          [[ ''${2:-} =~ ^[1-9][0-9]{0,2}$ ]] || { echo "builder-build: --max-jobs needs a number 1-999" >&2; exit 2; }
+          jobs+=(--max-jobs "$2"); shift 2 ;;
+        --cores)
+          [[ ''${2:-} =~ ^[0-9]{1,3}$ ]] || { echo "builder-build: --cores needs a number 0-999" >&2; exit 2; }
+          jobs+=(--cores "$2"); shift 2 ;;
+        *) break ;;
+      esac
+    done
+    machine="''${1:?usage: builder-build [--bump] [--max-jobs <n>] [--cores <n>] <machine> [branch] | --iso <branch>}"
     branch="''${2:-$machine}"
     # The toplevel (system) and the store images as files (images/), one
     # build: dom0/store-images.nix
@@ -186,7 +197,7 @@ let
     # pipefail: a failed build fails here although nom exits 0
     out="$( {
       ${config.nix.package}/bin/nix build --print-out-paths \
-        "''${link[@]}" \
+        "''${link[@]}" "''${jobs[@]}" \
         --log-format internal-json -v \
         "$drv^*" \
         2>&1 1>&3 | ${pkgs.nix-output-monitor}/bin/nom --json >&2
@@ -218,7 +229,7 @@ let
     timing "sign (''${#unsigned[@]} paths)"
 
     # The store images leave as files, not through Nix (dom0/store-images.nix):
-    # a manifest "<dir> <store path> <sha256>" per image, signed with the
+    # a manifest "<dir> <store path> <sha256> <size>" per image, signed with the
     # image key (ssh-keygen -Y, namespace nox-image). The sha256 of an image
     # is computed once (image-sha/<name>)
     mkdir -p ${stateDir}/images ${stateDir}/image-sha
@@ -231,7 +242,7 @@ let
       d="''${d##*/}"
       c="${stateDir}/image-sha/''${p##*/}"
       [ -s "$c" ] || sha256sum "$p" | cut -d' ' -f1 > "$c"
-      echo "$d $p $(cat "$c")" >> "$manifest.new"
+      echo "$d $p $(cat "$c") $(stat -L -c %s "$p")" >> "$manifest.new"
     done
     mv -f "$manifest.new" "$manifest"
     rm -f "$manifest.sig"

@@ -118,24 +118,8 @@ let
         outgoing = "ask";
       };
     };
-    # App builder (builder-trust.md variant B): builds the images of the
-    # groups with `nox.storeGroups.<g>.builder = "builder-apps"` from
-    # derivations dom0 hands over; no checkout, no evaluation. dom0 logs in
-    # like into the builder (`hostSSHKey` in the user's vms.nix)
-    builder-apps = {
-      index = 24;
-      short = "ba";
-      label = "sys";
-      githubAgent = false;
-      dbus = false;
-      clipboard = "deny";
-      memPriority = 10;
-      # No evaluation: builds and mkfs.erofs only
-      memory = 4096;
-      memoryMax = 8192;
-      store.size = 60000;
-      copy = noCopy;
-    };
+    # Group builders (builder-apps, builder-desktop, …): nox.builders
+    # (builders.nix)
   };
   core = [
     "sys-net"

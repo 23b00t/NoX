@@ -1,5 +1,5 @@
 # Reference of NoX's config options (nox.vms, nox.images, nox.roles,
-# nox.apps, nox.infra, nox.storeGroups, nox.network, nox.desktop,
+# nox.apps, nox.infra, nox.storeGroups, nox.builders, nox.network, nox.desktop,
 # nox.desktopEntries, dom0's nox.unfree) as Markdown: `nix build
 # .#options-doc`, copied to docs/options.md. Only the option declarations
 # are evaluated (no NixOS system): the registry schema and dom0's modules

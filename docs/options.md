@@ -441,6 +441,235 @@ null
 
 
 
+### nox\.builders
+
+
+
+Group builders: ` <name> ` makes the VM ` builder-<name> `, which builds the images of the store groups that name it (` nox.storeGroups.<g>.builder `)\. dom0 takes their images only with the builder’s image key (` services.dom0-update.imageKeys `, ` nox.storeImages.asFiles `)\. Declare them for every machine; per machine ` nox.vms.builder-<name>.enable ` (the VM definitions are evaluated without a host)\.
+
+
+
+*Type:*
+attribute set of (submodule)
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+*Example:*
+
+```nix
+{
+  desktop = {
+    hostSSHKey = "ssh-ed25519 AAAA… builder-desktop-vm";
+    index = 41;
+  };
+}
+```
+
+*Declared by:*
+ - [nixos/registry/builders\.nix](../nixos/registry/builders.nix)
+
+
+
+### nox\.builders\.\<name>\.cores
+
+
+
+Nix ` cores ` per job (0: all)\. Default: Nix’s (all)\. ` nox update --cores ` overrides it for one run\.
+
+
+
+*Type:*
+null or (unsigned integer, meaning >=0)
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/builders\.nix](../nixos/registry/builders.nix)
+
+
+
+### nox\.builders\.\<name>\.hostSSHKey
+
+
+
+Public key dom0 logs in with (dom0-update; private part ~/\.ssh/builder-\<name>-vm)\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"ssh-ed25519 AAAA… builder-desktop-vm"
+```
+
+*Declared by:*
+ - [nixos/registry/builders\.nix](../nixos/registry/builders.nix)
+
+
+
+### nox\.builders\.\<name>\.index
+
+
+
+Last octet of the VM’s addresses (like ` nox.vms.<name>.index `)\.
+
+
+
+*Type:*
+integer between 1 and 252 (both inclusive)
+
+*Declared by:*
+ - [nixos/registry/builders\.nix](../nixos/registry/builders.nix)
+
+
+
+### nox\.builders\.\<name>\.maxJobs
+
+
+
+Nix ` max-jobs ` of the builder\. Default: one job per 8 GB of ` memoryMax `, at least 2\. ` nox update --max-jobs ` overrides it for one run\.
+
+
+
+*Type:*
+null or (positive integer, meaning >0)
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/builders\.nix](../nixos/registry/builders.nix)
+
+
+
+### nox\.builders\.\<name>\.memory
+
+
+
+Boot memory in MB: it only builds and runs mkfs\.erofs, no evaluation\.
+
+
+
+*Type:*
+signed integer
+
+
+
+*Default:*
+
+```nix
+4096
+```
+
+*Declared by:*
+ - [nixos/registry/builders\.nix](../nixos/registry/builders.nix)
+
+
+
+### nox\.builders\.\<name>\.memoryMax
+
+
+
+Memory it may grow to (balloon) in MB; max-jobs follows it\.
+
+
+
+*Type:*
+signed integer
+
+
+
+*Default:*
+
+```nix
+8192
+```
+
+*Declared by:*
+ - [nixos/registry/builders\.nix](../nixos/registry/builders.nix)
+
+
+
+### nox\.builders\.\<name>\.short
+
+
+
+Short alias for the command line tools\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/builders\.nix](../nixos/registry/builders.nix)
+
+
+
+### nox\.builders\.\<name>\.storeSize
+
+
+
+Size of its store overlay in MB (` nox.vms.<name>.store.size `)\.
+
+
+
+*Type:*
+signed integer
+
+
+
+*Default:*
+
+```nix
+60000
+```
+
+*Declared by:*
+ - [nixos/registry/builders\.nix](../nixos/registry/builders.nix)
+
+
+
 ### nox\.desktop\.compositor
 
 
@@ -2338,8 +2567,6 @@ false
 
 ### nox\.infra\.sys-usb\.enable
 
-
-
 NoX’s sys-usb VM (module nixos/vms/sys-usb)\.
 
 
@@ -2541,6 +2768,30 @@ attribute set of (submodule)
 
 
 
+### nox\.storeGroups\.\<name>\.builder
+
+
+
+Builder VM that builds the group’s image (builder-trust\.md 3\.8): ` builder ` (evaluates everything and builds dom0, default) or a group builder ` builder-<name> ` (` nox.builders.<name> `, builds from the derivations dom0 hands over)\. Only with ` nox.storeImages.asFiles `: dom0 takes the image only with that builder’s image key (` services.dom0-update.imageKeys `)\. The group ` builders ` stays with ` builder `; the builder of ` sys ` builds no other group\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"builder"
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.storeGroups\.\<name>\.description
 
 
@@ -2566,6 +2817,8 @@ string
 
 
 ### nox\.storeGroups\.\<name>\.unfree
+
+
 
 Members may bring unfree packages; in any other group the VM’s build fails on one\.
 
