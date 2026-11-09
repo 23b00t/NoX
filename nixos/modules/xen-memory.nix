@@ -36,14 +36,17 @@ let
         min = if m.hotplugMem != 0 then m.mem + m.hotpluggedMem else m.mem - m.initialBalloonMem;
         max = if m.hotplugMem != 0 then m.mem + m.hotplugMem else m.mem;
         priority = vmRegistry.byName.${name}.memPriority or 0;
+        # Booted with Xen's ceiling at the boot size (microvm.nix xen runner)
+        hotplug = if m.hotplugMem != 0 then 1 else 0;
       }
     ) config.microvm.vms
   );
 
-  # "domain min max priority" per line
+  # "domain min max priority hotplug" per line
   vmTable = pkgs.writeText "xen-memory-vms" (
     lib.concatMapStrings (
-      vm: "${vm.domain} ${toString vm.min} ${toString vm.max} ${toString vm.priority}\n"
+      vm:
+      "${vm.domain} ${toString vm.min} ${toString vm.max} ${toString vm.priority} ${toString vm.hotplug}\n"
     ) managedVms
   );
 
@@ -63,12 +66,14 @@ let
     # then goes to the highest target seen in that time (bursty builds)
     declare -A low_since low_max
 
-    # domain -> "min max prio"; domid -> domain ("" = not managed);
+    # domain -> "min max prio hotplug"; domid -> domain ("" = not managed);
     # domids to evaluate in the next round
     declare -A vm_row domain_of dirty
+    # domids whose ceiling the balancer raised (hotplug VMs)
+    declare -A raised
 
-    while read -r domain min max prio; do
-      vm_row[$domain]="$min $max $prio"
+    while read -r domain min max prio hot; do
+      vm_row[$domain]="$min $max $prio $hot"
     done < ${vmTable}
 
     balance() {
@@ -84,13 +89,13 @@ let
         fi
         domain=''${domain_of[$domid]}
         [ -n "$domain" ] || continue
-        read -r min max prio <<< "''${vm_row[$domain]}"
+        read -r min max prio hot <<< "''${vm_row[$domain]}"
 
         # Guest-supplied, so untrusted: four plain numbers or nothing.
         # Unreadable means the domain is gone: forget it.
         if ! info="$(xenstore-read "/local/domain/$domid/data/meminfo" 2>/dev/null)" ||
           ! target_kb="$(xenstore-read "/local/domain/$domid/memory/target" 2>/dev/null)"; then
-          unset "domain_of[$domid]" "low_since[$domain]" "low_max[$domain]"
+          unset "domain_of[$domid]" "raised[$domid]" "low_since[$domain]" "low_max[$domain]"
           continue
         fi
         [[ $info =~ ^[0-9]{1,9}\ [0-9]{1,9}\ [0-9]{1,9}\ [0-9]{1,9}$ ]] || continue
@@ -125,14 +130,14 @@ let
           fi
         else
           unset "low_since[$domain]" "low_max[$domain]"
-          grows+="$prio $domain $cur $want $used $domid"$'\n'
+          grows+="$prio $domain $cur $want $used $domid $min $max $hot"$'\n'
         fi
       done
 
       if [ -n "$grows" ]; then
         free="$(xl info free_memory 2>/dev/null)" || free=0
         budget=$(( free - ${toString cfg.reserveMB} ))
-        while read -r prio domain cur want used domid; do
+        while read -r prio domain cur want used domid min max hot; do
           [ -n "$domain" ] || continue
           if (( budget <= 0 )); then
             dirty[$domid]=1
@@ -142,6 +147,23 @@ let
           if (( new - cur > budget )); then
             new=$(( cur + budget ))
             dirty[$domid]=1
+          fi
+          # Hotplug VMs boot with Xen's ceiling at their boot size: raised
+          # before the guest's first target event, the guest would take it
+          # as a permanent offset (microvm.nix lib/runners/xen.nix). A guest
+          # reporting meminfo from userspace is long past that, so raise it
+          # once per domid, before the first growth beyond the boot size.
+          # Idempotent: after a restart of the balancer it is just raised
+          # again.
+          if [ "$hot" = 1 ] && (( new > min )) && [ -z "''${raised[$domid]:-}" ]; then
+            if timeout 30 xl mem-max "$domain" "''${max}m"; then
+              echo "$domain: ceiling raised to $max MiB"
+              raised[$domid]=1
+            else
+              echo "$domain: could not raise the ceiling to $max MiB"
+              dirty[$domid]=1
+              continue
+            fi
           fi
           echo "$domain: $cur -> $new MiB (used $used, wants $want, prio $prio)"
           timeout 30 xl mem-set "$domain" "''${new}m" || true

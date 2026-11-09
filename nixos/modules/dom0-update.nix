@@ -123,6 +123,14 @@ let
       exit 1
     ''}
 
+    # One run at a time: two would share the builder (one stops it under
+    # the other), its checkout, the logs and the pending mark
+    exec 9>"''${XDG_RUNTIME_DIR:-/tmp}/dom0-update.lock"
+    ${pkgs.util-linux}/bin/flock -n 9 || {
+      echo "dom0-update: another run is in progress" >&2
+      exit 1
+    }
+
     # Ask for the sudo password now, not after the build, and keep the
     # timestamp fresh meanwhile. Without a terminal (unattended runs) rely on
     # NOPASSWD rules for the commands below.
@@ -194,6 +202,10 @@ let
     fi
     for _ in $(seq 120); do
       ssh -o ConnectTimeout=5 ${builderIp} true >/dev/null 2>&1 && break
+      if systemctl is-failed --quiet microvm@builder; then
+        echo "dom0-update: the builder VM failed to start (journalctl -u microvm@builder)" >&2
+        exit 1
+      fi
       sleep 2
     done
 
@@ -302,22 +314,31 @@ let
         others=("''${picked[@]}")
       fi
       declare -A handover=()
+      alldrvs=()
       for b in "''${others[@]}"; do
         [[ $b =~ ^[a-z0-9-]+$ ]] || unexpected "$b"
         mapfile -t pairs < <("$ni" drvs "$out" "$b")
         handover[$b]="''${pairs[*]}"
+        alldrvs+=("''${pairs[@]#*=}")
         ${config.nix.package}/bin/nix copy --derivation --from ssh-ng://${builderIp} \
           "''${pairs[@]#*=}" 2> >(${termFilter} >&2)
-        # nix copy skips derivations dom0 already has (from earlier runs,
-        # without this signature): their signature comes separately, or the
-        # copy to the group builder rejects them
-        ${config.nix.package}/bin/nix store copy-sigs --substituter ssh-ng://${builderIp} \
-          -r --derivation "''${pairs[@]#*=}" >/dev/null 2> >(${termFilter} >&2)
       done
+      # nix copy skips derivations dom0 already has (from earlier runs,
+      # without this signature): their signature comes separately, or the
+      # copy to the group builder rejects them. Once for all groups (the
+      # closures overlap)
+      if [ "''${#alldrvs[@]}" -gt 0 ]; then
+        ${config.nix.package}/bin/nix store copy-sigs --substituter ssh-ng://${builderIp} \
+          -r --derivation "''${alldrvs[@]}" >/dev/null 2> >(${termFilter} >&2)
+      fi
       if [ "$started_builder" = 1 ] && [ "''${#others[@]}" -gt 0 ]; then
         # RAM for the app builders
         sudo systemctl stop microvm@builder
         started_builder=0
+      elif [ "''${#others[@]}" -gt 0 ]; then
+        # Started by someone else: left running, but it holds its RAM
+        # through the group phase (builder-trust.md 14.3)
+        echo "dom0-update: warning: the builder VM was already running and stays on; group builders may not get memory to start (stop it first: sudo systemctl stop microvm@builder)" >&2
       fi
       # Only paths with the sys builder's signature: the group builders
       # trust that key, a single path without it would abort the whole copy.
@@ -343,10 +364,18 @@ let
           sudo systemctl start "microvm@$b"
           started_b=1
         fi
+        local up=0
         for _ in $(seq 120); do
-          ssh -o ConnectTimeout=5 "$b-vm" true >/dev/null 2>&1 && break
+          ssh -o ConnectTimeout=5 "$b-vm" true >/dev/null 2>&1 && { up=1; break; }
+          # Not started at all (e.g. no memory for the domain): no point
+          # in waiting out the loop
+          if systemctl is-failed --quiet "microvm@$b"; then
+            echo "dom0-update: $b failed to start (journalctl -u microvm@$b)" >&2
+            return 1
+          fi
           sleep 2
         done
+        [ "$up" = 1 ] || { echo "dom0-update: $b does not answer over SSH" >&2; return 1; }
         ${config.nix.package}/bin/nix copy --derivation --to "ssh-ng://$b-vm" \
           "''${pairs[@]#*=}" 2> >(${termFilter} >&2)
         # Of those only what this group's derivations build on (outputs in
@@ -402,7 +431,15 @@ let
           (
             set +e
             (set -e; run_builder "$b")
-            echo $? > "$status/$b"
+            rc=$?
+            echo "$rc" > "$status/$b"
+            # A failed builder gives its RAM back now, not only in cleanup
+            # after the other jobs (the next one may need it to start)
+            if [ "$rc" != 0 ] && [[ " ''${started[*]} " == *" $b "* ]] &&
+              systemctl is-active --quiet "microvm@$b"; then
+              echo "dom0-update: $b failed, stopping it" >&2
+              sudo systemctl stop "microvm@$b" || true
+            fi
           ) </dev/null 2> >(tee -a "$logs/update-$b.log" |
             ${pkgs.gnused}/bin/sed -u -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' |
             grep -a --line-buffered -E '^(dom0-update|nox-image|builder-images: timing)|(^|[[:space:]])(error|warning):' |

@@ -187,6 +187,8 @@ in
     # Builds derivations only; it never evaluates
     allow-import-from-derivation = false;
     http2 = false;
+    # Like the sys builder: an hour without output kills the build
+    max-silent-time = 3600;
     # Paths dom0 pushes in (built by the sys builder, 3.7)
     trusted-public-keys = lib.optional (sysKey != null) sysKey;
   };

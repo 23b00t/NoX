@@ -148,11 +148,17 @@ let
         mdir="$(mktemp -d)"
         trap 'rm -rf "$mdir"' EXIT
         # The builder's stderr only through the terminal filter (OSC 52,
-        # titles, queries dropped; modules/dom0-update.nix)
+        # titles, queries dropped; modules/dom0-update.nix). Manifest and
+        # signature at most the sizes put accepts (1 MiB, 64 KiB), so a
+        # builder can't fill dom0's disk through them (mktemp is on /)
         ssh "$builder-vm" cat "/var/lib/builder/images/$machine.manifest" \
-          > "$mdir/manifest" 2> >(${termFilter} >&2)
+          2> >(${termFilter} >&2) | head -c 1048577 > "$mdir/manifest" || true
         ssh "$builder-vm" cat "/var/lib/builder/images/$machine.manifest.sig" \
-          > "$mdir/manifest.sig" 2> >(${termFilter} >&2)
+          2> >(${termFilter} >&2) | head -c 65537 > "$mdir/manifest.sig" || true
+        if [ "$(stat -c %s "$mdir/manifest")" -gt 1048576 ] || [ "$(stat -c %s "$mdir/manifest.sig")" -gt 65536 ]; then
+          echo "nox-image: $builder's image manifest or its signature is too large: rejected" >&2
+          exit 1
+        fi
         if ! ${pkgs.openssh}/bin/ssh-keygen -Y verify -f "$signers" -I "$builder" \
           -n nox-image -s "$mdir/manifest.sig" < "$mdir/manifest" >/dev/null; then
           echo "nox-image: $builder's image manifest has no valid signature of its image key: rejected" >&2
@@ -214,12 +220,16 @@ let
           echo "nox-image: $builder's image manifest has no valid signature of its image key: rejected" >&2
           exit 1
         fi
-        # sha256 and size (bytes; missing in manifests of older builders)
+        # sha256 and size (bytes)
         sha="" size=""
         read -r sha size < <(awk -v d="$dir" -v p="$path" '$1 == d && $2 == p { print $3, $4; exit }' "$mdir/manifest") || true
         [ -n "$sha" ] || { echo "nox-image: $dir $path is not in $builder's manifest: rejected" >&2; exit 1; }
-        [[ $sha =~ ^[0-9a-f]{64}$ ]] || { echo "nox-image: invalid sha256 $sha" >&2; exit 1; }
-        [[ -z $size || $size =~ ^[0-9]{1,15}$ ]] || { echo "nox-image: invalid size $size" >&2; exit 1; }
+        # The fields themselves are not printed: they are the builder's
+        # bytes (escape sequences would reach the terminal unfiltered)
+        [[ $sha =~ ^[0-9a-f]{64}$ ]] || { echo "nox-image: invalid sha256 for $dir $path in $builder's manifest" >&2; exit 1; }
+        # The size is required: without it a builder could stream up to the
+        # free space minus the reserve before the sha256 rejects it
+        [[ $size =~ ^[0-9]{1,15}$ ]] || { echo "nox-image: missing or invalid size for $dir $path in $builder's manifest" >&2; exit 1; }
         mkdir -p "$root/.incoming"
         # Never more than the free space minus a reserve, never more than
         # the size the manifest names: a builder can't fill dom0's disk
@@ -319,8 +329,13 @@ let
             rm -f "$f"
             echo "deleted $f ($sz MB)"
           fi
-        # Not in .incoming (fetches still running) nor .pending
-        done < <(find "$root" -mindepth 2 -maxdepth 2 -type f -not -path "$root/.*" -print0)
+        # Not in .incoming (fetches still running) nor .pending; but a file
+        # in .incoming untouched for a day is left over from a put that was
+        # killed (SIGKILL, OOM, power loss): its EXIT trap never ran
+        done < <(
+          find "$root" -mindepth 2 -maxdepth 2 -type f -not -path "$root/.*" -print0
+          [ ! -d "$root/.incoming" ] || find "$root/.incoming" -mindepth 1 -maxdepth 1 -type f -mmin +1440 -print0
+        )
         if [ "$dry" = 0 ]; then
           find "$root" -mindepth 1 -maxdepth 1 -type d -empty -not -name ".*" -delete
         fi

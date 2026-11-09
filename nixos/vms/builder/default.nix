@@ -429,6 +429,10 @@ in
     # (2026-10-11) one stalled connection hung all of them for 300 s each
     # ("Operation too slow"). Separate HTTP/1.1 connections don't.
     http2 = false;
+    # A build or download that prints nothing for an hour is killed instead
+    # of blocking the update forever (no overall timeout: big builds like
+    # the kernel may take longer)
+    max-silent-time = 3600;
   };
   systemd.sockets.nix-daemon.unitConfig.RequiresMountsFor = [ stateDir ];
 
