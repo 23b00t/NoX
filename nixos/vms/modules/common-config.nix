@@ -70,11 +70,34 @@ in
     };
 
     systemd = {
-      # Driver domains (sys-net, sys-vpn, …): tell dom0 the backend is up once
-      # xl devd runs (data/backend-ready, guest-writable); clients' preStart
-      # waits for it (vms/modules/net-config.nix)
+      # Driver domains (sys-net, sys-usb, sys-firewall, sys-vpn) serve backends
+      # (vifs) for other domains: `xl devd` watches xenstore and runs the
+      # hotplug scripts here, like dom0 does (moved from the microvm.nix fork,
+      # which only sets `driver_domain = 1`). It tells dom0 the backend is up
+      # (data/backend-ready, guest-writable); clients' preStart waits for it
+      # (vms/modules/net-config.nix)
+      mounts = mkIf (config.microvm.xen.driverDomain or false) [
+        {
+          description = "Mount /proc/xen files";
+          what = "xenfs";
+          where = "/proc/xen";
+          type = "xenfs";
+          unitConfig.ConditionPathExists = [
+            "/proc/xen"
+            "!/proc/xen/capabilities"
+          ];
+        }
+      ];
       services.xendriverdomain = mkIf (config.microvm.xen.driverDomain or false) {
+        description = "Xen driver domain device daemon";
+        requires = [ "proc-xen.mount" ];
+        after = [ "proc-xen.mount" ];
+        wantedBy = [ "multi-user.target" ];
         serviceConfig = {
+          Type = "forking";
+          ExecStart = "${config.microvm.xen.package}/bin/xl devd";
+          # xl devd logs to /var/log/xen/xldevd.log
+          LogsDirectory = "xen";
           ExecStartPost = "${config.microvm.xen.package}/bin/xenstore-write data/backend-ready 1";
           ExecStopPost = "-${config.microvm.xen.package}/bin/xenstore-rm data/backend-ready";
         };
@@ -98,6 +121,13 @@ in
     # new vifs, usb-helper hung (sys-net 2026-10-16, sys-usb 2026-10-19,
     # Known Issues). Load them at boot in every driver domain
     boot.kernelModules = mkIf (config.microvm.xen.driverDomain or false) [
+      # backends and xl devd
+      "xen-netback"
+      "xen-evtchn"
+      "xen-gntdev"
+      "xen-gntalloc"
+      "xen-privcmd"
+      "bridge"
       "nft_compat"
       "xt_physdev"
       "br_netfilter"
@@ -240,6 +270,10 @@ in
     };
 
     environment = {
+      # libxl runs the default hotplug scripts (vif-bridge, …) from here
+      etc."xen/scripts" = mkIf (config.microvm.xen.driverDomain or false) {
+        source = "${config.microvm.xen.package}/etc/xen/scripts";
+      };
       sessionVariables = {
         TERM = "xterm-256color";
         GTK_THEME = if dark then "Adwaita:dark" else "Adwaita";

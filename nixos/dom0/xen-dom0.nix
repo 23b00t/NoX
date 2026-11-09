@@ -632,6 +632,23 @@ in
   systemd = {
     # nox-relay (root) creates the wprs sockets for dom0's wprsc here
     tmpfiles.rules = [ "d /run/nox-relay 0755 root root -" ];
+    # microvm@<vm> runs as root on Xen and executes <stateDir>/<vm>/current:
+    # microvm.nix makes the state dirs microvm:kvm 0775, so the microvm user
+    # or the kvm group could swap `current` or xl.cfg (root in dom0). Keep
+    # them root-owned; root writes the `booted` link too (set-booted below)
+    tmpfiles.settings."10-microvm" =
+      lib.genAttrs
+        (
+          [ config.microvm.stateDir ]
+          ++ map (name: "${config.microvm.stateDir}/${name}") (builtins.attrNames config.microvm.vms)
+        )
+        (_: {
+          d = {
+            user = lib.mkForce "root";
+            group = lib.mkForce "root";
+            mode = lib.mkForce "0755";
+          };
+        });
 
     # Boot order barrier (see sysGroup above)
     targets.nox-sys = {
@@ -655,6 +672,11 @@ in
           # oxenstored ignores SIGTERM: every shutdown waited 90 s for the
           # SIGKILL. Its state only lives in RAM, nothing to save on the way down
           xenstored.serviceConfig.TimeoutStopSec = "5s";
+          # Writes <stateDir>/<vm>/booted, the state dirs are root-owned (tmpfiles above)
+          "microvm-set-booted@".serviceConfig = {
+            User = lib.mkForce "root";
+            Group = lib.mkForce "root";
+          };
           # A stopped VM can stay behind as a shut-down domain (state "s", its
           # qemu already gone) that still holds its PCI devices: pci-setup then
           # fails with "failed to quarantine" and the VM only started again after

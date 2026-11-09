@@ -65,6 +65,8 @@
         nox-rpc = final.callPackage ./nix/nox-rpc.nix { };
         nox-cli = final.callPackage ./nix/nox-cli.nix { };
         nox-screencast = final.callPackage ./nix/nox-screencast.nix { };
+        # Device-model stubdomain for HVM domains (Tails test, xen-vnc)
+        xen-stubdom-linux = final.callPackage ./nix/xen-stubdom-linux { };
       };
 
       packages = forAllSystems (
@@ -85,6 +87,7 @@
             nox-rpc
             nox-cli
             nox-screencast
+            xen-stubdom-linux
             ;
           options-doc = pkgs.callPackage ./nix/options-doc.nix { };
           # Hardware check for a NoX machine (report, --nix: machines/hardware.nix)

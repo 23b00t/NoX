@@ -49,6 +49,11 @@ in
   config =
     lib.mkIf (cfg.guest.enable && cfg.hypervisor == "xen" && (cfg.balloon || cfg.hotplugMem != 0))
       {
+        # Memory the balancer hotplugs must come online on its own; the
+        # nixpkgs guest kernel does that by default
+        # (MHP_DEFAULT_ONLINE_TYPE_ONLINE_AUTO), this keeps it explicit
+        boot.kernelParams = lib.mkIf (cfg.hotplugMem != 0) [ "memhp_default_state=online" ];
+
         systemd.services.xen-meminfo = {
           description = "Report memory usage to dom0 via xenstore";
           wantedBy = [ "multi-user.target" ];

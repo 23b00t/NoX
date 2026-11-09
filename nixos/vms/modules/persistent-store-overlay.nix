@@ -208,14 +208,6 @@ in
           size = cfg.dbDirSize;
         }
       ];
-      shares = [
-        {
-          proto = "virtiofs";
-          tag = "ro-store";
-          source = "/nix/store";
-          mountPoint = "/nix/.ro-store";
-        }
-      ];
     };
 
     nix.settings = {
