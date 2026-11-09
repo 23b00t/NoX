@@ -141,9 +141,10 @@ in
         size = 2048;
       }
     ];
-    mem = reg.memoryMax;
-    balloon = true;
-    initialBalloonMem = reg.memoryMax - reg.memory;
+    # Boots with `memory`, grows up to `memoryMax` by memory hotplug (roles/vm.nix)
+    mem = reg.memory;
+    hotplugMem = reg.memoryMax - reg.memory;
+    hotpluggedMem = 0;
     vcpu = 8;
   };
 

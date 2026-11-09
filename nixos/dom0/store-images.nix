@@ -41,6 +41,8 @@ let
     ) byFile
   );
   ownImages = lib.filterAttrs (_: i: i.builder == "builder") byFile;
+  # VMs with an image of their own (no store group)
+  standalone = lib.unique (map (i: i.dir) (lib.filter (i: !(groupBuilders ? ${i.dir})) vmImages));
 
   # Free space put leaves on dom0's disk, whatever a builder sends
   reserveMB = 10240;
@@ -73,8 +75,12 @@ let
                                           name) from it (as yourself; sudo for put)
            nox-image install-local [<system>]
                                           copy missing images from dom0's own store (root)
-           nox-image put --system <system> <dir> <store path> <sha256> [<size>] < image
-                                          check and store one image (root)
+           nox-image put --system <system> --builder <builder> --manifest <file> --sig <file>
+                         <dir> <store path> < image
+                                          check and store one image of <builder>'s signed
+                                          manifest (root)
+           nox-image pending [-d] <system> mark <system> as being fetched (dom0-update), so gc
+                                          keeps its images; -d: drop the mark (root)
            nox-image gc                    delete images no system, rollback or mark needs (root)
            nox-image gc -n [--drop <gen>…] only list them (as if generations <gen>… were deleted)
     <system> defaults to /run/current-system.
@@ -91,6 +97,9 @@ let
     valid() { # <dir> <store path>
       [[ $1 =~ ^[a-z0-9][a-z0-9-]*$ ]] &&
         [[ $2 =~ ^/nix/store/[0-9a-z]{32}-microvm-store-disk\.(erofs|squashfs)$ ]]
+    }
+    valid_system() { # <system>
+      [[ $1 =~ ^/nix/store/[0-9a-z]{32}-nixos-system-[A-Za-z0-9._+-]+$ || $1 == /run/current-system ]]
     }
     # Copy into place: a temporary name first, so a VM never sees half a file
     place() { # <dir> <store path> <tmp file>
@@ -152,16 +161,15 @@ let
         for e in "''${need[@]}"; do
           dir="''${e%% *}" path="''${e#* }"
           valid "$dir" "$path" || { echo "nox-image: invalid entry $e" >&2; exit 1; }
-          # sha256 and size (bytes; missing in manifests of older builders)
-          sha="" size=""
-          read -r sha size < <(awk -v d="$dir" -v p="$path" '$1 == d && $2 == p { print $3, $4; exit }' "$mdir/manifest") || true
-          [ -n "''${sha:-}" ] || {
+          awk -v d="$dir" -v p="$path" '$1 == d && $2 == p { f = 1 } END { exit !f }' "$mdir/manifest" || {
             echo "nox-image: $dir $path is not in $builder's manifest: rejected" >&2
             exit 1
           }
           echo "nox-image: fetching $dir/''${path##*/} from $builder" >&2
+          # put checks the manifest again itself (as root)
           ssh "$builder-vm" cat "$path" 2> >(${termFilter} >&2) |
-            sudo "$0" put --system "$sys" "$dir" "$path" "$sha" ''${size:+"$size"}
+            sudo "$0" put --system "$sys" --builder "$builder" \
+              --manifest "$mdir/manifest" --sig "$mdir/manifest.sig" "$dir" "$path"
         done
         ;;
       install-local)
@@ -183,13 +191,35 @@ let
         exit "$rc"
         ;;
       put)
-        [ "''${1:-}" = --system ] && [ $# -ge 5 ] && [ $# -le 6 ] || usage
-        sys="$2" dir="$3" path="$4" sha="$5" size="''${6:-}"
+        # Trusts its caller for nothing (builder-trust.md 13 "Härtung"):
+        # the system is a NixOS system in the store, the image is one it
+        # expects from <builder>, sha256 and size come from <builder>'s
+        # manifest, checked here against that builder's image key
+        [ $# -eq 10 ] && [ "$1" = --system ] && [ "$3" = --builder ] &&
+          [ "$5" = --manifest ] && [ "$7" = --sig ] || usage
+        sys="$2" builder="$4" dir="$9" path="''${10}"
+        valid_system "$sys" || { echo "nox-image: $sys is not a system in /nix/store" >&2; exit 1; }
+        [[ $builder =~ ^[a-z0-9-]+$ ]] || usage
         valid "$dir" "$path" || { echo "nox-image: invalid entry $dir $path" >&2; exit 1; }
+        expected "$sys" | awk -v d="$dir" -v p="$path" -v b="$builder" '$1 == d && $2 == p && $3 == b { f = 1 } END { exit !f }' ||
+          { echo "nox-image: $sys doesn't expect $dir $path from $builder" >&2; exit 1; }
+        # Own copies (the caller's files may change after the check)
+        mdir="$(mktemp -d)"
+        tmp=""
+        trap 'rm -rf "$mdir" ''${tmp:+"$tmp"}' EXIT
+        head -c 1048576 < "$6" > "$mdir/manifest"
+        head -c 65536 < "$8" > "$mdir/manifest.sig"
+        if ! ${pkgs.openssh}/bin/ssh-keygen -Y verify -f "$sys/etc/nox/image-signers" -I "$builder" \
+          -n nox-image -s "$mdir/manifest.sig" < "$mdir/manifest" >/dev/null; then
+          echo "nox-image: $builder's image manifest has no valid signature of its image key: rejected" >&2
+          exit 1
+        fi
+        # sha256 and size (bytes; missing in manifests of older builders)
+        sha="" size=""
+        read -r sha size < <(awk -v d="$dir" -v p="$path" '$1 == d && $2 == p { print $3, $4; exit }' "$mdir/manifest") || true
+        [ -n "$sha" ] || { echo "nox-image: $dir $path is not in $builder's manifest: rejected" >&2; exit 1; }
         [[ $sha =~ ^[0-9a-f]{64}$ ]] || { echo "nox-image: invalid sha256 $sha" >&2; exit 1; }
         [[ -z $size || $size =~ ^[0-9]{1,15}$ ]] || { echo "nox-image: invalid size $size" >&2; exit 1; }
-        expected "$sys" | awk -v d="$dir" -v p="$path" '$1 == d && $2 == p { f = 1 } END { exit !f }' ||
-          { echo "nox-image: $sys doesn't expect $dir $path" >&2; exit 1; }
         mkdir -p "$root/.incoming"
         # Never more than the free space minus a reserve, never more than
         # the size the manifest names: a builder can't fill dom0's disk
@@ -205,9 +235,9 @@ let
         fi
         [ "$max" -gt 0 ] || { echo "nox-image: $root: less than ${toString reserveMB} MB free: rejected" >&2; exit 1; }
         tmp="$root/.incoming/''${path##*/}.$$"
-        trap 'rm -f "$tmp"' EXIT
-        # One byte more than allowed: tells a longer stream from an exact one
-        head -c "$((max + 1))" > "$tmp"
+        # One byte more than allowed: tells a longer stream from an exact one.
+        # The sha256 on the way in, not by reading the file again (13 "Härtung")
+        got="$(head -c "$((max + 1))" | tee "$tmp" | sha256sum | cut -d' ' -f1)"
         got_size="$(stat -c %s "$tmp")"
         if [ "$got_size" -gt "$max" ]; then
           echo "nox-image: $path: more than $max bytes: rejected" >&2
@@ -217,14 +247,27 @@ let
           echo "nox-image: $path: $got_size bytes, the manifest says $size: rejected" >&2
           exit 1
         fi
-        got="$(sha256sum "$tmp" | cut -d' ' -f1)"
         if [ "$got" != "$sha" ]; then
           echo "nox-image: $path: sha256 $got, the manifest says $sha: rejected" >&2
           exit 1
         fi
         place "$dir" "$path" "$tmp"
-        trap - EXIT
         echo "nox-image: $(file_of "$dir" "$path")" >&2
+        ;;
+      pending)
+        # A mark per system whose images dom0-update is fetching: it isn't a
+        # generation yet (the profile is set only once all images are
+        # here), gc keeps its images all the same
+        del=0
+        [ "''${1:-}" != -d ] || { del=1; shift; }
+        [ $# -eq 1 ] || usage
+        valid_system "$1" || { echo "nox-image: $1 is not a system in /nix/store" >&2; exit 1; }
+        if [ "$del" = 1 ]; then
+          rm -f "$root/.pending/''${1##*/}"
+        else
+          mkdir -p "$root/.pending"
+          ln -sfn "$1" "$root/.pending/''${1##*/}"
+        fi
         ;;
       gc)
         dry=0
@@ -239,9 +282,17 @@ let
         fi
         # Kept: what any system generation (and the running and booted
         # system) expects, and what a VM's current, booted, rollback or
-        # mark runner boots from
+        # mark runner boots from; and what a system expects whose images an
+        # update is fetching (pending). A pending mark older than a day is
+        # left over from an update that ended without dropping it: ignored,
+        # and deleted by a real gc
         declare -A keep=()
-        for s in /nix/var/nix/profiles/system-*-link /run/current-system /run/booted-system; do
+        pending=()
+        if [ -d "$root/.pending" ]; then
+          mapfile -t pending < <(find "$root/.pending" -mindepth 1 -maxdepth 1 -type l -mmin -1440)
+          [ "$dry" = 1 ] || find "$root/.pending" -mindepth 1 -maxdepth 1 -type l -mmin +1440 -delete
+        fi
+        for s in /nix/var/nix/profiles/system-*-link /run/current-system /run/booted-system "''${pending[@]}"; do
           [ -e "$s" ] || continue
           [ -z "''${drop[$s]:-}" ] || continue
           while read -r dir path _; do
@@ -268,9 +319,10 @@ let
             rm -f "$f"
             echo "deleted $f ($sz MB)"
           fi
-        done < <(find "$root" -mindepth 2 -maxdepth 2 -type f -print0)
+        # Not in .incoming (fetches still running) nor .pending
+        done < <(find "$root" -mindepth 2 -maxdepth 2 -type f -not -path "$root/.*" -print0)
         if [ "$dry" = 0 ]; then
-          find "$root" -mindepth 1 -maxdepth 1 -type d -empty -delete
+          find "$root" -mindepth 1 -maxdepth 1 -type d -empty -not -name ".*" -delete
         fi
         echo "nox-image gc: $freed MB$([ "$dry" = 0 ] || echo ' would be') freed" >&2
         ;;
@@ -315,6 +367,13 @@ in
             sysBuilder == "builder"
             || lib.all (g: g == "sys" || groupBuilders.${g} != sysBuilder) (lib.attrNames groupBuilders);
           message = "nox.storeGroups: ${sysBuilder} builds sys and may build no other group";
+        }
+        # An own image (storeGroup = null) is built by the builder VM, which
+        # builds dom0: with group builders that is someone else's code there
+        # (builder-trust.md 13 "Härtung")
+        {
+          assertion = lib.all (b: b == "builder") (lib.attrValues groupBuilders) || standalone == [ ];
+          message = "nox.storeImages.asFiles with group builders (nox.builders): ${lib.concatStringsSep ", " standalone} without a store group would be built by the builder VM; give them one (nox.vms.<name>.storeGroup)";
         }
       ]
     );

@@ -228,6 +228,18 @@ let
     ${config.nix.package}/bin/nix store sign --key-file "$key" "''${unsigned[@]}"
     timing "sign (''${#unsigned[@]} paths)"
 
+    # The derivations of the group builders' images (and their sources):
+    # dom0-update hands them from here through dom0 to those builders, both
+    # copies check this signature. They carry no CA field here: the store
+    # overlay's DB comes back at boot through nix-store --load-db, which
+    # keeps neither CA fields nor signatures (builder-trust.md 14.2)
+    mapfile -t gdrvs < <(${pkgs.gawk}/bin/awk '$3 != "builder" { print $4 }' "$out/etc/nox/images" 2>/dev/null || true)
+    if [ "''${#gdrvs[@]}" -gt 0 ]; then
+      ${config.nix.package}/bin/nix-store -qR "''${gdrvs[@]}" |
+        xargs -r ${config.nix.package}/bin/nix store sign --key-file "$key"
+      timing "sign (derivations of ''${#gdrvs[@]} group images)"
+    fi
+
     # The store images leave as files, not through Nix (dom0/store-images.nix):
     # a manifest "<dir> <store path> <sha256> <size>" per image, signed with the
     # image key (ssh-keygen -Y, namespace nox-image). The sha256 of an image
@@ -334,10 +346,11 @@ in
       }
     ];
     # Boots with registry `memory`, the RAM balancer grows it up to
-    # `memoryMax` (defaults in registry/infra.nix, vms.nix may raise them)
-    mem = reg.memoryMax;
-    balloon = true;
-    initialBalloonMem = reg.memoryMax - reg.memory;
+    # `memoryMax` (defaults in registry/infra.nix, vms.nix may raise them),
+    # by memory hotplug (roles/vm.nix)
+    mem = reg.memory;
+    hotplugMem = reg.memoryMax - reg.memory;
+    hotpluggedMem = 0;
     vcpu = 8;
   };
 

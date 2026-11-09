@@ -1,7 +1,7 @@
 # Rollback (`nox rollback|gc`, xen-migration.md "Konzept Rollback"):
-# - vm-rollback <vm> [--gen n|mark | --mark | --reset]: a MicroVM's runner
-#   from an older system generation (or its mark) as its `current`, VM
-#   restarted. Configuration only, not data (that is `nox backup`)
+# - vm-rollback <vm> [--gen n|mark | --mark | --unmark | --reset]: a
+#   MicroVM's runner from an older system generation (or its mark) as its
+#   `current`, VM restarted. Configuration only, not data (that is `nox backup`)
 # - vm-gc [--keep n] [--dry-run]: delete old system generations, then GC
 #
 # State in /var/lib/microvms/<vm> (root's):
@@ -11,6 +11,7 @@
 #   activation of any other system (switch, update, rebuild, another boot
 #   entry) drops it and sets `current` back to that system's runner
 # - `mark`: one known-good runner per VM (indirect GC root): survives `nox gc`
+#   (until --unmark)
 {
   lib,
   pkgs,
@@ -83,10 +84,11 @@ let
            vm-rollback <vm> --gen <n>   run <vm> from generation <n> (restarts it)
            vm-rollback <vm> --gen mark  run <vm> from its mark (restarts it)
            vm-rollback <vm> --mark      mark <vm>'s current runner as known good (one per VM)
+           vm-rollback <vm> --unmark    drop <vm>'s mark (nox gc may then delete its runner)
            vm-rollback <vm> --reset     back to the running system's runner
     A rollback holds over reboots until another system is activated (update,
-    rebuild) or --reset. The mark survives nox gc.
-    --gen/--mark/--reset ask for sudo themselves: run vm-rollback as yourself, not with sudo
+    rebuild) or --reset. The mark survives nox gc (until --unmark).
+    --gen/--mark/--unmark/--reset ask for sudo themselves: run vm-rollback as yourself, not with sudo
     EOF
       exit 2
     }
@@ -166,6 +168,17 @@ let
         [ $# -eq 1 ] || usage
         sudo nix-store --realise "$cur" --add-root "$dir/mark" >/dev/null
         echo "$vm: mark = ''${cur#/nix/store/} (back to it with: nox rollback $vm --gen mark)"
+        ;;
+      --unmark)
+        [ $# -eq 1 ] || usage
+        [ -n "$mark" ] || { echo "$vm has no mark"; exit 0; }
+        # Only the link (the GC root): a rollback to the mark keeps its own
+        # root (`rollback`) and holds until --reset or the next system
+        sudo rm -f "$dir/mark"
+        echo "$vm: mark dropped"
+        if [ -e "$dir/rollback.info" ] && [ "$(sed -n 2p "$dir/rollback.info")" = mark ]; then
+          echo "$vm still runs from the former mark (back with: nox rollback $vm --reset)"
+        fi
         ;;
       --reset)
         [ $# -eq 1 ] || usage

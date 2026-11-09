@@ -82,10 +82,13 @@ let
     # never deletes another member's paths from the image and an imperative
     # install reuses them. Roots in /nix/var, recreated on every boot
     if [[ "$(${pkgs.coreutils}/bin/cat /proc/cmdline)" =~ noxStoreGroup=/nix/store/([^\ /]+) ]]; then
-      group="/nix/.ro-store/''${BASH_REMATCH[1]}"
+      gname="''${BASH_REMATCH[1]}"
+      group="/nix/.ro-store/$gname"
       if [ -r "$group/registration" ]; then
         ${nix}/bin/nix-store --load-db < "$group/registration"
         mkdir -p /nix/var/nix/gcroots/nox-image
+        # The group path itself too (it can't list itself in roots)
+        ln -sfn "/nix/store/$gname" "/nix/var/nix/gcroots/nox-image/$gname"
         while read -r p; do
           [[ "$p" =~ ^/nix/store/[0-9a-z]{32}-[^/]+$ ]] || continue
           ln -sfn "$p" "/nix/var/nix/gcroots/nox-image/''${p#/nix/store/}"

@@ -72,11 +72,11 @@ in
     }
     // lib.optionalAttrs (vm.vcpu != null) { inherit (vm) vcpu; }
     // lib.optionalAttrs (vm.memoryMax != null) {
-      # Boots with `memory`, the RAM balancer grows it up to `memoryMax`
-      mem = vm.memoryMax;
-      balloon = true;
-      # initialBalloonMem is what is taken away from `mem` at boot
-      initialBalloonMem = vm.memoryMax - vm.memory;
+      # Boots with `memory`, the RAM balancer grows it up to `memoryMax` by
+      # memory hotplug (no populate-on-demand, so no balloon-down at boot)
+      mem = vm.memory;
+      hotplugMem = vm.memoryMax - vm.memory;
+      hotpluggedMem = 0;
     }
     // lib.optionalAttrs (vm.memoryMax == null && vm.memory != null) { mem = vm.memory; }
     // lib.optionalAttrs (vm.gpu == true) {

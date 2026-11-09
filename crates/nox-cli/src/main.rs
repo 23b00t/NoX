@@ -126,6 +126,43 @@ impl Builders {
         }
         a
     }
+
+    /// Every --builder names one of the machine's group builders (registry
+    /// `builders`, NoX modules/dom0-update.nix)
+    fn check(&self, known: &[String]) -> Result<(), String> {
+        for b in &self.only {
+            let name = format!("builder-{}", b.strip_prefix("builder-").unwrap_or(b));
+            if !known.contains(&name) {
+                return Err(if known.is_empty() {
+                    format!("--builder {b}: this machine has no group builders (nox.builders)")
+                } else {
+                    format!(
+                        "--builder {b}: no such group builder (known: {})",
+                        known.join(", ")
+                    )
+                });
+            }
+        }
+        Ok(())
+    }
+}
+
+/// --builder against the machine's group builders; Some: exit with it
+fn check_builders(builders: &Builders) -> Option<ExitCode> {
+    if builders.only.is_empty() {
+        return None;
+    }
+    let known: Vec<String> = match registry::section("builders") {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("nox: {e:#}");
+            return Some(ExitCode::from(2));
+        }
+    };
+    builders.check(&known).err().map(|msg| {
+        eprintln!("nox: {msg}");
+        ExitCode::from(2)
+    })
 }
 
 #[derive(Subcommand)]
@@ -302,19 +339,22 @@ enum Cmd {
     },
     /// Run a VM from an older system generation or its mark (configuration, not data)
     #[command(
-        after_help = "Without --gen/--mark/--reset: the generations (and the mark) with a runner for VM.\n\
+        after_help = "Without --gen/--mark/--unmark/--reset: the generations (and the mark) with a runner for VM.\n\
         A rollback holds over reboots until another system is activated (update, rebuild) or --reset.\n\
-        The mark (one per VM) survives nox gc."
+        The mark (one per VM) survives nox gc until --unmark."
     )]
     Rollback {
         /// VM name
         vm: String,
         /// Generation whose runner to use, or `mark` (restarts the VM)
-        #[arg(long, value_name = "N|mark", value_parser = parse_gen, conflicts_with_all = ["reset", "mark"])]
+        #[arg(long, value_name = "N|mark", value_parser = parse_gen, conflicts_with_all = ["reset", "mark", "unmark"])]
         gen: Option<String>,
         /// Mark the VM's current runner as known good (replaces the last mark)
-        #[arg(long, conflicts_with = "reset")]
+        #[arg(long, conflicts_with_all = ["reset", "unmark"])]
         mark: bool,
+        /// Drop the VM's mark (nox gc may then delete its runner)
+        #[arg(long, conflicts_with = "reset")]
+        unmark: bool,
         /// Back to the running system's runner (restarts the VM)
         #[arg(long)]
         reset: bool,
@@ -905,6 +945,9 @@ fn main() -> ExitCode {
             branch,
             builders,
         } => {
+            if let Some(rc) = check_builders(&builders) {
+                return rc;
+            }
             let mut a: Vec<OsString> = vec!["--bump".into()];
             a.extend(build_args(switch, None, machine, branch));
             a.extend(builders.args());
@@ -917,6 +960,9 @@ fn main() -> ExitCode {
             branch,
             builders,
         } => {
+            if let Some(rc) = check_builders(&builders) {
+                return rc;
+            }
             let mut a = build_args(switch, iso, machine, branch);
             a.extend(builders.args());
             exec("dom0-update", a)
@@ -958,6 +1004,7 @@ fn main() -> ExitCode {
             vm,
             gen,
             mark,
+            unmark,
             reset,
         } => {
             let mut a = vec![vm];
@@ -966,6 +1013,8 @@ fn main() -> ExitCode {
                 a.push(g);
             } else if mark {
                 a.push("--mark".into());
+            } else if unmark {
+                a.push("--unmark".into());
             } else if reset {
                 a.push("--reset".into());
             }
@@ -1010,16 +1059,34 @@ mod tests {
             vm,
             gen,
             mark,
+            unmark,
             reset,
         }) = cli.command
         else {
             panic!("not rollback")
         };
         assert_eq!(
-            (vm.as_str(), gen.as_deref(), mark, reset),
-            ("steam", Some("mark"), false, false)
+            (vm.as_str(), gen.as_deref(), mark, unmark, reset),
+            ("steam", Some("mark"), false, false, false)
         );
         assert!(Cli::try_parse_from(["nox", "rollback", "steam", "--mark", "--reset"]).is_err());
+        let cli = Cli::try_parse_from(["nox", "rollback", "steam", "--unmark"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Cmd::Rollback {
+                unmark: true,
+                mark: false,
+                ..
+            })
+        ));
+        for other in [["--mark"], ["--reset"]] {
+            let mut a = vec!["nox", "rollback", "steam", "--unmark"];
+            a.extend(other);
+            assert!(Cli::try_parse_from(a).is_err(), "{other:?}");
+        }
+        assert!(
+            Cli::try_parse_from(["nox", "rollback", "steam", "--unmark", "--gen", "mark"]).is_err()
+        );
         assert!(Cli::try_parse_from(["nox", "snapshot", "steam"]).is_err());
     }
 
@@ -1165,6 +1232,32 @@ mod tests {
         );
         assert!(Cli::try_parse_from(["nox", "update", "--parallel", "0"]).is_err());
         assert!(Cli::try_parse_from(["nox", "rebuild", "--max-jobs", "0"]).is_err());
+    }
+
+    #[test]
+    fn builder_names_checked() {
+        let cli = Cli::try_parse_from([
+            "nox",
+            "update",
+            "--builder",
+            "desktop",
+            "--builder",
+            "builder-dev",
+        ])
+        .unwrap();
+        let Some(Cmd::Update { builders, .. }) = cli.command else {
+            panic!("not update")
+        };
+        let known = vec!["builder-desktop".to_string(), "builder-dev".to_string()];
+        assert!(builders.check(&known).is_ok());
+        assert!(builders
+            .check(&known[..1])
+            .unwrap_err()
+            .contains("builder-dev"));
+        assert!(builders
+            .check(&[])
+            .unwrap_err()
+            .contains("no group builders"));
     }
 
     #[test]

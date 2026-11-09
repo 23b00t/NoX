@@ -27,10 +27,11 @@
         size = 20000;
       }
     ];
-    # Boots with 2048 MB, the RAM balancer grows it up to 4096 MB
-    mem = 4096;
-    balloon = true;
-    initialBalloonMem = 2048;
+    # Boots with 2048 MB, the RAM balancer grows it up to 4096 MB by memory
+    # hotplug (roles/vm.nix)
+    mem = 2048;
+    hotplugMem = 2048;
+    hotpluggedMem = 0;
     vcpu = 2;
   };
 

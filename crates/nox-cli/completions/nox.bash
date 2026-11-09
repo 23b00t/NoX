@@ -71,7 +71,7 @@ _nox() {
     rollback)
       if [ "$n" -eq 0 ]; then words="$(_nox_vms)"
       elif [ "${COMP_WORDS[COMP_CWORD - 1]}" = --gen ]; then words="mark"
-      else words="--gen --mark --reset"; fi
+      else words="--gen --mark --unmark --reset"; fi
       ;;
     gc) words="--keep --dry-run" ;;
     usb)

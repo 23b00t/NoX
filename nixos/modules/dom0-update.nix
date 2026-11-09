@@ -88,6 +88,7 @@ let
     max_jobs=${lib.optionalString (cfg.maxJobs != null) (toString cfg.maxJobs)}
     cores=${lib.optionalString (cfg.cores != null) (toString cfg.cores)}
     only=()
+    group_opts=0
     while [ $# -gt 0 ]; do
       case "$1" in
         --switch) action=switch ;;
@@ -95,18 +96,20 @@ let
         --iso) [ $# -ge 2 ] || usage; action=iso; iso_vm="$2"; shift ;;
         --machine) [ $# -ge 2 ] || usage; machine="$2"; shift ;;
         --branch) [ $# -ge 2 ] || usage; branch="$2"; shift ;;
-        --parallel) [[ ''${2:-} =~ ^[1-9][0-9]?$ ]] || usage; parallel="$2"; shift ;;
+        --parallel) [[ ''${2:-} =~ ^[1-9][0-9]?$ ]] || usage; parallel="$2"; group_opts=1; shift ;;
         --max-jobs) [[ ''${2:-} =~ ^[1-9][0-9]{0,2}$ ]] || usage; max_jobs="$2"; shift ;;
         --cores) [[ ''${2:-} =~ ^[0-9]{1,3}$ ]] || usage; cores="$2"; shift ;;
         # builder-desktop or desktop
-        --builder) [[ ''${2:-} =~ ^[a-z0-9][a-z0-9-]*$ ]] || usage; only+=("builder-''${2#builder-}"); shift ;;
+        --builder) [[ ''${2:-} =~ ^[a-z0-9][a-z0-9-]*$ ]] || usage; only+=("builder-''${2#builder-}"); group_opts=1; shift ;;
         -h|--help) usage ;;
         *) echo "Unknown argument: $1" >&2; usage ;;
       esac
       shift
     done
-    # The ISO is built from the branch as it is
+    # The ISO is built from the branch as it is, by the builder alone (no
+    # group builders: --parallel/--builder mean nothing there)
     [ "$action" != iso ] || [ "''${#bump[@]}" = 0 ] || usage
+    [ "$action" != iso ] || [ "$group_opts" = 0 ] || usage
     nixjobs=()
     [ -z "$max_jobs" ] || nixjobs+=(--max-jobs "$max_jobs")
     [ -z "$cores" ] || nixjobs+=(--cores "$cores")
@@ -141,6 +144,9 @@ let
           sudo systemctl stop "microvm@$vm" || true
         done
       fi
+      # The pending mark of the new system (nox-image gc), when the run
+      # ends before it became a generation
+      [ -z "''${pending:-}" ] || sudo "$mark" pending -d "$pending" || true
       rm -f "''${signed:-}"
       [ -z "''${keepalive:-}" ] || kill "$keepalive" 2>/dev/null || true
     }
@@ -261,18 +267,23 @@ let
       # manifest and their sha256. dom0's nix-daemon never sees them
       ni="$out/sw/bin/nox-image"
       n="$("$ni" missing "$out" | wc -l)"
+      # Until the profile is set, $out is no generation: the mark keeps
+      # nox-image gc (nox gc) from deleting what is fetched meanwhile. Set
+      # with the running system's nox-image, whose gc reads it ($ni may be
+      # older)
+      mark=/run/current-system/sw/bin/nox-image
+      sudo "$mark" pending "$out"
+      pending=$out
       "$ni" fetch "$out" builder "$machine"
       timing "images of the builder"
 
       # Images of other builders (nox.storeGroups.<g>.builder, variant B):
       # their derivations come from the sys builder (it evaluated them) and
       # go to that builder, which builds without a checkout or evaluation
-      # (builder-trust.md 3.2, 3.6). The derivations carry neither a CA
-      # field nor a signature in the sys builder's store, so both copies
-      # skip the signature check (--no-check-sigs; dom0's user and the group
-      # builders' login user are trusted-users): dom0 trusts the sys builder
-      # anyway (it signs dom0's system) and only passes them on, the group
-      # builder trusts dom0 (builder-trust.md 13.1). The sys builder's own
+      # (builder-trust.md 3.2, 3.6). The derivations carry no CA field in
+      # the sys builder's store; builder-build signs them with its key, which
+      # dom0 and the group builders trust, and both copies check that
+      # signature (builder-trust.md 13.1, 14.2). The sys builder's own
       # builds (non-Hydra paths of the new system, signed by it) go along,
       # so the app builder doesn't build them again (3.7)
       mapfile -t others < <("$ni" missing "$out" | ${pkgs.gawk}/bin/awk '$3 != "builder" { print $3 }' | sort -u)
@@ -295,8 +306,13 @@ let
         [[ $b =~ ^[a-z0-9-]+$ ]] || unexpected "$b"
         mapfile -t pairs < <("$ni" drvs "$out" "$b")
         handover[$b]="''${pairs[*]}"
-        ${config.nix.package}/bin/nix copy --derivation --no-check-sigs --from ssh-ng://builder-vm \
+        ${config.nix.package}/bin/nix copy --derivation --from ssh-ng://${builderIp} \
           "''${pairs[@]#*=}" 2> >(${termFilter} >&2)
+        # nix copy skips derivations dom0 already has (from earlier runs,
+        # without this signature): their signature comes separately, or the
+        # copy to the group builder rejects them
+        ${config.nix.package}/bin/nix store copy-sigs --substituter ssh-ng://${builderIp} \
+          -r --derivation "''${pairs[@]#*=}" >/dev/null 2> >(${termFilter} >&2)
       done
       if [ "$started_builder" = 1 ] && [ "''${#others[@]}" -gt 0 ]; then
         # RAM for the app builders
@@ -331,7 +347,7 @@ let
           ssh -o ConnectTimeout=5 "$b-vm" true >/dev/null 2>&1 && break
           sleep 2
         done
-        ${config.nix.package}/bin/nix copy --derivation --no-check-sigs --to "ssh-ng://$b-vm" \
+        ${config.nix.package}/bin/nix copy --derivation --to "ssh-ng://$b-vm" \
           "''${pairs[@]#*=}" 2> >(${termFilter} >&2)
         # Of those only what this group's derivations build on (outputs in
         # their closure that dom0 has: wprs, nox-rpc, nox-relay …), not the
@@ -428,6 +444,8 @@ let
         started_builder=0
       fi
       sudo ${config.nix.package}/bin/nix-env -p /nix/var/nix/profiles/system --set "$out"
+      sudo "$mark" pending -d "$out"
+      pending=""
       sudo "$out/bin/switch-to-configuration" "$action"
       timing "$action"
       t0=$t_start
@@ -516,5 +534,9 @@ in
         lib.mapAttrsToList (name: key: "${name} namespaces=\"nox-image\" ${key}\n") imageKeys
       );
     };
+
+    # The group builders, for nox update/rebuild --builder (nox-cli checks
+    # the names)
+    programs.nox.registry.builders = map (vm: vm.name) groupBuilderVms;
   };
 }
