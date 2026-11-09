@@ -401,7 +401,7 @@ const BACKUP_ABOUT: &str =
       nox backup --level 9 coding           smaller files, much slower\n  \
       nox backup --all                      the VMs with registry `backup` and dom0\n  \
       nox backup restore coding             see: nox backup restore help\n  \
-      nox backup disks --all                every target with its disks\n  \
+      nox backup disks --all                show what a backup would take (backs up nothing)\n  \
       nox backup list                       all generations, free space\n  \
       nox backup prune --keep 2 -n          see: nox backup prune help"
 )]
@@ -420,11 +420,11 @@ struct Backup {
 #[group(required = true, multiple = false)]
 struct BackupSel {
     /// A VM (all its disks), VM:DISK,DISK, an image domain, dom0, builder
-    /// (`nox backup disks --all`)
+    /// (list them: `nox backup disks --all`)
     #[arg(value_name = "TARGET")]
     targets: Vec<String>,
-    /// The VMs with registry `backup` (not sys-*, disposables, steam) and
-    /// dom0; for disks: every target
+    /// Backup/restore: the VMs with registry `backup` (not sys-*, disposables,
+    /// steam) and dom0. disks: every target, image domains included
     #[arg(long)]
     all: bool,
 }
@@ -445,10 +445,17 @@ enum BackupCmd {
         #[command(flatten)]
         sel: BackupSel,
     },
-    /// The disks a backup takes, with size and used space
-    #[command(after_long_help = "Examples:\n  \
-      nox backup disks coding\n  \
-      nox backup disks --all")]
+    /// Show the disks a backup would take, with used and total size (backs up nothing)
+    #[command(
+        after_long_help = "Shows what a backup would read: one line per target, \
+      each disk with its used space and its size, plus a total.\n\
+      Only used space is backed up (before compression). The disk names are \
+      the ones nox backup VM:DISK takes.\n\
+      Nothing is backed up, the backup disk is not opened.\n\n\
+      Examples:\n  \
+      nox backup disks coding               the disks of coding\n  \
+      nox backup disks --all                every target, also those nox backup --all skips"
+    )]
     Disks {
         #[command(flatten)]
         sel: BackupSel,
