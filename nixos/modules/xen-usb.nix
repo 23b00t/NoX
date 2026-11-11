@@ -186,7 +186,7 @@ let
               echo "input device $vp at $busid is not allowed for dom0"
               DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u)/bus" notify-send -u critical \
                 "Neues Eingabegerät in sys-usb" \
-                "$vp an $busid bleibt in sys-usb. Freigeben bis zum Abziehen: vm-usb allow-input $busid" || true
+                "$vp an $busid bleibt in sys-usb. Freigeben bis zum Abziehen: nox usb allow-input $busid" || true
               notified[$busid/$vp]=1
             fi
             continue

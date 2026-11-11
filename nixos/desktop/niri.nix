@@ -17,7 +17,7 @@ let
     inherit lib theme;
     inherit (config.nox.desktop) keyboard;
   };
-  login = config.nox.desktop.login;
+  login = import ./login-on-host.nix { inherit vmRegistry; } config.nox.desktop.login;
   kdl = import ../lib/kdl.nix { inherit lib; };
   niriConfig = pkgs.writeTextFile {
     name = "niri-config.kdl";

@@ -41,7 +41,8 @@ writeShellApplication {
         ;;
     esac
 
-    if [ -t 1 ]; then
+    # NOX_COLOR=1: colors also into a pipe (nox-install pages it through less -R)
+    if [ -t 1 ] || [ "''${NOX_COLOR:-}" = 1 ]; then
       G=$'\e[32m' O=$'\e[33m' R=$'\e[31m' B=$'\e[1m' N=$'\e[0m'
     else
       G="" O="" R="" B="" N=""

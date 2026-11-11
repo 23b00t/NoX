@@ -48,18 +48,40 @@ let
 
   mkMachine =
     host: machine:
-    nixpkgs.lib.nixosSystem {
-      inherit system;
-      specialArgs = {
-        inherit inputs vmDefinitions;
-        vmRegistry = registry.forHost host;
+    let
+      full = nixpkgs.lib.nixosSystem {
+        inherit system;
+        specialArgs = {
+          inherit inputs vmDefinitions;
+          vmRegistry = registry.forHost host;
+        };
+        modules = [
+          self.nixosModules.dom0-base
+          self.nixosModules.disk
+        ]
+        ++ modules
+        ++ (machine.modules or [ ]);
       };
-      modules = [
-        self.nixosModules.dom0-base
-        self.nixosModules.disk
-      ]
-      ++ modules
-      ++ (machine.modules or [ ]);
+    in
+    full
+    // {
+      # The minimal installation nox-install installs (nox.install):
+      # `noxInstall { keep = [ "whonix-gateway" ]; }`. Same machine, the
+      # registry without the domains `nox update` builds after the first boot
+      noxInstall =
+        {
+          keep ? [ ],
+        }:
+        full.extendModules {
+          specialArgs.vmRegistry = registry.forHostWith [
+            {
+              nox.install = {
+                minimal = true;
+                inherit keep;
+              };
+            }
+          ] host;
+        };
     };
 
   mkVmSystem =

@@ -95,7 +95,17 @@ let
     };
 
   entries = mk: set: byName (lib.mapAttrsToList mk set);
-  enabled = lib.filterAttrs (_: v: v.enable);
+  # Minimal installation (nox.install): only the domains the first boot
+  # needs to build the rest
+  keep = [
+    "sys-net"
+    "sys-usb"
+    "sys-firewall"
+    "builder"
+  ]
+  ++ map (n: "builder-${n}") (builtins.attrNames cfg.builders)
+  ++ cfg.install.keep;
+  enabled = lib.filterAttrs (name: v: v.enable && (!cfg.install.minimal || builtins.elem name keep));
 in
 {
   vms = entries vmEntry cfg.vms;

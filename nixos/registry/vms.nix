@@ -414,6 +414,19 @@ in
       default = { };
       description = "Image domains (upstream disk images: Whonix, Kali); manual steps in the docs. Their `apps` only give dom0's desktop entries (`package` and `install` are not used, the image brings the software).";
     };
+    install = {
+      minimal = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Minimal installation: only dom0, sys-net, sys-usb, sys-firewall, the builder and the group builders (`nox.builders`) run on the machine, every other domain counts as disabled. nox-install installs this variant (`nixosConfigurations.<host>.noxInstall`), `nox update` builds the rest after the first boot. Not meant to be set in a config.";
+      };
+      keep = mkOption {
+        type = types.listOf types.str;
+        default = [ ];
+        example = [ "whonix-gateway" ];
+        description = "Domains that stay enabled in the minimal installation besides the fixed ones (nox-install: the Whonix-Gateway, whose image it downloads).";
+      };
+    };
     theme = mkOption {
       type = import ../desktop/theme-type.nix { inherit lib; };
       default = { };

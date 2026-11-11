@@ -90,7 +90,7 @@ let
         autostart = lib.mkOption {
           type = lib.types.bool;
           default = false;
-          description = "Start the domain at boot.";
+          description = "Start the domain at boot (nox-autostart in dom0/xen-dom0.nix; a switch leaves it as it is).";
         };
         vifs = lib.mkOption {
           type = lib.types.listOf (lib.types.submodule vifOpts);
@@ -682,7 +682,9 @@ let
         exit 2
         ;;
     esac
-    if systemctl is-active --quiet "xen-image@$1"; then
+    # In a chroot (nox-install via nixos-enter) systemctl answers every
+    # is-active with success, so only ask when there is a running systemd.
+    if ! systemd-detect-virt --chroot && systemctl is-active --quiet "xen-image@$1"; then
       echo "xen-image@$1 is running; stop it first" >&2
       exit 1
     fi
@@ -771,13 +773,8 @@ in
         };
       };
     }
-    // lib.mapAttrs' (
-      name: _:
-      lib.nameValuePair "xen-image@${name}" {
-        overrideStrategy = "asDropin";
-        wantedBy = [ "multi-user.target" ];
-      }
-    ) (lib.filterAttrs (_: d: d.autostart) cfg.domains)
+    # `autostart`: started at boot by nox-autostart (dom0/xen-dom0.nix), not
+    # wanted by multi-user.target, so a switch leaves a stopped domain off
     # Relay follows the domain (see microvm@ in machines/xen-dom0.nix)
     // lib.mapAttrs' (
       name: _:

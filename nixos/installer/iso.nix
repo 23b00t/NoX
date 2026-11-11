@@ -1,6 +1,7 @@
 # The NoX installer (packages.installer-iso): NixOS minimal live system with
-# nox-install, nox-hwcheck, disko, git/ssh, editors and NetworkManager. Boot it,
-# then `sudo nox-install`.
+# nox-install, nox-hwcheck, disko, git/ssh, editors, NetworkManager and lynx
+# (GitHub's key pages for the config's SSH key). Boot it, then
+# `sudo nox-install`.
 {
   lib,
   pkgs,
@@ -44,6 +45,7 @@
     pkgs.cryptsetup
     pkgs.pciutils
     pkgs.usbutils
+    pkgs.lynx
   ];
 
   system.stateVersion = lib.trivial.release;

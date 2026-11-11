@@ -19,22 +19,24 @@
 }:
 let
   # nox.* of one machine (host null: all definitions, for the VM definitions)
+  # `extra`: modules on top of the user's (nox-install's minimal variant)
   noxFor =
-    host:
+    extra: host:
     let
       nox =
         (lib.evalModules {
           modules = [
             ./vms.nix
             vmsModule
-          ];
+          ]
+          ++ extra;
           specialArgs = { inherit host; };
         }).config.nox;
     in
     # plus the disposables of VMs with `hasDisposable` (disp-<vm>)
     nox // { vms = nox.vms // import ./disposables.nix { inherit lib; } nox; };
   # … in the registry's entry format
-  domainsFor = host: import ./legacy.nix { inherit lib; } (noxFor host);
+  domainsFor = extra: host: import ./legacy.nix { inherit lib; } (noxFor extra host);
 
   # Lookups by name cover all VMs (IPs, keys, store groups), also those not on
   # the current machine; the lists per machine come from `forHost` below.
@@ -88,11 +90,12 @@ let
     };
 
   # The registry as one machine sees it: `vms`/`imageDomains` and everything
-  # derived from them only hold what runs there (nox.vms.<name>.enable)
-  forHost =
-    host:
+  # derived from them only hold what runs there (nox.vms.<name>.enable);
+  # `extra`: see noxFor
+  forHostWith =
+    extra: host:
     let
-      domains = domainsFor host;
+      domains = domainsFor extra host;
       hostVms = domains.vmsOnHost;
     in
     {
@@ -116,16 +119,17 @@ let
       vmHasFeature = feature: builtins.filter (vm: builtins.elem feature (vm.features or [ ])) hostVms;
       globalExtraSSH = [ ];
       # Store group -> the builder VM that builds its image (nox.storeGroups.<g>.builder)
-      storeGroupBuilders = lib.mapAttrs (_: g: g.builder) (noxFor host).storeGroups;
+      storeGroupBuilders = lib.mapAttrs (_: g: g.builder) (noxFor extra host).storeGroups;
       hardware = mkHardware host;
       hostProfile = machines.${host}.profile or { };
       # nox.theme: the same on every machine (VMs share store images), so
       # dom0 and its VMs look alike
-      inherit (noxFor null) theme;
+      inherit (noxFor [ ] null) theme;
     };
 in
 {
-  inherit forHost;
+  inherit forHostWith;
+  forHost = forHostWith [ ];
   # Every VM's definition (module, specialArgs, packages)
-  inherit ((import ./definitions.nix { inherit lib; }) (noxFor null)) definitions;
+  inherit ((import ./definitions.nix { inherit lib; }) (noxFor [ ] null)) definitions;
 }

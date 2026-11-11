@@ -28,7 +28,8 @@ let
     };
 
   trayApps = import ./tray-apps.nix { inherit lib vmRegistry; };
-  inherit (config.nox.desktop) login wm;
+  inherit (config.nox.desktop) wm;
+  login = import ./login-on-host.nix { inherit vmRegistry; } config.nox.desktop.login;
   notify = "${pkgs.libnotify}/bin/notify-send";
 
   # nox-wm <command> [args…]: the compositor hooks (nox.desktop.wm) as one

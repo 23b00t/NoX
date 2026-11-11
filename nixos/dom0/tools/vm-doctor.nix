@@ -29,9 +29,14 @@ in
 {
   programs.nox.registry.doctor = {
     autostart =
-      map (n: "microvm@${n}") (config.microvm.autostart or [ ])
+      # as nox-autostart (dom0/xen-dom0.nix): only the domains this machine has
+      map (n: "microvm@${n}") (builtins.filter (n: microvms ? ${n}) (config.microvm.autostart or [ ]))
       ++ map (n: "xen-image@${n}") (
-        builtins.attrNames (lib.filterAttrs (_: d: d.autostart) imageDomains)
+        builtins.attrNames (
+          lib.filterAttrs (
+            n: d: d.autostart && builtins.elem n (map (i: i.name) vmRegistry.imageDomains)
+          ) imageDomains
+        )
       );
     domains = map (h: {
       inherit (h) name;

@@ -178,9 +178,11 @@ the complete picture.
 ## Installer
 
 The installer ISO is a NixOS minimal live system with `nox-install`,
-`nox-hwcheck`, disko, git/ssh, neovim/helix/nano, cryptsetup and
-NetworkManager (`nmtui`); the kernel boots with the IOMMU on, so
-`nox-hwcheck` sees the IOMMU groups. Build it one of two ways:
+`nox-hwcheck`, disko, git/ssh, neovim/helix/nano, cryptsetup,
+NetworkManager (`nmcli`, `nmtui`) and lynx; the kernel boots with the IOMMU
+on, so `nox-hwcheck` sees the IOMMU groups. If the live system hangs at
+boot (seen with an NVIDIA GPU), start it with the GRUB entry „nomodeset“.
+Build it one of two ways:
 
 - **On a NoX machine** (dom0 builds nothing, the builder does):
   `nox rebuild --iso <vm>`, e.g. `nox rebuild --iso disp`. The builder
@@ -202,25 +204,52 @@ Write it to a stick (`dd`, in the VM the stick is attached to), boot it,
 then `sudo nox-install`. It guides through eight steps, Ctrl-C aborts any
 time:
 
-1. network (`nmtui` if there is none)
-2. the `nox-hwcheck` report
-3. the config: its git URL and branch; for an SSH URL a key from the stick
-   or a new one, whose public part you register at GitHub before it clones
-   to `/tmp/nixos-config`
-4. the host: one of `machines/*`, or a new name: then it writes
+1. network: without one, a WLAN by SSID (also a hidden one, `nmcli
+   --ask device wifi connect <ssid> [hidden yes]`), `nmtui`, or on without
+2. the `nox-hwcheck` report, paged with `less`
+3. the config: its git URL and branch, cloned to `/tmp/nixos-config`. A
+   GitHub repo is cloned over https first (an SSH URL is rewritten), so a
+   public config needs no key. Only if that fails (private repo) a key
+   from the stick or a new one, whose public part you register at GitHub,
+   and the clone over SSH
+4. the host: one of the machines (directories under `machines/` with a
+   `hardware-configuration.nix`), or a new name: then it writes
    `machines/<host>/hardware-configuration.nix` (without file systems) and
    `machines/<host>/hwcheck.nix` (`nox-hwcheck --nix`), opens the editor
    (flake.nix, hardware.nix, `nox.disk.device`) and commits + pushes
-   unsigned: sign it again later, else a builder doesn't take it
+   unsigned over SSH: it asks for the key now if it has none (write access:
+   a deploy key with "Allow write access" or a key of your account) and
+   offers to open GitHub's page for the key in lynx. There is no copy and
+   paste on the console: in lynx's "Key" field Ctrl-X i inserts a file
+   (`/root/.ssh/id_ed25519.pub`), Ctrl-X e opens the field in the editor.
+   Sign the commit again later, else a builder doesn't take it.
+   If the config runs the Whonix-Gateway on this machine, it asks whether
+   to fetch its image during the installation (step 7)
 5. the disk from the host's `nox.disk.device`: type its name, disko erases
    it and asks the LUKS passphrase
-6. `nixos-install` (builds the whole machine locally)
-7. the user's password (`passwd` in the new system; none is in the config)
-8. the config clone into `/home/<user>/nixos-config` (and, if you like, the
-   SSH key), then reboot
+6. the minimal system (`nox.install.minimal`): dom0, sys-net, sys-usb,
+   sys-firewall, the builder and the group builders (plus the
+   Whonix-Gateway if wanted); every other domain is left out. Built into
+   the new disk's store from `nixosConfigurations.<host>.noxInstall`, then
+   `nixos-install --system`
+7. the Whonix-Gateway image, if wanted: the CLI archive of the version you
+   give (default in NoX, the newest on whonix.org is shown), its signature
+   checked against Whonix' key `916B8D99C38EAF5E8ADC7A2A8D66066A2EEACCDA`,
+   the Gateway converted to raw at the image path of the config and
+   `xen-image-setup whonix-gateway` run in the new system. Tor still needs
+   `DisableNetwork 0` after the first boot (see the Whonix steps of your
+   config's README)
+8. the user's password (`passwd` in the new system; none is in the config),
+   then reboot
+
+After the first boot `nox update` builds and installs the rest on the
+builder. It only builds a branch whose HEAD you signed: a new machine's
+commit has to be signed first (`git commit --amend -S`, push).
 
 `nox-install --dry-run` runs steps 1-4 and prints the commands of 5-8;
-`--config URL`, `--branch B` and `--host H` skip those questions.
+`--config URL`, `--branch B` and `--host H` skip those questions,
+`--whonix-from DIR` takes the Whonix files (archive, `.asc`,
+`derivative.asc`) from DIR instead of downloading them.
 
 The disk layout is NoX's module `nox.disk`: `nox.disk.device =
 "/dev/disk/by-id/…"` gives GPT, ESP 1 GB (`/boot`), the rest LUKS2 with

@@ -298,6 +298,21 @@ let
     done
     echo "not up after 120 s:$missing; starting the other domains anyway"
   '';
+  # Started at boot by nox-autostart (systemd below), not by a target. Only
+  # the domains this machine has: a machine's microvm.autostart list or an
+  # image domain can name one the registry leaves out here (nox.images, the
+  # minimal installation nox.install)
+  autostartUnits =
+    map (n: "microvm@${n}.service") (
+      builtins.filter (n: config.microvm.vms ? ${n}) config.microvm.autostart
+    )
+    ++ map (n: "xen-image@${n}.service") (
+      builtins.attrNames (
+        lib.filterAttrs (
+          n: d: d.autostart && builtins.elem n (map (i: i.name) vmRegistry.imageDomains)
+        ) imageDomains
+      )
+    );
   afterSys = {
     # A drop-in, not a whole unit: xen-image@ is a template from this config,
     # a full instance unit would replace it (no ExecStart, "bad unit file
@@ -650,6 +665,14 @@ in
           };
         });
 
+    # A switch keeps the VMs as they are: switch-to-configuration starts
+    # microvms.target again, and its Wants= (every autostart VM) brought
+    # stopped VMs back up (chat, coding, vault after each activation,
+    # builder-trust.md). The install-microvm-* units stay on the target
+    # (wantedBy) and still set `current`. nox-autostart starts the autostart
+    # domains, at boot only (services below)
+    targets.microvms.wants = lib.mkForce [ ];
+
     # Boot order barrier (see sysGroup above)
     targets.nox-sys = {
       description = "Driver domains and Whonix-Gateway up";
@@ -849,6 +872,28 @@ in
               RemainAfterExit = true;
               ExecStart = sysReady;
             };
+          };
+          # Autostart at boot only (targets.microvms above)
+          nox-autostart = {
+            description = "Start the autostart domains (boot only)";
+            wantedBy = [ "multi-user.target" ];
+            after = [ "microvms.target" ];
+            # Never run again by a switch; a new or changed unit is skipped below
+            restartIfChanged = false;
+            serviceConfig = {
+              Type = "oneshot";
+              RemainAfterExit = true;
+            };
+            # multi-user.target waits for this unit at boot (activating);
+            # active means a switch pulled it in (first switch onto this
+            # generation)
+            script = ''
+              if [ "$(${config.systemd.package}/bin/systemctl is-active multi-user.target)" = active ]; then
+                echo "not at boot: leaving the domains as they are"
+                exit 0
+              fi
+              exec ${config.systemd.package}/bin/systemctl start --no-block ${lib.escapeShellArgs autostartUnits}
+            '';
           };
         }
         // lib.mapAttrs' (n: _: lib.nameValuePair "microvm@${n}" afterSys) (

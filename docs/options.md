@@ -2611,6 +2611,64 @@ false
 
 
 
+### nox\.install\.keep
+
+
+
+Domains that stay enabled in the minimal installation besides the fixed ones (nox-install: the Whonix-Gateway, whose image it downloads)\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
+
+
+
+*Example:*
+
+```nix
+[
+  "whonix-gateway"
+]
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.install\.minimal
+
+
+
+Minimal installation: only dom0, sys-net, sys-usb, sys-firewall, the builder and the group builders (` nox.builders `) run on the machine, every other domain counts as disabled\. nox-install installs this variant (` nixosConfigurations.<host>.noxInstall `), ` nox update ` builds the rest after the first boot\. Not meant to be set in a config\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.network\.adminPrefix
 
 
