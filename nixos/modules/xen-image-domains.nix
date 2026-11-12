@@ -225,6 +225,25 @@ let
           tor-ready)
             [ -e /run/sdwdate/first_success ] && echo ok
             ;;
+          # nox doctor, read only: the state of tor@default, or "active
+          # <seconds since its start> <sdwdate yes|no> <Tor's last
+          # Bootstrapped line or ->" (Whonix logs Tor to /run/tor/log)
+          tor-status)
+            state="$(systemctl is-active tor@default)"
+            if [ "$state" != active ]; then
+              echo "''${state:-unknown}"
+              exit 0
+            fi
+            start="$(systemctl show -p ActiveEnterTimestampMonotonic --value tor@default)"
+            up="$(cut -d . -f 1 /proc/uptime)"
+            age=$((up - ''${start:-0} / 1000000))
+            sd=no
+            [ -e /run/sdwdate/first_success ] && sd=yes
+            line="$(grep -ho 'Bootstrapped [0-9]*%.*' /run/tor/log 2>/dev/null | tail -n 1)"
+            [ -n "$line" ] || line="$(journalctl -q -b -u tor@default -o cat --no-pager 2>/dev/null |
+              grep -o 'Bootstrapped [0-9]*%.*' | tail -n 1)"
+            echo "active $age $sd ''${line:--}"
+            ;;
           kernel)
             echo "$(ls /boot/vmlinuz-* | sort -V | tail -n 1) /boot/vmlinuz-$(uname -r)"
             ;;

@@ -16,9 +16,12 @@
 #   builderKeys     directory with the builder's signing keys and allowed
 #                   commit signers (dom0-update), null without a builder
 #
-# Returns { nixosConfigurations; packages; registry; vmSystems; }:
+# Returns { nixosConfigurations; packages; checks; registry; vmSystems; }:
 # `packages` holds the VMs' runners (packages.<system>.<vm>) and NoX's
 # installer-iso, so the builder builds it from the config (dom0-update --iso).
+# `checks` are eval-only, per machine: `noxInstall-<host>` (the minimal
+# installation evaluates to a system) and `registry-<host>` (the rules of
+# registry/rules.nix, without evaluating the system).
 { self }:
 {
   inputs,
@@ -109,10 +112,38 @@ let
     inherit lib vmRegistry vmSystems;
     inherit (inputs.microvm.lib) buildStoreDisk;
   };
+  machineSystems = lib.mapAttrs mkMachine machines;
+
+  # Eval-only checks: they depend on drvPath strings and assertions, never
+  # on building a system
+  pkgs = nixpkgs.legacyPackages.${system};
+  evalCheck =
+    name: value:
+    pkgs.runCommand name { inherit value; } ''
+      echo "$value" >$out
+    '';
+  machineChecks =
+    host: machine:
+    let
+      failed = builtins.filter (a: !a.assertion) (
+        import ../registry/rules.nix { inherit lib; } (registry.forHost host)
+      );
+    in
+    {
+      "noxInstall-${host}" = evalCheck "noxInstall-${host}" (
+        builtins.unsafeDiscardStringContext (machine.noxInstall { }).config.system.build.toplevel.drvPath
+      );
+      "registry-${host}" =
+        if failed == [ ] then
+          evalCheck "registry-${host}" "ok"
+        else
+          throw (lib.concatMapStringsSep "\n" (a: a.message) failed);
+    };
 in
 {
   inherit registry vmSystems;
-  nixosConfigurations = vmSystems // lib.mapAttrs mkMachine machines;
+  nixosConfigurations = vmSystems // machineSystems;
+  checks.${system} = lib.concatMapAttrs machineChecks machineSystems;
   packages.${system} =
     builtins.mapAttrs (_: vmSystem: vmSystem.config.microvm.declaredRunner) vmSystems
     // {

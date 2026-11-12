@@ -1,7 +1,7 @@
 # Display of HVM domains whose qemu runs in a Linux stubdomain (Tails): the
 # stubdomain exports qemu's VNC socket over a vchan
 # (device-model/<domid>/vnc-vchan, nix/xen-stubdom-linux). Per domain a
-# socket /run/xen-vnc/<domain>.sock for nx; each connection runs the vchan
+# socket /run/xen-vnc/<domain>.sock for nox.user; each connection runs the vchan
 # client (needs root) for that one connection.
 # `xen-vnc <domain>` opens it in a VNC viewer. qemu's VNC stays inside the
 # stubdomain, dom0 only relays bytes.

@@ -1,6 +1,6 @@
 # Reference of NoX's config options (nox.vms, nox.images, nox.roles,
 # nox.apps, nox.infra, nox.storeGroups, nox.builders, nox.network, nox.desktop,
-# nox.desktopEntries, dom0's nox.unfree) as Markdown: `nix build
+# nox.desktopEntries, dom0's nox.unfree and nox.dev) as Markdown: `nix build
 # .#options-doc`, copied to docs/options.md. Only the option declarations
 # are evaluated (no NixOS system): the registry schema and dom0's modules
 # that declare nox options.
@@ -17,6 +17,7 @@ let
       ../nixos/desktop
       ../nixos/dom0/tools/desktop-entries.nix
       ../nixos/dom0/unfree.nix
+      ../nixos/development/options.nix
       {
         # The desktop modules also set NixOS options, which don't exist here
         _module.check = false;

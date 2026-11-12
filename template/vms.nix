@@ -10,9 +10,19 @@ _: {
   nox = {
     infra = {
       disp.enable = true;
+      # The builder VM builds and signs dom0's system (`nox update`); it
+      # needs `builderKeys` in flake.nix and the repo it builds, below
+      # builder.enable = true;
     };
 
     vms = {
+      # With nox.infra.builder: the repo it builds (a private one by SSH
+      # with the builder's deploy key, NoX README) and the key dom0 logs in
+      # with (private part: dom0's ~/.ssh/builder-vm)
+      # builder = {
+      #   module.nox.builder.repoUrl = "https://github.com/<you>/<config>";
+      #   hostSSHKey = "ssh-ed25519 AAAA… builder-vm";
+      # };
       # Passwords; no network
       vault = {
         role = "desktop";

@@ -104,8 +104,14 @@ let
       inherit
         host
         backupLuksUuids
-        builderKeys
         ;
+      # Read by dom0-update and the builders only: without it a clear error
+      # instead of "cannot coerce null to a string"
+      builderKeys =
+        if builderKeys != null then
+          builderKeys
+        else
+          throw "NoX: the builder (nox.infra.builder) needs `builderKeys` in mkSystems: the directory with its keys, at least `allowed-signers` (NoX template/flake.nix)";
       vms = hostVms;
       imageDomains = domains.imagesOnHost;
       natIPs = map (vm: vm.ip) (builtins.filter (vm: vm.nat or false) hostVms);

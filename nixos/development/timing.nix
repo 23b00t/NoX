@@ -1,4 +1,4 @@
-# Boot and RAM timing of dom0 (nox.development.timing): only journal lines,
+# Boot and RAM timing of dom0 (nox.dev.timing): only journal lines,
 # nothing waits on them.
 #   nox-mem (system):         dom0 RAM (used = MemTotal - MemAvailable,
 #                             available, cache, shmem), zram RAM, Xen free
@@ -18,7 +18,7 @@
   ...
 }:
 let
-  cfg = config.nox.development.timing;
+  cfg = config.nox.dev.timing;
   xl = "${config.virtualisation.xen.package}/bin/xl";
 
   memSampler = pkgs.writeShellScript "nox-mem" ''
@@ -112,10 +112,6 @@ let
   '';
 in
 {
-  options.nox.development.timing.enable = lib.mkEnableOption ''
-    boot and RAM timing in the journal (nox-mem, nox-timing) and the
-    `nox-timing` report; a development aid'';
-
   config = lib.mkIf cfg.enable {
     environment.systemPackages = [ report ];
 

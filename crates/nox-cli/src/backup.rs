@@ -1626,7 +1626,7 @@ mod tests {
               "targets":[
                 {"name":"coding","kind":"vm","disks":[{"name":"home","path":"/var/lib/microvms/coding/home.img"},{"name":"var","path":"/var/lib/microvms/coding/var.img"}]},
                 {"name":"sys-net","kind":"vm","disposable":true,"disks":[{"name":"networkmanager","path":"/var/lib/microvms/sys-net/networkmanager.img"}]},
-                {"name":"kali","kind":"image","disks":[{"name":"image","path":"/home/nx/vm-images/kali/kali.qcow2"}]},
+                {"name":"kali","kind":"image","disks":[{"name":"image","path":"/home/user/vm-images/kali/kali.qcow2"}]},
                 {"name":"builder","kind":"builder","disks":[{"name":"key","path":"/var/lib/builder/signing-key"}]},
                 {"name":"dom0","kind":"dom0","disks":[{"name":"ssh"}]}
               ]}"#,

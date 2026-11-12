@@ -179,8 +179,10 @@ let
       esac
     done
     kill "''${events_PID:-}" 2>/dev/null
-    # End of the login layout, for nox-timing (nox.development.timing)
-    ${pkgs.util-linux}/bin/logger -t nox-timing "tabs: done, $pending missing"
+    # End of the login layout, for nox-timing (nox.dev.timing)
+    ${lib.optionalString config.nox.dev.timing.enable ''
+      ${pkgs.util-linux}/bin/logger -t nox-timing "tabs: done, $pending missing"
+    ''}
     exit 0
   '';
 

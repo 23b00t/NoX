@@ -1,13 +1,15 @@
 //! `nox doctor` (also as `vm-doctor`): smoke test of the running system.
 //!
-//! Starts no VMs, checks only what runs: autostart domains, rpc and relay
-//! per VM, network over sys-firewall (and the tunnel for sys-vpn clients),
-//! app start by RPC, clipboard round trip, wprs (and its grants), D-Bus,
-//! backup age, stale runners, rollbacks, disk, failed units, kernel/Xen errors. Table of
+//! Starts no VMs, checks only what runs: rpc and relay per VM, network over
+//! sys-firewall (and the tunnel for sys-vpn clients), app start by RPC,
+//! clipboard round trip, wprs (and its grants), D-Bus, sound, Tor in the
+//! Whonix-Gateway, USB (controllers, assignments, input proxy), backup age,
+//! stale runners, rollbacks, disk, failed units, kernel/Xen errors. Table of
 //! PASS/FAIL/WARN/SKIP, exit 1 on any FAIL. The data per domain comes from
 //! `/etc/nox/registry.json` (`doctor`), written by NoX's vm-doctor module;
-//! the tools it asks (systemctl, nox-rpc, journalctl, xl, wl-clipboard, df)
-//! run as processes.
+//! the tools it asks (systemctl, nox-rpc, journalctl, xl, wl-clipboard, df,
+//! wpctl, pw-dump) run as processes. Sound, Tor and USB only read: no sound
+//! is played, no pipewire started, no device moved.
 
 use std::cell::RefCell;
 use std::fs;
@@ -24,11 +26,34 @@ const REGISTRY: &str = "/etc/nox/registry.json";
 /// `doctor` in the registry
 #[derive(Deserialize, Default)]
 pub struct Data {
-    /// Units that start with the machine (microvm@… / xen-image@…)
-    #[serde(default)]
-    pub autostart: Vec<String>,
     #[serde(default)]
     pub domains: Vec<Domain>,
+    /// None: no sys-usb on this machine
+    #[serde(default)]
+    pub usb: Option<Usb>,
+}
+
+/// sys-usb's controllers and the registry's USB inventory
+#[derive(Deserialize, Default)]
+pub struct Usb {
+    /// PCI paths of the USB controllers sys-usb owns
+    #[serde(default)]
+    pub pci: Vec<String>,
+    #[serde(default)]
+    pub devices: Vec<UsbDevice>,
+}
+
+#[derive(Deserialize, Clone)]
+pub struct UsbDevice {
+    /// vendor:product
+    pub id: String,
+    pub name: String,
+    /// defaultOwner: a VM, `host` (input device for dom0), `sys-usb` or empty
+    #[serde(default)]
+    pub owner: String,
+    /// allowedOwners (empty: any target VM)
+    #[serde(default)]
+    pub allowed: Vec<String>,
 }
 
 #[derive(Deserialize, Clone)]
@@ -46,6 +71,12 @@ pub struct Domain {
     pub grants: bool,
     #[serde(default)]
     pub dbus: bool,
+    /// Sound over the relay into the VM's own pipewire
+    #[serde(default)]
+    pub audio: bool,
+    /// Tor gateway (the Whonix-Gateway image domain)
+    #[serde(default)]
+    pub tor: bool,
     /// sys-firewall / sys-vpn for VMs with an uplink, empty otherwise
     #[serde(default)]
     pub uplink: String,
@@ -514,14 +545,6 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
     };
 
     // --- domains
-    for u in &data.autostart {
-        if active(u) {
-            t.row(Stat::Pass, &format!("autostart {u}"), "running");
-        } else {
-            let state = output("systemctl", &["is-active", &format!("{u}.service")]);
-            t.row(Stat::Fail, &format!("autostart {u}"), &state);
-        }
-    }
     let running: Vec<Domain> = data
         .domains
         .iter()
@@ -724,6 +747,11 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
         }
     }
 
+    // --- sound, Tor, USB (read only)
+    audio(&mut t, &data.domains, &running);
+    tor(&mut t, &data.domains, &running);
+    usb(&mut t, data.usb.as_ref(), &running);
+
     // --- backup (nox backup records the last finished --all run)
     let (last, partial) =
         backup_last(&fs::read_to_string(state_dir("nox-backup").join("last")).unwrap_or_default());
@@ -881,6 +909,471 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    }
+}
+
+/// dom0's pulse server for the VMs (dom0/vm-audio.nix)
+const PULSE_VM: &str = "/run/user/1000/nox-pulse-vm/native";
+
+/// Sound: dom0's side (pipewire, the VMs' playback-only pulse server, a
+/// default sink), then per running VM its tunnel sink and its stream in
+/// dom0. A VM whose pipewire socket activation has not started is SKIP:
+/// the probe does not start it
+fn audio(t: &mut Table, all: &[Domain], running: &[Domain]) {
+    if !all.iter().any(|d| d.audio) {
+        t.row(Stat::Skip, "audio dom0", "no VM with sound on this machine");
+        return;
+    }
+    let mut missing: Vec<String> = ["pipewire", "wireplumber", "nox-pulse-vm"]
+        .iter()
+        .filter_map(|u| {
+            let state = output(
+                "systemctl",
+                &["--user", "is-active", &format!("{u}.service")],
+            );
+            (state != "active")
+                .then(|| format!("{u} {}", if state.is_empty() { "unknown" } else { &state }))
+        })
+        .collect();
+    if fs::metadata(PULSE_VM).is_err() {
+        missing.push(format!("{PULSE_VM} missing"));
+    }
+    if !missing.is_empty() {
+        t.row(Stat::Fail, "audio dom0", &missing.join(", "));
+    } else if let Some(info) = run(
+        "timeout",
+        &["5", "wpctl", "inspect", "@DEFAULT_AUDIO_SINK@"],
+        None,
+    ) {
+        let mut detail = format!("nox-pulse-vm up, sink {}", sink_name(&info).unwrap_or("?"));
+        let volume = output(
+            "timeout",
+            &["5", "wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"],
+        );
+        if volume.contains("[MUTED]") {
+            detail.push_str(", muted");
+        }
+        if output(
+            "systemctl",
+            &["--user", "is-active", "nox-pulse-mic.service"],
+        ) == "active"
+        {
+            detail.push_str(", microphone on (nox mic off)");
+        }
+        t.row(Stat::Pass, "audio dom0", &detail);
+    } else {
+        t.row(Stat::Fail, "audio dom0", "no default sink (wpctl status)");
+    }
+
+    // pw-dump once, for the first VM that needs it
+    let mut hosts: Option<Vec<String>> = None;
+    for d in running.iter().filter(|d| d.audio) {
+        let check = format!("audio {}", d.name);
+        match probe(&d.name, "audio").as_str() {
+            "idle" => t.row(
+                Stat::Skip,
+                &check,
+                "pipewire not started yet (nothing played)",
+            ),
+            "no-sink" => t.row(
+                Stat::Fail,
+                &check,
+                "pipewire runs without its tunnel sink nox-dom0",
+            ),
+            "ok" => {
+                let hosts =
+                    hosts.get_or_insert_with(|| pw_hosts(&output("timeout", &["5", "pw-dump"])));
+                if hosts.contains(&d.domain) {
+                    t.row(Stat::Pass, &check, "tunnel sink connected to dom0");
+                } else {
+                    t.row(
+                        Stat::Fail,
+                        &check,
+                        &format!(
+                            "tunnel sink, but no stream from {} in dom0 (nox-relay-{} pulse)",
+                            d.domain, d.name
+                        ),
+                    );
+                }
+            }
+            "" => t.row(Stat::Fail, &check, "no answer"),
+            _ => t.row(
+                Stat::Skip,
+                &check,
+                "the VM has no audio probe yet (restart it after the update)",
+            ),
+        }
+    }
+}
+
+/// `node.description` in `wpctl inspect`
+pub fn sink_name(inspect: &str) -> Option<&str> {
+    inspect.lines().find_map(|l| {
+        let rest = l
+            .trim_start_matches([' ', '*'])
+            .strip_prefix("node.description = ")?;
+        Some(rest.trim().trim_matches('"'))
+    })
+}
+
+/// `application.process.host` of every object in dom0's pipewire
+/// (`pw-dump`): a VM's tunnel shows up as its client and stream
+pub fn pw_hosts(dump: &str) -> Vec<String> {
+    let Ok(serde_json::Value::Array(objects)) = serde_json::from_str::<serde_json::Value>(dump)
+    else {
+        return Vec::new();
+    };
+    objects
+        .iter()
+        .filter_map(|o| o["info"]["props"]["application.process.host"].as_str())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Tor in the gateway (Whonix-Gateway, rpc `tor-status` of
+/// modules/xen-image-domains.nix): its bootstrap and sdwdate, read only
+fn tor(t: &mut Table, all: &[Domain], running: &[Domain]) {
+    let gateways: Vec<&Domain> = all.iter().filter(|d| d.tor).collect();
+    if gateways.is_empty() {
+        t.row(Stat::Skip, "tor", "no Tor gateway on this machine");
+    }
+    for d in gateways {
+        let check = format!("tor {}", d.name);
+        if !running.iter().any(|r| r.name == d.name) {
+            t.row(Stat::Skip, &check, "not running");
+            continue;
+        }
+        match rpc("tor-status", &d.name, "10", b"").filter(|a| !a.is_empty()) {
+            Some(answer) => {
+                let (stat, detail) = tor_verdict(&answer);
+                t.row(stat, &check, &detail);
+            }
+            None => t.row(
+                Stat::Skip,
+                &check,
+                &format!(
+                    "no tor-status answer (older guest store disk: systemctl restart {})",
+                    d.unit
+                ),
+            ),
+        }
+    }
+}
+
+/// The gateway's answer: the state of tor@default, or "active <seconds
+/// since Tor's start> <sdwdate yes|no> <last Bootstrapped line or ->".
+/// 100 % with sdwdate synced is PASS; 100 % without is WARN (Tor once
+/// reported 100 % from its saved state without a working circuit,
+/// 2026-10-12); below 100 % WARN in the first 5 minutes, FAIL after
+pub fn tor_verdict(answer: &str) -> (Stat, String) {
+    let mut f = answer.splitn(4, ' ');
+    let state = f.next().unwrap_or("");
+    if state != "active" {
+        let state = if state.is_empty() { "unknown" } else { state };
+        return (Stat::Fail, format!("tor@default {state}"));
+    }
+    let age: u64 = f.next().and_then(|a| a.parse().ok()).unwrap_or(0);
+    let synced = f.next() == Some("yes");
+    let line = f.next().unwrap_or("-").trim();
+    let pct: Option<u32> = line
+        .strip_prefix("Bootstrapped ")
+        .and_then(|r| r.split('%').next())
+        .and_then(|p| p.parse().ok());
+    let shown = if pct.is_some() {
+        cut90(line)
+    } else {
+        "no bootstrap in Tor's log".to_string()
+    };
+    match pct {
+        Some(100) if synced => (Stat::Pass, "Bootstrapped 100 %, sdwdate synced".into()),
+        Some(100) => (
+            Stat::Warn,
+            "Bootstrapped 100 %, sdwdate not synced (yet): a working circuit is not proven".into(),
+        ),
+        _ if age < 300 => (Stat::Warn, format!("{shown}, Tor started {age} s ago")),
+        Some(_) => (Stat::Fail, format!("{shown}, Tor running {age} s")),
+        None => (
+            Stat::Fail,
+            format!("{shown}, Tor running {age} s (DisableNetwork 1? README Whonix)"),
+        ),
+    }
+}
+
+/// A device in sys-usb's `usb-helper list`: status 1 exported, 2 in use
+/// (USB/IP), - in sys-usb
+#[derive(Debug, PartialEq, Eq)]
+pub struct UsbDev {
+    pub busid: String,
+    pub id: String,
+    pub status: String,
+    pub name: String,
+}
+
+/// `busid vendor:product status bluetooth name` per line
+pub fn parse_usb_list(s: &str) -> Vec<UsbDev> {
+    s.lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            let [busid, id, status, _bt, name] = f.as_slice() else {
+                return None;
+            };
+            Some(UsbDev {
+                busid: busid.to_string(),
+                id: id.to_string(),
+                status: status.to_string(),
+                name: name.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// vm-usb's assignments (/run/vm-usb/assign): (busid, vendor:product, vm);
+/// vm `-`: detached by hand, stays in sys-usb
+pub fn parse_assign(s: &str) -> Vec<(String, String, String)> {
+    s.lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            match f.as_slice() {
+                [busid, id, vm, ..] => Some((busid.to_string(), id.to_string(), vm.to_string())),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// Where sys-usb's devices are vs. where the registry and vm-usb want them:
+/// a device on a VM outside its allowedOwners, assigned to a running VM but
+/// not in use there, exported without an assignment, or not on its running
+/// defaultOwner VM
+pub fn usb_problems(
+    devs: &[UsbDev],
+    assign: &[(String, String, String)],
+    registry: &[UsbDevice],
+    running: &[&str],
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for dev in devs {
+        let reg = registry.iter().find(|r| r.id == dev.id);
+        let name = reg.map_or(dev.name.as_str(), |r| r.name.as_str());
+        let b = &dev.busid;
+        let owner = assign
+            .iter()
+            .find(|a| a.0 == dev.busid && a.1 == dev.id)
+            .map(|a| a.2.as_str());
+        match owner {
+            Some(vm) if vm != "-" => {
+                if let Some(r) = reg {
+                    if !r.allowed.is_empty() && !r.allowed.iter().any(|a| a == vm) {
+                        out.push(format!("{name} ({b}) on {vm}, not in its allowedOwners"));
+                    }
+                }
+                if running.contains(&vm) && dev.status != "2" {
+                    out.push(format!(
+                        "{name} ({b}) assigned to {vm}, not in use there (USB/IP link?)"
+                    ));
+                }
+            }
+            _ => {
+                if dev.status == "1" || dev.status == "2" {
+                    out.push(format!(
+                        "{name} ({b}) exported over USB/IP without an assignment"
+                    ));
+                }
+                let default_vm = reg
+                    .map(|r| r.owner.as_str())
+                    .filter(|o| !["", "host", "sys-usb"].contains(o));
+                if let (None, Some(vm)) = (owner, default_vm) {
+                    if running.contains(&vm) {
+                        out.push(format!(
+                            "{name} ({b}) not on {vm} (defaultOwner, vm-usb-auto)"
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// The input proxy's devices in dom0 (/proc/bus/input/devices):
+/// `xen-input-proxy <vendor>-<product>-<eventN>` → `<vendor>-<product>-<eventN>`
+pub fn proxied_inputs(devices: &str) -> Vec<String> {
+    devices
+        .lines()
+        .filter_map(|l| l.strip_prefix("N: Name=\"xen-input-proxy "))
+        .map(|n| n.trim_end_matches('"').to_string())
+        .collect()
+}
+
+/// sys-usb's input devices (`eventN vendor:product busid` per line) that
+/// may go to dom0 (registry owner `host`, or `nox usb allow-input`: lines
+/// `busid vendor:product`) vs. the ones the proxy forwards: (how many
+/// should be forwarded, problems)
+pub fn input_problems(
+    inputs: &str,
+    whitelist: &[&str],
+    allowed: &str,
+    proxied: &[String],
+) -> (usize, Vec<String>) {
+    let mut want = Vec::new();
+    for l in inputs.lines() {
+        let f: Vec<&str> = l.split_whitespace().collect();
+        let [ev, vp, busid] = f.as_slice() else {
+            continue;
+        };
+        let ok = whitelist.contains(vp)
+            || allowed
+                .lines()
+                .any(|a| a.split_whitespace().collect::<Vec<_>>() == [*busid, *vp]);
+        if ok {
+            want.push(format!("{}-{ev}", vp.replace(':', "-")));
+        }
+    }
+    let mut out = Vec::new();
+    for w in &want {
+        if !proxied.contains(w) {
+            out.push(format!("{w} not forwarded to dom0 (xen-input-proxy)"));
+        }
+    }
+    for p in proxied {
+        if !want.contains(p) {
+            out.push(format!("{p} forwarded to dom0, but not allowed or gone"));
+        }
+    }
+    (want.len(), out)
+}
+
+/// sys-usb's usb-helper over rpc (read-only commands only): the answer
+/// without its last line `exit 0`, None on another exit or no answer
+fn usb_helper(cmd: &str) -> Option<String> {
+    let out = rpc("usb", "sys-usb", "10", format!("{cmd}\n").as_bytes())?;
+    let (body, rc) = out.rsplit_once('\n').unwrap_or(("", out.as_str()));
+    (rc == "exit 0").then(|| body.to_string())
+}
+
+/// USB: the controllers on pciback (sys-usb's, not back in dom0), sys-usb's
+/// helper and dom0's two USB services, the assignments, the input proxy
+fn usb(t: &mut Table, usb: Option<&Usb>, running: &[Domain]) {
+    let Some(usb) = usb else {
+        t.row(Stat::Skip, "usb", "no sys-usb on this machine");
+        return;
+    };
+    // also with sys-usb stopped: after sys-usb-fallback/-rescue the
+    // controllers are back on their USB driver in dom0
+    if usb.pci.is_empty() {
+        t.row(
+            Stat::Skip,
+            "usb controllers",
+            "none in the registry (pciDevicePaths.usb)",
+        );
+    } else {
+        let bad: Vec<String> = usb
+            .pci
+            .iter()
+            .filter_map(|p| {
+                let driver = fs::read_link(format!("/sys/bus/pci/devices/{p}/driver"))
+                    .ok()
+                    .and_then(|l| l.file_name().map(|n| n.to_string_lossy().into_owned()))
+                    .unwrap_or_else(|| "no driver".into());
+                (driver != "pciback").then(|| format!("{p} on {driver}"))
+            })
+            .collect();
+        if bad.is_empty() {
+            t.row(
+                Stat::Pass,
+                "usb controllers",
+                &format!("{} on pciback (sys-usb)", usb.pci.len()),
+            );
+        } else {
+            t.row(
+                Stat::Fail,
+                "usb controllers",
+                &format!("{} in dom0 (sys-usb-fallback or -rescue?)", bad.join(", ")),
+            );
+        }
+    }
+    if !running.iter().any(|d| d.name == "sys-usb") {
+        t.row(Stat::Skip, "usb sys-usb", "sys-usb not running");
+        return;
+    }
+    let Some(list) = usb_helper("list") else {
+        t.row(Stat::Fail, "usb sys-usb", "usb-helper list: no answer");
+        return;
+    };
+    let devs = parse_usb_list(&list);
+    let down: Vec<&str> = ["vm-usb-auto", "xen-input-proxy"]
+        .into_iter()
+        .filter(|u| !active(u))
+        .collect();
+    if down.is_empty() {
+        t.row(
+            Stat::Pass,
+            "usb sys-usb",
+            &format!("{} devices, vm-usb-auto and input proxy active", devs.len()),
+        );
+    } else {
+        t.row(
+            Stat::Fail,
+            "usb sys-usb",
+            &format!("{} not active", down.join(", ")),
+        );
+    }
+
+    let up: Vec<&str> = running.iter().map(|d| d.name.as_str()).collect();
+    match fs::read_to_string("/run/vm-usb/assign") {
+        Ok(text) => {
+            let assign = parse_assign(&text);
+            let problems = usb_problems(&devs, &assign, &usb.devices, &up);
+            let attached = assign.iter().filter(|a| a.2 != "-").count();
+            bad_or_pass(
+                t,
+                "usb assignments",
+                &problems,
+                &format!("{attached} attached, all as the registry wants"),
+            );
+        }
+        Err(_) => t.row(
+            Stat::Skip,
+            "usb assignments",
+            "/run/vm-usb/assign unreadable",
+        ),
+    }
+
+    match usb_helper("inputs") {
+        Some(inputs) => {
+            let whitelist: Vec<&str> = usb
+                .devices
+                .iter()
+                .filter(|d| d.owner == "host")
+                .map(|d| d.id.as_str())
+                .collect();
+            let allowed = fs::read_to_string("/run/vm-usb/input-allowed").unwrap_or_default();
+            let proxied =
+                proxied_inputs(&fs::read_to_string("/proc/bus/input/devices").unwrap_or_default());
+            let (n, problems) = input_problems(&inputs, &whitelist, &allowed, &proxied);
+            bad_or_pass(
+                t,
+                "usb input",
+                &problems,
+                &format!("{n} input device(s) forwarded to dom0"),
+            );
+        }
+        None => t.row(Stat::Fail, "usb input", "usb-helper inputs: no answer"),
+    }
+}
+
+/// FAIL with the first problem as detail and all of them below, else PASS
+fn bad_or_pass(t: &mut Table, check: &str, problems: &[String], pass: &str) {
+    match problems.first() {
+        None => t.row(Stat::Pass, check, pass),
+        Some(first) => {
+            let detail = if problems.len() > 1 {
+                format!("{} problems, first: {}", problems.len(), cut90(first))
+            } else {
+                first.clone()
+            };
+            t.row_more(Stat::Fail, check, &detail, problems);
+        }
     }
 }
 
@@ -1126,16 +1619,134 @@ mod tests {
     #[test]
     fn registry_parses() {
         let reg: Registry = serde_json::from_str(
-            r#"{"vms":["chat"],"doctor":{"autostart":["microvm@sys-net"],
+            r#"{"vms":["chat"],"doctor":{
             "domains":[{"name":"chat","unit":"microvm@chat","domain":"chat-vm",
-            "wprs":true,"dbus":true,"uplink":"sys-firewall","clip":"allow"}]}}"#,
+            "wprs":true,"dbus":true,"audio":true,"tor":false,"uplink":"sys-firewall","clip":"allow"}],
+            "usb":{"pci":["0000:03:00.3"],"devices":[{"id":"0408:5365","name":"webcam",
+            "owner":"chat","allowed":["chat"]}]}}}"#,
         )
         .unwrap();
-        assert_eq!(reg.doctor.autostart, ["microvm@sys-net"]);
         let d = &reg.doctor.domains[0];
         assert_eq!(d.unit, "microvm@chat");
-        assert!(d.wprs && d.dbus);
+        assert!(d.wprs && d.dbus && d.audio && !d.tor);
         assert_eq!(d.uplink, "sys-firewall");
+        let usb = reg.doctor.usb.as_ref().unwrap();
+        assert_eq!(usb.pci, ["0000:03:00.3"]);
+        assert_eq!(usb.devices[0].owner, "chat");
+        // without sys-usb the module writes null; older registries have no field
+        let reg: Registry =
+            serde_json::from_str(r#"{"doctor":{"domains":[],"usb":null,"autostart":["x"]}}"#)
+                .unwrap();
+        assert!(reg.doctor.usb.is_none());
+    }
+
+    #[test]
+    fn audio_parsers() {
+        let inspect = "id 51, type PipeWire:Interface:Node\n    alsa.card = \"1\"\n  * node.description = \"Ryzen HD Audio Controller Speaker\"\n  * node.name = \"alsa_output\"";
+        assert_eq!(
+            sink_name(inspect),
+            Some("Ryzen HD Audio Controller Speaker")
+        );
+        assert_eq!(sink_name("nothing"), None);
+        let dump = r#"[{"id":0,"type":"PipeWire:Interface:Core","info":{"props":{}}},
+            {"id":65,"type":"PipeWire:Interface:Client","info":{"props":{"application.process.host":"chat-vm"}}},
+            {"id":33,"type":"PipeWire:Interface:Client","info":{"props":{"application.process.host":"hp"}}},
+            {"id":7,"type":"PipeWire:Interface:Module","info":null}]"#;
+        assert_eq!(pw_hosts(dump), ["chat-vm", "hp"]);
+        assert!(pw_hosts("").is_empty());
+    }
+
+    #[test]
+    fn tor_answers() {
+        let (s, _) = tor_verdict("active 900 yes Bootstrapped 100% (done): Done");
+        assert_eq!(s, Stat::Pass);
+        let (s, _) = tor_verdict("active 900 no Bootstrapped 100% (done): Done");
+        assert_eq!(s, Stat::Warn);
+        let (s, d) = tor_verdict("active 60 no Bootstrapped 30% (loading_status): Loading");
+        assert_eq!(s, Stat::Warn);
+        assert!(d.contains("30%"), "{d}");
+        let (s, _) = tor_verdict("active 900 no Bootstrapped 30% (loading_status): Loading");
+        assert_eq!(s, Stat::Fail);
+        let (s, d) = tor_verdict("active 900 no -");
+        assert_eq!(s, Stat::Fail);
+        assert!(d.contains("DisableNetwork"), "{d}");
+        let (s, d) = tor_verdict("inactive");
+        assert_eq!((s, d.as_str()), (Stat::Fail, "tor@default inactive"));
+    }
+
+    #[test]
+    fn usb_consistency() {
+        let devs = parse_usb_list(
+            "1-3 0408:5365 - 0 HP_TrueVision_HD_Camera\n1-4 0bda:b00e - 1 Bluetooth_Radio_\n\
+             3-2 093a:2533 - 0 SHARKFORCE_OpticalMouse\n3-5 1234:5678 2 0 Stick\nbad line",
+        );
+        assert_eq!(devs.len(), 4);
+        assert_eq!(devs[0].status, "-");
+        let reg = vec![
+            UsbDevice {
+                id: "0408:5365".into(),
+                name: "webcam".into(),
+                owner: "chat".into(),
+                allowed: vec!["chat".into()],
+            },
+            UsbDevice {
+                id: "0bda:b00e".into(),
+                name: "bt".into(),
+                owner: "sys-usb".into(),
+                allowed: vec!["sys-usb".into(), "chat".into()],
+            },
+        ];
+        // chat stopped, nothing assigned: consistent, except the stick in
+        // use without an assignment
+        let p = usb_problems(&devs, &[], &reg, &["sys-usb"]);
+        assert_eq!(
+            p,
+            ["Stick (3-5) exported over USB/IP without an assignment"]
+        );
+        // chat runs: the webcam should be there
+        let p = usb_problems(&devs[..1], &[], &reg, &["chat"]);
+        assert_eq!(p, ["webcam (1-3) not on chat (defaultOwner, vm-usb-auto)"]);
+        // detached by hand: stays in sys-usb
+        let a = parse_assign("1-3 0408:5365 - -\n");
+        assert!(usb_problems(&devs[..1], &a, &reg, &["chat"]).is_empty());
+        // assigned, but not in use; and on a VM outside allowedOwners
+        let a = parse_assign("1-3 0408:5365 chat 1a2b\n1-4 0bda:b00e disp 3c4d\n");
+        let p = usb_problems(&devs[..2], &a, &reg, &["chat"]);
+        assert_eq!(
+            p,
+            [
+                "webcam (1-3) assigned to chat, not in use there (USB/IP link?)",
+                "bt (1-4) on disp, not in its allowedOwners"
+            ]
+        );
+    }
+
+    #[test]
+    fn input_proxy_consistency() {
+        let proc =
+            "I: Bus=0006\nN: Name=\"xen-input-proxy 093a-2533-event1\"\nN: Name=\"AT keyboard\"\n";
+        let proxied = proxied_inputs(proc);
+        assert_eq!(proxied, ["093a-2533-event1"]);
+        let inputs = "event1 093a:2533 3-2\nevent2 093a:2533 3-2\nevent3 dead:beef 3-1";
+        let (n, p) = input_problems(inputs, &["093a:2533"], "", &proxied);
+        assert_eq!(n, 2);
+        assert_eq!(
+            p,
+            ["093a-2533-event2 not forwarded to dom0 (xen-input-proxy)"]
+        );
+        // allowed by hand until unplugged
+        let all = vec![
+            "093a-2533-event1".to_string(),
+            "093a-2533-event2".to_string(),
+            "dead-beef-event3".to_string(),
+        ];
+        let (n, p) = input_problems(inputs, &["093a:2533"], "3-1 dead:beef\n", &all);
+        assert_eq!((n, p.len()), (3, 0));
+        let (_, p) = input_problems("", &[], "", &all[..1]);
+        assert_eq!(
+            p,
+            ["093a-2533-event1 forwarded to dom0, but not allowed or gone"]
+        );
     }
 
     #[test]

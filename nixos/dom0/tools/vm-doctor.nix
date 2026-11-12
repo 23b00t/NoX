@@ -1,9 +1,9 @@
 # vm-doctor (`nox doctor`): smoke test of the running system on demand.
 # The checks live in nox-cli (crates/nox-cli/src/doctor.rs); this module
 # gives it its data (/etc/nox/registry.json `doctor`: per domain the unit,
-# relay domain, wprs and its grants, D-Bus, uplink, clipboard rule; the
-# autostart units), the tools it calls and the old name `vm-doctor` (a link
-# to nox, which picks the tool by argv[0]).
+# relay domain, wprs and its grants, D-Bus, sound, Tor, uplink, clipboard
+# rule; the USB inventory), the tools it calls and the old name `vm-doctor`
+# (a link to nox, which picks the tool by argv[0]).
 {
   lib,
   pkgs,
@@ -25,19 +25,10 @@ let
   # Same rule as vm-clip (home/vm-management/vm-gui.nix)
   clipPolicy = vm: vm.clipboard or (if lib.hasPrefix "sys-" vm.name then "deny" else "allow");
   listen = h: relayed.${h.name}.listen or { };
+  serve = h: relayed.${h.name}.serve or { };
 in
 {
   programs.nox.registry.doctor = {
-    autostart =
-      # as nox-autostart (dom0/xen-dom0.nix): only the domains this machine has
-      map (n: "microvm@${n}") (builtins.filter (n: microvms ? ${n}) (config.microvm.autostart or [ ]))
-      ++ map (n: "xen-image@${n}") (
-        builtins.attrNames (
-          lib.filterAttrs (
-            n: d: d.autostart && builtins.elem n (map (i: i.name) vmRegistry.imageDomains)
-          ) imageDomains
-        )
-      );
     domains = map (h: {
       inherit (h) name;
       unit = unitOf h.name;
@@ -45,10 +36,31 @@ in
       wprs = listen h ? wprs;
       # wprs pixels over grant-shared memory (registry wprsSharedMemory)
       grants = (relayed.${h.name}.grants or null) != null;
-      dbus = (relayed.${h.name}.serve or { }) ? dbus;
+      dbus = serve h ? dbus;
+      # sound over the relay into the VM's own pipewire (dom0/vm-audio.nix,
+      # vms/modules/wprs.nix); not image domains (their apps talk to dom0's
+      # pulse server directly) nor VMs with a pulseaudio of their own (sys-usb)
+      audio = serve h ? pulse && (microvms.${h.name}.config.config.services.pipewire.enable or false);
+      # Tor gateway: the Whonix-Gateway image domain (update-all's name too)
+      tor = imageDomains ? ${h.name} && h.name == "whonix-gateway";
       uplink = if h.nat or false then h.uplink or "sys-firewall" else "";
       clip = clipPolicy h;
     }) hosts;
+    # USB (modules/xen-usb.nix, vms/usb-links.nix): sys-usb's controllers and
+    # the registry inventory, compared with what sys-usb and vm-usb report
+    usb =
+      if (config.services.xen-usb.enable or false) && microvms ? sys-usb then
+        {
+          pci = vmRegistry.hardware.pci.devicePaths.usb or [ ];
+          devices = map (d: {
+            id = "${d.vendorId}:${d.productId}";
+            inherit (d) name;
+            owner = d.defaultOwner or "";
+            allowed = d.allowedOwners or [ ];
+          }) (vmRegistry.hardware.usb.devices or [ ]);
+        }
+      else
+        null;
   };
 
   environment.systemPackages = [
@@ -56,7 +68,8 @@ in
       mkdir -p $out/bin
       ln -s ${config.programs.nox.package}/bin/nox $out/bin/vm-doctor
     '')
-    # what nox doctor calls besides systemd, journalctl, sudo/xl and nox-rpc
+    # what nox doctor calls besides systemd, journalctl, sudo/xl, nox-rpc
+    # and pipewire's tools (wpctl, pw-dump: services.pipewire)
     pkgs.coreutils
     pkgs.gnugrep
     pkgs.procps

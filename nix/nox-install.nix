@@ -1,5 +1,6 @@
 # nox-install: guided installation of a NoX machine from the installer ISO
-# (packages.installer-iso). Steps: 1 network (WLAN over nmcli), 2 hardware
+# (packages.installer-iso). Steps: 1 network (the addresses, a connection
+# test, WLAN over nmcli, a shell for ip/ping), 2 hardware
 # report (nox-hwcheck, paged), 3 clone the config (https first; an SSH key
 # only for a private repo or to push a new host), 4 choose the host or add a
 # new one (hardware-configuration + nox-hwcheck --nix, commit + push), 5
@@ -27,6 +28,7 @@
   gnugrep,
   gnupg,
   gnutar,
+  iproute2,
   less,
   nixos-install-tools,
   nox-hwcheck,
@@ -34,9 +36,9 @@
   qemu-utils,
   util-linux,
   xz,
-  # Whonix-Gateway image (README "Whonix"): the version nox-install offers
-  # and the key the images are signed with (derivative.asc)
-  whonixVersion ? "18.2.1.9",
+  # Whonix-Gateway image (README "Whonix"): the fingerprint of the key the
+  # images are signed with (Whonix' project signing key, derivative.asc);
+  # the version is always the current stable one, asked at install time
   whonixFingerprint ? "916B8D99C38EAF5E8ADC7A2A8D66066A2EEACCDA",
 }:
 writeShellApplication {
@@ -50,6 +52,7 @@ writeShellApplication {
     gnugrep
     gnupg
     gnutar
+    iproute2
     less
     nixos-install-tools
     nox-hwcheck
@@ -183,14 +186,31 @@ writeShellApplication {
       key_ready=1
     }
 
+    # A shell to look at the network (ip a, ping, nmcli); exit returns
+    net_shell() {
+      echo "Shell: e.g. ip a, ping -c 3 1.1.1.1, nmcli device; exit: back to nox-install"
+      bash -i || true
+    }
+
     step "1/8 Network"
-    until curl -sfI --max-time 10 https://github.com >/dev/null; do
-      echo "No connection to github.com."
-      case "$(ask "w: WLAN, t: nmtui, c: go on without network, Enter: try again")" in
-        w) wifi ;;
-        t) nmtui || true ;;
-        c) break ;;
-      esac
+    # A LAN (or a WLAN from earlier) may be up already: then no WLAN setup
+    while :; do
+      ip -brief address || true
+      if curl -sfI --max-time 10 https://github.com >/dev/null; then
+        echo "Connected: github.com answers."
+        case "$(ask "Enter: go on, s: shell")" in
+          s) net_shell ;;
+          *) break ;;
+        esac
+      else
+        echo "No connection to github.com."
+        case "$(ask "w: WLAN, t: nmtui, s: shell, c: go on without network, Enter: try again")" in
+          w) wifi ;;
+          t) nmtui || true ;;
+          s) net_shell ;;
+          c) break ;;
+        esac
+      fi
     done
 
     step "2/8 Hardware report (NVIDIA: if the stick hung at boot, start it with the GRUB entry \"nomodeset\")"
@@ -329,13 +349,25 @@ writeShellApplication {
     else
       image="$(nix eval --raw "$config.services.xen-image-domains.domains.whonix-gateway.image")"
       fpr=${whonixFingerprint}
-      if [ -z "$whonix_from" ]; then
-        newest="$(curl -fsSL --max-time 20 https://www.whonix.org/download/libvirt/ \
-          | grep -oE 'href="[0-9]+(\.[0-9]+)+/' | grep -oE '[0-9]+(\.[0-9]+)+' | sort -V | tail -n 1 || true)"
-        [ -z "$newest" ] || echo "Newest version on whonix.org: $newest"
+      v=""
+      if [ -n "$whonix_from" ]; then
+        # The version of the archive in DIR
+        for f in "$whonix_from"/Whonix-CLI-*.Intel_AMD64.qcow2.libvirt.xz; do
+          v="''${f##*/Whonix-CLI-}"
+          v="''${v%.Intel_AMD64.qcow2.libvirt.xz}"
+        done
+        echo "Whonix version: $v (from $whonix_from)"
+      else
+        # Always the current stable release: the version whonix.org's KVM
+        # page downloads (wiki template Version_KVM; the directory listing
+        # also holds testers-only versions)
+        until v="$(curl -fsSL --max-time 20 \
+          'https://www.whonix.org/w/api.php?action=expandtemplates&text=%7B%7BVersion_KVM%7D%7D&prop=wikitext&format=json' \
+          | grep -oE '"wikitext":"[0-9]+(\.[0-9]+)+"' | grep -oE '[0-9]+(\.[0-9]+)+')"; do
+          yes_no "No stable version from whonix.org. Try again?" || exit 1
+        done
+        echo "Whonix version: $v (the current stable release)"
       fi
-      v="$(ask "Whonix version (empty: ${whonixVersion}):")"
-      [ -n "$v" ] || v=${whonixVersion}
       if ! [[ "$v" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
         echo "not a version: $v" >&2
         exit 1
@@ -367,8 +399,15 @@ writeShellApplication {
           echo "derivative.asc does not hold the Whonix key $fpr: stopped, no image." >&2
           exit 1
         fi
-        if ! gpg --batch --status-fd 1 --verify "$work/$archive.asc" "$work/$archive" 2>/dev/null \
-          | grep -qE "^\[GNUPG:\] VALIDSIG .* $fpr\$"; then
+        # Good (GOODSIG: not by an expired or revoked key), by that key
+        # (VALIDSIG ends with the primary key's fingerprint), made for this
+        # file (notation file@name: Whonix signs the file name too, against
+        # an older signed archive under the new name)
+        gpg --batch --status-fd 1 --verify "$work/$archive.asc" "$work/$archive" \
+          >"$work/verify" 2>/dev/null || true
+        if ! grep -aq "^\[GNUPG:\] GOODSIG " "$work/verify" \
+          || ! grep -aqE "^\[GNUPG:\] VALIDSIG .* $fpr\$" "$work/verify" \
+          || ! grep -aqxF "[GNUPG:] NOTATION_DATA $archive" "$work/verify"; then
           echo "BAD SIGNATURE on $archive: stopped, no image." >&2
           exit 1
         fi

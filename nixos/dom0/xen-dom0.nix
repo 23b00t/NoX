@@ -577,7 +577,7 @@ in
   # `xen-image-setup whonix-gateway` (xen-migration.md).
   services.xen-image-domains.domains.whonix-gateway = {
     # Test phase: the converted download; later /var/lib/xen-images
-    image = "/home/nx/vm-images/whonix/whonix-gateway.raw";
+    image = "/home/${config.nox.user}/vm-images/whonix/whonix-gateway.raw";
     rootPartition = 3;
     memory = 1024;
     vcpus = 2;
@@ -601,7 +601,7 @@ in
   # v3: Whonix-Workstation (LXQt image), only network: the gateway's eth1.
   # Apps over wprs (`vm-run ww torbrowser`), audio over dom0's pulse.
   services.xen-image-domains.domains.whonix-workstation = {
-    image = "/home/nx/vm-images/whonix/whonix-workstation.raw";
+    image = "/home/${config.nox.user}/vm-images/whonix/whonix-workstation.raw";
     rootPartition = 3;
     memory = 4096;
     vcpus = 2;

@@ -1899,6 +1899,92 @@ attribute set of attribute set of anything
 
 
 
+### nox\.dev\.enable
+
+
+
+Whether to enable all of NoX’s debugging and measuring aids (` nox.dev.* `)\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+*Example:*
+
+```nix
+true
+```
+
+*Declared by:*
+ - [nixos/development/options\.nix](../nixos/development/options.nix)
+
+
+
+### nox\.dev\.buildTiming\.enable
+
+
+
+` dom0-update ` (` nox update `) prints the duration of each step
+(“dom0-update: timing …”) and logs it to the journal
+(` journalctl -t dom0-update `)\. The builder VMs’ own timing lines
+(` builder-build `, ` builder-images `) are not affected\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+config.nox.dev.enable
+```
+
+*Declared by:*
+ - [nixos/development/options\.nix](../nixos/development/options.nix)
+
+
+
+### nox\.dev\.timing\.enable
+
+
+
+Boot and RAM timing in the journal: dom0 memory samples (unit
+` nox-mem `), session start and new windows (user unit ` nox-timing `),
+the end of the login tabs; the ` nox-timing [-b N] [--mem] ` report
+reads one boot\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+config.nox.dev.enable
+```
+
+*Declared by:*
+ - [nixos/development/options\.nix](../nixos/development/options.nix)
+
+
+
 ### nox\.images
 
 

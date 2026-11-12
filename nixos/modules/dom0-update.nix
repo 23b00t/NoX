@@ -200,8 +200,11 @@ let
       echo "dom0-update: starting $iso_vm" >&2
       sudo systemctl start "microvm@$iso_vm"
     fi
+    # Up = booted through, not only sshd: nix-db-restore (before
+    # multi-user.target) holds the Nix DB until then, and a nix command that
+    # comes earlier warns "SQLite database … is busy"
     for _ in $(seq 120); do
-      ssh -o ConnectTimeout=5 ${builderIp} true >/dev/null 2>&1 && break
+      ssh -o ConnectTimeout=5 ${builderIp} systemctl is-active --quiet multi-user.target >/dev/null 2>&1 && break
       if systemctl is-failed --quiet microvm@builder; then
         echo "dom0-update: the builder VM failed to start (journalctl -u microvm@builder)" >&2
         exit 1
@@ -238,14 +241,16 @@ let
       # Runs as the calling user (ssh config/key for ${builderIp}); the nix-daemon
       # verifies the builder signature when the paths are added
       # Duration of each step on stderr and in the journal
-      # (journalctl -t dom0-update); the builder's own steps are in its
-      # journal (journalctl -t builder-build)
+      # (journalctl -t dom0-update; nox.dev.buildTiming); the builder's own
+      # steps are in its journal (journalctl -t builder-build)
       t0=$SECONDS
       t_start=$SECONDS
       timing() {
         local now=$SECONDS
-        echo "dom0-update: timing $1 $((now - t0)) s" >&2
-        ${pkgs.util-linux}/bin/logger -t dom0-update "timing $machine $1 $((now - t0)) s" || true
+        if ${lib.boolToString config.nox.dev.buildTiming.enable}; then
+          echo "dom0-update: timing $1 $((now - t0)) s" >&2
+          ${pkgs.util-linux}/bin/logger -t dom0-update "timing $machine $1 $((now - t0)) s" || true
+        fi
         t0=$now
       }
       out="$(from_builder builder-build "''${bump[@]}" "''${nixjobs[@]}" "$machine" "$branch")"
@@ -366,7 +371,7 @@ let
         fi
         local up=0
         for _ in $(seq 120); do
-          ssh -o ConnectTimeout=5 "$b-vm" true >/dev/null 2>&1 && { up=1; break; }
+          ssh -o ConnectTimeout=5 "$b-vm" systemctl is-active --quiet multi-user.target >/dev/null 2>&1 && { up=1; break; }
           # Not started at all (e.g. no memory for the domain): no point
           # in waiting out the loop
           if systemctl is-failed --quiet "microvm@$b"; then

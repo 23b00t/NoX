@@ -164,7 +164,7 @@ in
             ping = "echo ok";
 
             # nox doctor's probes (home/vm-management/vm-doctor.nix), one per
-            # call: first line net|ip|wprsd|dbus, the answer on stdout
+            # call: first line net|ip|wprsd|dbus|audio, the answer on stdout
             doctor = ''
               if [ "$source" != dom0 ]; then
                 echo "error: only dom0"
@@ -185,7 +185,22 @@ in
                     org.freedesktop.Notifications /org/freedesktop/Notifications \
                     org.freedesktop.Notifications GetServerInformation >/dev/null && echo ok
                   ;;
-                *) echo "error: probe net|ip|wprsd|dbus"; exit 1 ;;
+                ${lib.optionalString config.services.pipewire.enable ''
+                  # Read only: a pipewire that socket activation has not
+                  # started yet stays off (idle), else its tunnel sink to dom0
+                  # (vms/modules/wprs.nix)
+                  audio)
+                    if ! ${pkgs.systemd}/bin/systemctl --user is-active --quiet pipewire.service; then
+                      echo idle
+                    elif ${pkgs.coreutils}/bin/timeout 5 ${config.services.pipewire.package}/bin/pw-cli ls Node |
+                      ${pkgs.gnugrep}/bin/grep -q 'node.name = "nox-dom0"'; then
+                      echo ok
+                    else
+                      echo no-sink
+                    fi
+                    ;;
+                ''}
+                *) echo "error: probe net|ip|wprsd|dbus|audio"; exit 1 ;;
               esac
             '';
 

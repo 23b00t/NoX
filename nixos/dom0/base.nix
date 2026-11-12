@@ -163,6 +163,9 @@ in
 
   nixpkgs.pkgs = pkgs;
 
+  # Index, short alias and uplink of the registry (registry/rules.nix)
+  assertions = import ../registry/rules.nix { inherit lib; } vmRegistry;
+
   imports = [
     inputs.microvm.nixosModules.host
     ./unfree.nix
@@ -170,6 +173,9 @@ in
     ./user.nix
     # Desktop (niri, waybar, …) without home-manager
     ../desktop
+    # nox.dev (debugging aids; the desktop reads nox.dev.timing). Also
+    # imported by xen-dom0.nix, the module system loads it once
+    ../development
     # ../modules/steam-vm-image.nix
     # inputs.flatpaks.nixosModules.default
     ../modules/dbus-proxy.nix

@@ -58,7 +58,10 @@ nox = {
   # /var/lib/builder/deploy-key.pub, add it at GitHub as a read-only deploy key);
   # `nox update` (new inputs) needs the SSH URL and the bump key: its
   # /var/lib/builder/bump-key.pub as a deploy key with write access and as
-  # `builder-<machine> namespaces="git" <key>` in vms/builder/bump-signers
+  # `builder-<machine> namespaces="git" <key>` in vms/builder/bump-signers;
+  # it also needs `builderKeys = ./vms/builder;` in mkSystems (flake.nix),
+  # that directory with at least `allowed-signers` (the keys whose signed
+  # commits it builds)
   # vms.builder.module.nox.builder.repoUrl = "git@github.com:<you>/<config>.git";
   vms.builder.module.nox.builder.repoUrl = "https://github.com/<you>/<config>";
   # theme of dom0 and every VM (NoX: nox, organic logo, dark, moon and
@@ -118,7 +121,7 @@ services.nox-relay.host = {
   enable = true;
   guests.coding = {
     domain = "coding-vm";
-    serve.github-agent = "/home/nx/.ssh/agent/github.sock";
+    serve.github-agent = "/home/user/.ssh/agent/github.sock";
   };
 };
 ```
@@ -204,8 +207,11 @@ Write it to a stick (`dd`, in the VM the stick is attached to), boot it,
 then `sudo nox-install`. It guides through eight steps, Ctrl-C aborts any
 time:
 
-1. network: without one, a WLAN by SSID (also a hidden one, `nmcli
-   --ask device wifi connect <ssid> [hidden yes]`), `nmtui`, or on without
+1. network: the addresses (`ip -brief address`) and a test against
+   github.com; with a connection (e.g. LAN) on, or a shell first (`ip a`,
+   `ping`, `nmcli`; `exit` returns). Without one a WLAN by SSID (also a
+   hidden one, `nmcli --ask device wifi connect <ssid> [hidden yes]`),
+   `nmtui`, the shell, or on without
 2. the `nox-hwcheck` report, paged with `less`
 3. the config: its git URL and branch, cloned to `/tmp/nixos-config`. A
    GitHub repo is cloned over https first (an SSH URL is rewritten), so a
@@ -232,10 +238,14 @@ time:
    Whonix-Gateway if wanted); every other domain is left out. Built into
    the new disk's store from `nixosConfigurations.<host>.noxInstall`, then
    `nixos-install --system`
-7. the Whonix-Gateway image, if wanted: the CLI archive of the version you
-   give (default in NoX, the newest on whonix.org is shown), its signature
-   checked against Whonix' key `916B8D99C38EAF5E8ADC7A2A8D66066A2EEACCDA`,
-   the Gateway converted to raw at the image path of the config and
+7. the Whonix-Gateway image, if wanted: the CLI archive of the current
+   stable release (asked from whonix.org at install time: the version its
+   KVM page downloads, wiki template `Version_KVM`). Its signature has to
+   be good, by Whonix' signing key `916B8D99C38EAF5E8ADC7A2A8D66066A2EEACCDA`
+   (`derivative.asc` is fetched, its fingerprint is pinned in NoX; an
+   expired or revoked key stops it) and for this file name (notation
+   `file@name`). Then the Gateway is converted to raw at the image path of
+   the config (default `/home/<nox.user>/vm-images/whonix/`) and
    `xen-image-setup whonix-gateway` run in the new system. Tor still needs
    `DisableNetwork 0` after the first boot (see the Whonix steps of your
    config's README)
@@ -249,7 +259,8 @@ commit has to be signed first (`git commit --amend -S`, push).
 `nox-install --dry-run` runs steps 1-4 and prints the commands of 5-8;
 `--config URL`, `--branch B` and `--host H` skip those questions,
 `--whonix-from DIR` takes the Whonix files (archive, `.asc`,
-`derivative.asc`) from DIR instead of downloading them.
+`derivative.asc`) from DIR instead of downloading them (the version is
+the archive's).
 
 The disk layout is NoX's module `nox.disk`: `nox.disk.device =
 "/dev/disk/by-id/…"` gives GPT, ESP 1 GB (`/boot`), the rest LUKS2 with
@@ -312,3 +323,27 @@ nix build .#nox-relay
 nix build .#nox-rpc
 nix build .#nox-cli
 ```
+
+### Checks of a config
+
+`mkSystems` returns `checks.<system>` with two eval-only checks per
+machine; the config's flake passes them on (`checks` next to
+`nixosConfigurations` and `packages`, as in `template/flake.nix`). Neither
+builds a system:
+
+- `noxInstall-<host>`: the minimal installation nox-install installs
+  (`nixosConfigurations.<host>.noxInstall { }`) evaluates; the check's
+  output is its toplevel's drvPath.
+- `registry-<host>`: the registry rules of `nixos/registry/rules.nix` hold
+  for that machine: every domain has its own `index` (address, tap, MAC;
+  dom0 has 254), short aliases are unique, and every VM's `uplink` runs on
+  the machine. dom0 asserts the same rules, so a rebuild fails on them too;
+  the check finds them in seconds without evaluating the system.
+
+```sh
+nix build .#checks.x86_64-linux.registry-<host>
+nix build .#checks.x86_64-linux.noxInstall-<host>
+```
+
+`nix flake check` evaluates every check, and every system, in one process;
+on a machine with little RAM build the checks one at a time.

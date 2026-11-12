@@ -11,11 +11,12 @@
 
   networking.hostName = "nox";
 
-  # NoX's tools expect the user nx (for now)
-  users.users.nx = {
-    isNormalUser = true;
-    extraGroups = [ "wheel" ];
-  };
+  # dom0's user: NoX creates it (wheel, autologin), default "user"
+  # nox.user = "user";
+
+  # The disk nox-install installs to (GPT, ESP, LUKS2 + ext4; NoX README
+  # "Installer"); leave it out on a machine installed by hand
+  # nox.disk.device = "/dev/disk/by-id/…";
 
   time.timeZone = "Europe/Berlin";
   i18n.defaultLocale = "en_US.UTF-8";

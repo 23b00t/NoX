@@ -26,7 +26,8 @@
     in
     {
       # nixosConfigurations.nox (this machine) and one per VM, packages.<vm>
-      # (the VMs' runners): `sudo nixos-rebuild switch --flake .#nox`
+      # (the VMs' runners): `sudo nixos-rebuild switch --flake .#nox`;
+      # checks (eval-only): `nix build .#checks.x86_64-linux.registry-nox`
       inherit
         (inputs.nox.lib.mkSystems {
           inherit inputs;
@@ -40,9 +41,15 @@
           # LUKS volumes `nox backup` may open (cryptsetup luksUUID); empty:
           # the only LUKS volume on the attached disk
           backupLuksUuids = [ ];
+          # With the builder (nox.infra.builder in vms.nix): the directory
+          # with its keys, at least `allowed-signers` (ssh-keygen format: the
+          # keys whose signed commits it builds); later signing-key-<host>.pub
+          # and image-key-<host>.pub (dom0-update), bump-signers (nox update)
+          # builderKeys = ./vms/builder;
         })
         nixosConfigurations
         packages
+        checks
         ;
     };
 }
