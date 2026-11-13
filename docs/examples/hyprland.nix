@@ -49,7 +49,7 @@ in
           if [ "$t" = dom0 ]; then
             setsid -f foot -a term-dom0 ${lib.escapeShellArgs d.login.dom0Command}
           else
-            setsid -f vm-run "$t" foot -a "term-$t" zellij --layout tabs attach -c
+            setsid -f nox run "$t" foot -a "term-$t" zellij --layout tabs attach -c
           fi
         done
       '';

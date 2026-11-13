@@ -95,7 +95,7 @@ let
 
     restart() {
       echo "restarting $1"
-      manage-vms restart "$1"
+      nox restart "$1"
     }
 
     [ $# -ge 1 ] || usage

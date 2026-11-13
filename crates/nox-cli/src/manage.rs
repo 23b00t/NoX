@@ -1,4 +1,4 @@
-//! `manage-vms` (`nox list|start|stop|restart`): status table and
+//! `nox list|start|stop|restart`: status table and
 //! start/stop/restart/reload of VMs and image domains (microvm@… /
 //! xen-image@…), filtered by state, store group and stale image; `--fresh`
 //! for disposable VMs. A started VM gets its tray apps and session windows
@@ -15,9 +15,9 @@ use crate::sys;
 const STATE_DIR: &str = "/var/lib/microvms";
 
 const USAGE: &str = "Usage:
-  manage-vms status [<vm>...] [--running] [--group <group>] [--stale]
-  manage-vms <start|stop|restart|reload> [<vm>...] [--running] [--group <group>] [--stale]
-  manage-vms <start|restart> --fresh <vm>...
+  nox list [<vm>...] [--running] [--group <group>] [--stale]
+  nox <start|stop|restart> [<vm>...] [--running] [--group <group>] [--stale]
+  nox <start|restart> --fresh <vm>...
 
   <vm>...          these VMs (default: all), narrowed by the filters
   --group <group>  only VMs of this store group (registry storeGroup)
@@ -32,12 +32,12 @@ A VM that gets started or restarted gets its tray apps again (vm-tray)
 and its missing windows from the session start (vm-autostart).
 
 Examples:
-  manage-vms status
-  manage-vms status --running
-  manage-vms start chat
-  manage-vms restart --running
-  manage-vms restart --stale
-  manage-vms restart --group desktop";
+  nox list
+  nox list --running
+  nox start chat
+  nox restart --running
+  nox restart --stale
+  nox restart --group desktop";
 
 fn usage() -> ExitCode {
     eprintln!("{USAGE}");
@@ -357,7 +357,7 @@ pub fn main(args: &[OsString]) -> ExitCode {
     let domains = match registry::domains() {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("manage-vms: {e:#}");
+            eprintln!("nox: {e:#}");
             return ExitCode::from(1);
         }
     };

@@ -110,7 +110,7 @@ types.submodule (
         example = {
           social = "d1bfff";
         };
-        description = "Overrides of the trust label colors (hex without '#'): the border and focus ring of each VM's windows in dom0 (registry `label`). Labels: dom0, unknown, sys, dev, personal, social, untrusted, vault, anon.";
+        description = "Overrides of the trust label colors (hex without '#'): the border and focus ring of each VM's windows in dom0 (registry `label`). Labels: dom0, unknown, sys, dev, personal, social, untrusted, vault, anon, config.";
       };
       resolution = mkOption {
         type = types.enum [

@@ -163,7 +163,7 @@ in
             # Liveness for dom0 (vm-clip, nox doctor, update-all pick rpc over SSH)
             ping = "echo ok";
 
-            # nox doctor's probes (home/vm-management/vm-doctor.nix), one per
+            # nox doctor's probes (dom0/tools/vm-doctor.nix), one per
             # call: first line net|ip|wprsd|dbus|audio, the answer on stdout
             doctor = ''
               if [ "$source" != dom0 ]; then

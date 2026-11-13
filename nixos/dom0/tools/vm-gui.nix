@@ -2,7 +2,7 @@
 # the VM's wprsd through nox-relay (/run/nox-relay/<vm>-wprs.sock) instead
 # of an SSH tunnel; one wprsc per VM. The app is started by RPC (stage C3,
 # `nox-rpc --dom0 app <vm>`, handler in vms/modules/vchan-relay.nix, image
-# domains: modules/xen-image-domains.nix). vm-run uses vm-gui for Xen
+# domains: modules/xen-image-domains.nix). nox run uses vm-gui for Xen
 # guests with wprs over the relay.
 {
   lib,

@@ -26,17 +26,17 @@ fn parse_section<T: DeserializeOwned + Default>(text: &str, key: &str) -> Result
 }
 
 /// `domains`: every VM and image domain of the registry, in its order
-/// (vm-run, manage-vms; NoX nixos/dom0/tools/vm-run.nix)
+/// (nox run, list, start, …; NoX nixos/dom0/tools/vm-run.nix)
 #[derive(Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Domain {
     pub name: String,
-    /// Short alias (vm-run accepts it too)
+    /// Short alias (nox run accepts it too)
     #[serde(default)]
     pub short: Option<String>,
     /// systemd unit without `.service` (microvm@… / xen-image@…)
     pub unit: String,
-    /// Login user in the VM (vm-run -u)
+    /// Login user in the VM
     #[serde(default)]
     pub user: String,
     /// Image domain (Whonix, kali): its terminal is x-terminal-emulator
@@ -51,7 +51,7 @@ pub struct Domain {
     /// registry `storeGroup`
     #[serde(default)]
     pub store_group: Option<String>,
-    /// registry `disposable` (manage-vms --fresh)
+    /// registry `disposable` (nox start --fresh)
     #[serde(default)]
     pub disposable: bool,
     /// Boot memory in MiB (nox disp checks Xen's free memory first)

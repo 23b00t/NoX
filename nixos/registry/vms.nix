@@ -153,6 +153,7 @@ let
           "untrusted"
           "vault"
           "anon"
+          "config"
         ]
       );
       default = null;
@@ -228,6 +229,12 @@ let
       type = types.nullOr types.bool;
       default = null;
       description = "Passes the machine's GPU (hardware config) through to the VM. Default: false.";
+    };
+    cpuPool = mkOption {
+      type = types.nullOr (types.listOf types.ints.unsigned);
+      default = null;
+      example = lib.literalExpression "lib.range 0 15";
+      description = "CPUs (Xen's numbering, `xl info -n`) the VM gets to itself while it runs: dom0 moves them from Pool-0 into a cpupool named after the VM before the start and back after the stop (a CPU Xen refuses to move, often CPU 0, stays in Pool-0). nox-install proposes the P-cores of a hybrid CPU, else the upper half. Default: null (Pool-0, shared).";
     };
     bluetooth = mkOption {
       type = types.nullOr types.bool;

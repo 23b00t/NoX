@@ -248,7 +248,7 @@ let
             echo "$(ls /boot/vmlinuz-* | sort -V | tail -n 1) /boot/vmlinuz-$(uname -r)"
             ;;
         ${lib.optionalString d.wprs ''
-          # nox doctor's probe (home/vm-management/vm-doctor.nix); only wprsd
+          # nox doctor's probe (dom0/tools/vm-doctor.nix); only wprsd
           # here, network checks run in the NixOS VMs
           doctor)
             IFS= read -r probe || exit 1

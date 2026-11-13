@@ -15,8 +15,9 @@
   # nox.user = "user";
 
   # The disk nox-install installs to (GPT, ESP, LUKS2 + ext4; NoX README
-  # "Installer"); leave it out on a machine installed by hand
-  # nox.disk.device = "/dev/disk/by-id/…";
+  # "Installer"): nox-install asks for it and writes disk.nix next to this
+  # file (`nox.disk.device = "/dev/disk/by-id/…";`). Leave it out on a
+  # machine installed by hand
 
   time.timeZone = "Europe/Berlin";
   i18n.defaultLocale = "en_US.UTF-8";

@@ -7,6 +7,7 @@ Generated from the option declarations (`nix build .#options-doc`); do not edit.
 | Role | Description | Defaults |
 | --- | --- | --- |
 | `browser` | Browsing. | `explorer = true`, `home = {"size":10000}`, `memory = 2048`, `memoryMax = 6144`, `storeGroup = desktop`, `vcpu = 4` |
+| `config` | The config repo, the signing key and an editor (nox-config; nox-install sets it up). | `dbus = false`, `githubAgent = false`, `home = {"size":2048}`, `memory = 512`, `memoryMax = 2048`, `storeGroup = desktop` |
 | `desktop` | GUI apps over wprs with a file manager. | `explorer = true`, `home = {"size":10000}`, `memory = 2048`, `memoryMax = 4096`, `storeGroup = desktop`, `vcpu = 2` |
 | `dev` | Software development: editor, language tooling, zsh, zellij, yazi. | `explorer = true`, `githubAgent = true`, `home = {"size":20000}`, `memory = 2048`, `memoryMax = 8192`, `storeGroup = dev`, `vcpu = 2` |
 | `gaming` | Games with the GPU passed through. | `backup = false`, `dbus = false`, `gpu = true`, `home = {"size":200000}`, `memory = 16384`, `vcpu = 8` |
@@ -506,7 +507,7 @@ null
 
 
 
-Public key dom0 logs in with (dom0-update; private part ~/\.ssh/builder-\<name>-vm)\.
+Public key dom0 logs in with (dom0-update; private part ~/\.ssh/builder-\<name>-vm)\. Unset: the file ` ssh-key-builder-<name>-<machine>.pub ` in ` builderKeys ` (nox-install writes it)\.
 
 
 
@@ -903,7 +904,7 @@ string
 
 
 
-Command in the VM (vm-run)\.
+Command in the VM (nox run)\.
 
 
 
@@ -1388,7 +1389,7 @@ attribute set of string matching the pattern \[0-9a-fA-F]{6}
 
 
 
-Overrides of the trust label colors (hex without ‘\#’): the border and focus ring of each VM’s windows in dom0 (registry ` label `)\. Labels: dom0, unknown, sys, dev, personal, social, untrusted, vault, anon\.
+Overrides of the trust label colors (hex without ‘\#’): the border and focus ring of each VM’s windows in dom0 (registry ` label `)\. Labels: dom0, unknown, sys, dev, personal, social, untrusted, vault, anon, config\.
 
 
 
@@ -2468,7 +2469,7 @@ Trust label: the window border color in dom0\. Default: untrusted\.
 
 
 *Type:*
-null or one of “sys”, “dev”, “personal”, “social”, “untrusted”, “vault”, “anon”
+null or one of “sys”, “dev”, “personal”, “social”, “untrusted”, “vault”, “anon”, “config”
 
 
 
@@ -2581,8 +2582,6 @@ false
 
 ### nox\.infra\.sys-firewall\.enable
 
-
-
 NoX’s sys-firewall VM (module nixos/vms/sys-firewall)\.
 
 
@@ -2652,6 +2651,8 @@ false
 
 
 ### nox\.infra\.sys-usb\.enable
+
+
 
 NoX’s sys-usb VM (module nixos/vms/sys-usb)\.
 
@@ -3243,7 +3244,7 @@ attribute set of string matching the pattern \[0-9a-fA-F]{6}
 
 
 
-Overrides of the trust label colors (hex without ‘\#’): the border and focus ring of each VM’s windows in dom0 (registry ` label `)\. Labels: dom0, unknown, sys, dev, personal, social, untrusted, vault, anon\.
+Overrides of the trust label colors (hex without ‘\#’): the border and focus ring of each VM’s windows in dom0 (registry ` label `)\. Labels: dom0, unknown, sys, dev, personal, social, untrusted, vault, anon, config\.
 
 
 
@@ -4133,6 +4134,38 @@ null
 
 
 
+### nox\.vms\.\<name>\.cpuPool
+
+
+
+CPUs (Xen’s numbering, ` xl info -n `) the VM gets to itself while it runs: dom0 moves them from Pool-0 into a cpupool named after the VM before the start and back after the stop (a CPU Xen refuses to move, often CPU 0, stays in Pool-0)\. nox-install proposes the P-cores of a hybrid CPU, else the upper half\. Default: null (Pool-0, shared)\.
+
+
+
+*Type:*
+null or (list of (unsigned integer, meaning >=0))
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+lib.range 0 15
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
 ### nox\.vms\.\<name>\.dbus
 
 
@@ -4446,7 +4479,7 @@ Trust label: the window border color in dom0\. Default: untrusted\.
 
 
 *Type:*
-null or one of “sys”, “dev”, “personal”, “social”, “untrusted”, “vault”, “anon”
+null or one of “sys”, “dev”, “personal”, “social”, “untrusted”, “vault”, “anon”, “config”
 
 
 

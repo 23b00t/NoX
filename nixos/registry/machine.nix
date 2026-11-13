@@ -89,6 +89,19 @@ let
       };
     };
 
+  # dom0's login key for a builder VM from `builderKeys`/ssh-key-<vm>-<host>.pub
+  # when vms.nix sets no `hostSSHKey` (nox-install writes that file)
+  withLoginKey =
+    host: vm:
+    let
+      file = builderKeys + "/ssh-key-${vm.name}-${host}.pub";
+      isBuilder = vm.name == "builder" || lib.hasPrefix "builder-" vm.name;
+    in
+    if vm ? hostSSHKey || builderKeys == null || !isBuilder || !builtins.pathExists file then
+      vm
+    else
+      vm // { hostSSHKey = lib.trim (builtins.readFile file); };
+
   # The registry as one machine sees it: `vms`/`imageDomains` and everything
   # derived from them only hold what runs there (nox.vms.<name>.enable);
   # `extra`: see noxFor
@@ -96,11 +109,12 @@ let
     extra: host:
     let
       domains = domainsFor extra host;
-      hostVms = domains.vmsOnHost;
+      allVms = map (withLoginKey host) domains.vms;
+      hostVms = map (withLoginKey host) domains.vmsOnHost;
     in
     {
-      byName = mkByName domains.vms;
-      byShort = mkByShort domains.vms;
+      byName = mkByName allVms;
+      byShort = mkByShort allVms;
       inherit
         host
         backupLuksUuids

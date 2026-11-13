@@ -1,7 +1,7 @@
 # nox-hwcheck: can this machine run NoX, and what goes where? A report with
 # traffic lights (virtualisation, firmware, RAM, disk, IOMMU groups, GPUs,
 # network and USB for the driver domains, CPU) and, with --nix, a block for
-# the config's machines/hardware.nix (format of template/machines). Runs on a
+# a machine's hardware.nix (format of template/machines/nox/hardware.nix). Runs on a
 # live system and in a running dom0; under Xen it reads Xen's view (`xl
 # info`, `xl dmesg`), since dom0 sees neither VT-x nor the IOMMU groups.
 # Changes nothing. Some values need root.

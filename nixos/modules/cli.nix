@@ -47,7 +47,7 @@ in
     registry = lib.mkOption {
       type = lib.types.attrsOf (pkgs.formats.json { }).type;
       default = { };
-      description = "Data of the tools that run inside nox (e.g. `doctor`, from the vm-doctor module), next to `vms` in /etc/nox/registry.json.";
+      description = "Data of the tools that run inside nox (e.g. `doctor`, from dom0/tools/vm-doctor.nix), next to `vms` in /etc/nox/registry.json.";
     };
   };
 

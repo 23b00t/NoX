@@ -503,7 +503,7 @@ let
           "Bluetooth is currently managed by $owner-vm"
         ;;
     esac
-    exec vm-run "$owner" dbus-run-session -- blueman-manager
+    exec nox run "$owner" dbus-run-session -- blueman-manager
   '';
 
   # Give the USB controllers back to dom0

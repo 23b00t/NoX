@@ -179,7 +179,7 @@ in
     # ../modules/steam-vm-image.nix
     # inputs.flatpaks.nixosModules.default
     ../modules/dbus-proxy.nix
-    # dom0 tools (vm-run, manage-vms, nox backup, …), out of home-manager
+    # dom0 tools (nox run|start|…, nox backup, …), out of home-manager
     ./tools
   ];
 

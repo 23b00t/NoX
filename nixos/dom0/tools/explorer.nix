@@ -17,5 +17,5 @@ pkgs.writeShellScriptBin "explorer" ''
   # If a selection was made, start the corresponding VM and open yazi in it
   [ -n "$selected" ] || exit 0
   # foot in the VM over wprs (image previews stay in the VM)
-  exec vm-run "$selected" foot yazi
+  exec nox run "$selected" foot yazi
 ''

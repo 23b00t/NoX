@@ -85,6 +85,10 @@ in
         bus = "pci";
         inherit path;
       }) (vmRegistry.hardware.pci.devicePaths.gpu or [ ]);
+    }
+    // lib.optionalAttrs (vm.cpuPool or null != null) {
+      # Its own CPUs while it runs: dom0 creates the pool (dom0/xen-dom0.nix)
+      xen.pool = name;
     };
 
     environment.systemPackages = map appPackage enabledApps;

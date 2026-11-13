@@ -59,6 +59,17 @@ in
       home.size = 40000;
       dbus = false;
     };
+    config =
+      role "The config repo, the signing key and an editor (nox-config; nox-install sets it up)."
+        ../roles/config.nix
+        {
+          memory = 512;
+          memoryMax = 2048;
+          home.size = 2048;
+          storeGroup = "desktop";
+          githubAgent = false;
+          dbus = false;
+        };
     gaming = role "Games with the GPU passed through." ../roles/gaming.nix {
       memory = 16384;
       vcpu = 8;

@@ -22,6 +22,7 @@ rec {
     blue = "61afef";
     magenta = "c678dd";
     violet = "9d7cd8";
+    pink = "ff79c6";
     black = "000000";
   };
 
@@ -56,6 +57,7 @@ rec {
     untrusted = palette.yellow;
     vault = palette.cyan;
     anon = palette.blue;
+    config = palette.pink;
   };
 
   # Logo and wallpaper colors from the (overridden) roles

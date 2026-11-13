@@ -58,6 +58,7 @@ let
         vcpu
         gpu
         bluetooth
+        cpuPool
         ;
       homeSize = v.home.size;
       storeSize = v.store.size;
@@ -104,6 +105,9 @@ let
     "builder"
   ]
   ++ map (n: "builder-${n}") (builtins.attrNames cfg.builders)
+  # the config VM: with nox.builder.source = "local" the first `nox update`
+  # takes the config from there
+  ++ builtins.attrNames (lib.filterAttrs (_: v: (v.role or null) == "config") cfg.vms)
   ++ cfg.install.keep;
   enabled = lib.filterAttrs (name: v: v.enable && (!cfg.install.minimal || builtins.elem name keep));
 in

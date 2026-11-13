@@ -77,6 +77,28 @@
           nox-hwcheck = pkgs.callPackage ./nix/nox-hwcheck.nix { };
           nox-install = pkgs.callPackage ./nix/nox-install.nix {
             inherit nox-hwcheck;
+            # A new config: the template, NoX pinned to this revision and
+            # its inputs to the ones this ISO is built with (the template's
+            # nixpkgs follows NoX's)
+            template = ./template;
+            noxLocked =
+              let
+                gh = owner: repo: src: {
+                  type = "github";
+                  inherit owner repo;
+                  inherit (src) rev narHash lastModified;
+                };
+              in
+              if self ? rev then
+                {
+                  nox = gh "23b00t" "NoX" self;
+                  inputs = {
+                    nixpkgs = gh "nixos" "nixpkgs" nixpkgs;
+                    disko = gh "nix-community" "disko" disko;
+                  };
+                }
+              else
+                null;
             inherit (disko.packages.${system}) disko;
           };
         in

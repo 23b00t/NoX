@@ -1,0 +1,128 @@
+{
+  "nodes": {
+    "disko": {
+      "inputs": {
+        "nixpkgs": [
+          "nox",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1792526520,
+        "narHash": "sha256-3hSJlv8mUVnZPMWK2+CM7a9O+nR6Z4mCh27NfLCmTPc=",
+        "owner": "nix-community",
+        "repo": "disko",
+        "rev": "cedd626e11b635470fa6f9fdb8ad79b0075dd7f9",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nix-community",
+        "repo": "disko",
+        "type": "github"
+      }
+    },
+    "microvm": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "spectrum": "spectrum"
+      },
+      "locked": {
+        "lastModified": 1794249731,
+        "narHash": "sha256-MHd2GMcaT5zS/l1IdCBZCj2le9KVePk4ChXg0/uQQ6g=",
+        "owner": "23b00t",
+        "repo": "microvm.nix",
+        "rev": "3880925cb85da20b1567ddd5fc3e8c3adbc2d983",
+        "type": "github"
+      },
+      "original": {
+        "owner": "23b00t",
+        "ref": "xen",
+        "repo": "microvm.nix",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1793110635,
+        "narHash": "sha256-dhoW6VgFWlaodSY5jrBn+CF2FLmaUvDVgM7+C7T2+NM=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "31ecbaca1bdefa45dffc409f0250bd8039ea0010",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nox": {
+      "inputs": {
+        "disko": "disko",
+        "nixpkgs": "nixpkgs"
+      },
+      "locked": {
+        "lastModified": 1794509505,
+        "narHash": "sha256-i2n0SCLN46FTpb2hFZVRmDP3vKcW510bQwAm3r17/Rc=",
+        "owner": "23b00t",
+        "repo": "NoX",
+        "rev": "1577167c50b04a4b89224accec8e37680b9cf0ce",
+        "type": "github"
+      },
+      "original": {
+        "owner": "23b00t",
+        "repo": "NoX",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "microvm": "microvm",
+        "nixpkgs": [
+          "nox",
+          "nixpkgs"
+        ],
+        "nox": "nox",
+        "wprs": "wprs"
+      }
+    },
+    "spectrum": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1786032750,
+        "narHash": "sha256-+Ba/kIn5BjvV7PN8bWOo7RoqgTY/Yv2M7qeMf3wS2Ag=",
+        "ref": "refs/heads/main",
+        "rev": "77d2389874bb092b8dbf05ecc5b1030372e80e98",
+        "revCount": 1417,
+        "type": "git",
+        "url": "https://spectrum-os.org/git/spectrum"
+      },
+      "original": {
+        "type": "git",
+        "url": "https://spectrum-os.org/git/spectrum"
+      }
+    },
+    "wprs": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1794162628,
+        "narHash": "sha256-HJpdh6eOEbKs5S39q7bdfrqCUfkZKtfG2reonWw0WpI=",
+        "owner": "23b00t",
+        "repo": "wprs",
+        "rev": "90876df9bb3f96b2f2069bb58f4290c6fe702d2c",
+        "type": "github"
+      },
+      "original": {
+        "owner": "23b00t",
+        "ref": "nox",
+        "repo": "wprs",
+        "type": "github"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

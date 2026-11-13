@@ -32,7 +32,7 @@ in
             type = types.nullOr types.str;
             default = null;
             example = "ssh-ed25519 AAAA… builder-desktop-vm";
-            description = "Public key dom0 logs in with (dom0-update; private part ~/.ssh/builder-<name>-vm).";
+            description = "Public key dom0 logs in with (dom0-update; private part ~/.ssh/builder-<name>-vm). Unset: the file `ssh-key-builder-<name>-<machine>.pub` in `builderKeys` (nox-install writes it).";
           };
           memory = mkOption {
             type = types.int;

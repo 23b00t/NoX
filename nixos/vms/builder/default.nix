@@ -11,7 +11,8 @@
 }:
 let
   stateDir = "/var/lib/builder";
-  inherit (config.nox.builder) repoUrl;
+  inherit (config.nox.builder) repoUrl source;
+  local = source == "local";
   # The builder's registry entry (memory, memoryMax) as this machine sees it
   # (byName is the machine-independent view)
   reg = lib.findFirst (vm: vm.name == "builder") vmRegistry.byName.builder vmRegistry.vms;
@@ -34,12 +35,16 @@ let
     # build's result doesn't wait for it; the store's content stays
     trap '/run/wrappers/bin/sudo -n ${config.systemd.package}/bin/systemctl start --no-block fstrim.service >/dev/null 2>&1 || true' EXIT
     bump=0
+    # --bundle: the config comes on stdin as a git bundle (nox.builder.source
+    # = "local": dom0-update fetches it from the config VM), not from repoUrl
+    bundle=0
     # --max-jobs/--cores: for this build only, instead of nix.settings
     # (dom0-update --max-jobs/--cores, services.dom0-update.maxJobs/cores)
     jobs=()
     while [ $# -gt 0 ]; do
       case "$1" in
         --bump) bump=1; shift ;;
+        --bundle) bundle=1; shift ;;
         --max-jobs)
           [[ ''${2:-} =~ ^[1-9][0-9]{0,2}$ ]] || { echo "builder-build: --max-jobs needs a number 1-999" >&2; exit 2; }
           jobs+=(--max-jobs "$2"); shift 2 ;;
@@ -49,7 +54,7 @@ let
         *) break ;;
       esac
     done
-    machine="''${1:?usage: builder-build [--bump] [--max-jobs <n>] [--cores <n>] <machine> [branch] | --iso <branch>}"
+    machine="''${1:?usage: builder-build [--bump] [--bundle] [--max-jobs <n>] [--cores <n>] <machine> [branch] | --iso <branch>}"
     branch="''${2:-$machine}"
     # The toplevel (system) and the store images as files (images/), one
     # build: dom0/store-images.nix
@@ -88,13 +93,32 @@ let
     GIT_SSH_COMMAND="$(git_ssh ${stateDir}/deploy-key)"
     export GIT_SSH_COMMAND
 
-    if [ ! -d "$repo/.git" ]; then
-      ${pkgs.git}/bin/git clone --quiet ${lib.escapeShellArg repoUrl} "$repo" >&2
+    if [ "$bundle" = 1 ]; then
+      # A bundle (any content) on stdin: git checks its format, the signature
+      # check below decides whether it gets built
+      [ -d "$repo/.git" ] || ${pkgs.git}/bin/git init --quiet "$repo" >&2
+      cat >"${stateDir}/incoming.bundle"
+      ${pkgs.git}/bin/git -C "$repo" bundle verify --quiet "${stateDir}/incoming.bundle" >&2
+      ${pkgs.git}/bin/git -C "$repo" fetch --quiet "${stateDir}/incoming.bundle" "refs/heads/$branch" >&2
+    else
+      ${
+        if local then
+          ''
+            echo "builder-build: nox.builder.source = \"local\": the config comes from dom0 (--bundle)" >&2
+            exit 1
+          ''
+        else
+          ''
+            if [ ! -d "$repo/.git" ]; then
+              ${pkgs.git}/bin/git clone --quiet ${lib.escapeShellArg repoUrl} "$repo" >&2
+            fi
+            # A changed repoUrl (e.g. https -> ssh when the config went private)
+            # applies to the existing checkout too
+            ${pkgs.git}/bin/git -C "$repo" remote set-url origin ${lib.escapeShellArg repoUrl}
+            ${pkgs.git}/bin/git -C "$repo" fetch --quiet origin "$branch" >&2
+          ''
+      }
     fi
-    # A changed repoUrl (e.g. https -> ssh when the config went private)
-    # applies to the existing checkout too
-    ${pkgs.git}/bin/git -C "$repo" remote set-url origin ${lib.escapeShellArg repoUrl}
-    ${pkgs.git}/bin/git -C "$repo" fetch --quiet origin "$branch" >&2
     ${pkgs.git}/bin/git -C "$repo" checkout --quiet --detach FETCH_HEAD >&2
     echo "builder-build: $machine from $branch @ $(${pkgs.git}/bin/git -C "$repo" rev-parse --short HEAD)" >&2
 
@@ -138,6 +162,7 @@ let
     # nox update: new inputs as a commit of their own, pushed before the
     # build so that GitHub has what dom0 runs; signed and pushed with the
     # bump key. Nothing new: build anyway
+    rm -f "${stateDir}/bump.bundle"
     if [ "$bump" = 1 ]; then
       (cd "$repo" && ${config.nix.package}/bin/nix flake update) >&2
       if ${pkgs.git}/bin/git -C "$repo" diff --quiet flake.lock; then
@@ -150,12 +175,19 @@ let
           -c gpg.ssh.program=${pkgs.openssh}/bin/ssh-keygen \
           -c user.signingkey="$bumpkey" \
           commit --quiet -S -m update flake.lock >&2
-        if ! GIT_SSH_COMMAND="$(git_ssh "$bumpkey")" \
-          ${pkgs.git}/bin/git -C "$repo" push --quiet origin "HEAD:refs/heads/$branch" >&2; then
-          echo "builder-build: push to $branch failed (bump-key.pub a deploy key with write access at GitHub? SSH repoUrl? $branch moved meanwhile: run again)" >&2
-          exit 1
+        if [ "$bundle" = 1 ]; then
+          # Back to the config VM through dom0 (dom0-update fetches it)
+          ${pkgs.git}/bin/git -C "$repo" branch --quiet -f "$branch" HEAD
+          ${pkgs.git}/bin/git -C "$repo" bundle create --quiet "${stateDir}/bump.bundle" "refs/heads/$branch" >&2
+          echo "builder-build: flake.lock committed on $branch @ $(${pkgs.git}/bin/git -C "$repo" rev-parse --short HEAD), dom0 takes it to the config VM" >&2
+        else
+          if ! GIT_SSH_COMMAND="$(git_ssh "$bumpkey")" \
+            ${pkgs.git}/bin/git -C "$repo" push --quiet origin "HEAD:refs/heads/$branch" >&2; then
+            echo "builder-build: push to $branch failed (bump-key.pub a deploy key with write access at GitHub? SSH repoUrl? $branch moved meanwhile: run again)" >&2
+            exit 1
+          fi
+          echo "builder-build: pushed flake.lock to $branch @ $(${pkgs.git}/bin/git -C "$repo" rev-parse --short HEAD)" >&2
         fi
-        echo "builder-build: pushed flake.lock to $branch @ $(${pkgs.git}/bin/git -C "$repo" rev-parse --short HEAD)" >&2
         trusted HEAD || { echo "builder-build: the bump commit does not verify (bump-signers), not building" >&2; exit 1; }
       fi
     fi
@@ -287,6 +319,14 @@ in
     ../modules/common-config.nix
     ../modules/persistent-store-overlay.nix
     {
+      options.nox.builder.source = lib.mkOption {
+        type = lib.types.enum [
+          "git"
+          "local"
+        ];
+        default = "git";
+        description = "Where the builder gets the config: `git` fetches `repoUrl`; `local` takes it from dom0 as a git bundle (dom0-update fetches ~/outbox/config.bundle from the config VM, role `config`), and a flake.lock bump goes back the same way instead of a push.";
+      };
       options.nox.builder.repoUrl = lib.mkOption {
         type = lib.types.str;
         example = "https://github.com/<you>/<your-nox-config>";

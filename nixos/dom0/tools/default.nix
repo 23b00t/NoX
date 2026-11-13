@@ -1,8 +1,7 @@
-# dom0 tools (NoX modules step 2: out of home-manager): vm-run and
-# manage-vms (links to nox), vm-gui,
-# vm-doctor, nox backup data, vm-rollback, nox printers, the desktop entries for VM apps, the
-# GitHub agent, explorer and vm-disp, all in the
-# system profile.
+# dom0 tools (NoX modules step 2: out of home-manager): the data of nox
+# run/list/start/… and nox doctor, nox backup data, vm-gui, vm-rollback,
+# nox printers, the desktop entries for VM apps, the GitHub agent, explorer
+# and vm-disp, all in the system profile.
 { pkgs, vmRegistry, ... }:
 {
   imports = [
@@ -30,13 +29,13 @@
         shift 2
       fi
       [ $# -gt 0 ] || set -- foot
-      manage-vms start "$vm"
+      nox start "$vm"
       # A fresh disposable needs its volumes made and a boot: wait for its relay
       for _ in $(seq 240); do
         [ -e "/run/nox-relay/$vm.ready" ] && break
         sleep 0.5
       done
-      exec vm-run "$vm" "$@"
+      exec nox run "$vm" "$@"
     '')
     (import ./explorer.nix { inherit pkgs vmRegistry; })
     (import ./github-agent.nix { inherit pkgs; })

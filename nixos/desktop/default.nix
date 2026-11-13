@@ -100,7 +100,7 @@ in
         };
 
     # The user's windows at login (vm-autostart, at session start and from
-    # manage-vms after a VM's (re)start)
+    # nox start|restart after a VM's (re)start)
     login = {
       terminalTabs = lib.mkOption {
         type = lib.types.listOf lib.types.str;
@@ -132,7 +132,7 @@ in
               };
               command = lib.mkOption {
                 type = lib.types.listOf lib.types.str;
-                description = "Command in the VM (vm-run).";
+                description = "Command in the VM (nox run).";
               };
               appId = lib.mkOption {
                 type = lib.types.str;
@@ -177,7 +177,7 @@ in
         };
     # Trust label per VM (registry `label`, absent = untrusted) as window
     # colors on the "[<vm>] " app id prefix that dom0's wprsc sets
-    # (`--app-id-prefix`, dom0/tools/vm-gui.nix, vm-run; "[<vm>]" alone for
+    # (`--app-id-prefix`, dom0/tools/vm-gui.nix, nox run; "[<vm>]" alone for
     # windows without an app id). A VM cannot fake it: its own app id only
     # follows the prefix. dom0's color only for app ids that don't start
     # with "["; windows matching neither (a dom0 window without an app id)

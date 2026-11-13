@@ -38,6 +38,16 @@ let
     fileImageKeys
     // cfg.imageKeys
     // lib.optionalAttrs (cfg.imageKey != null) { builder = cfg.imageKey; };
+  # nox.builder.source = "local": the config comes from the config VM (role
+  # `config`, its ~/outbox/config.bundle), the builder gets it on stdin
+  builderSource =
+    if config.microvm.vms ? builder then
+      config.microvm.vms.builder.config.config.nox.builder.source or "git"
+    else
+      "git";
+  configVm = lib.findFirst (vm: (vm.role or null) == "config") null vmRegistry.vms;
+  localSource = builderSource == "local";
+
   groupBuilderVms = lib.filter (
     vm:
     vm.name != "builder"
@@ -212,12 +222,45 @@ let
       sleep 2
     done
 
+    ${lib.optionalString localSource (
+      assert lib.assertMsg (
+        configVm != null
+      ) "dom0-update: nox.builder.source = \"local\" needs a VM with role config";
+      ''
+        # The config from the config VM (its ~/outbox/config.bundle, written
+        # by every commit there) for the builder: on stdin of builder-build
+        if ! systemctl is-active --quiet microvm@${configVm.name}; then
+          echo "dom0-update: starting ${configVm.name} (the config)" >&2
+          sudo systemctl start microvm@${configVm.name}
+        fi
+        for _ in $(seq 120); do
+          [ -S /run/nox-relay/${configVm.name}-rpc-in.sock ] &&
+            printf 'list\n' | timeout 10 nox-rpc --dom0 pull ${configVm.name} >/dev/null 2>&1 && break
+          sleep 1
+        done
+        config_bundle() {
+          local hdr
+          exec 4< <(printf 'get config.bundle\n' | nox-rpc --dom0 pull ${configVm.name})
+          IFS= read -r hdr <&4 || { echo "dom0-update: no answer from ${configVm.name}" >&2; return 1; }
+          if ! [[ "$hdr" =~ ^ok\ [0-9]+$ ]]; then
+            echo "dom0-update: ${configVm.name}: ''${hdr//[^[:print:]]/?} (no ~/outbox/config.bundle: commit with nox-config there)" >&2
+            return 1
+          fi
+          ${pkgs.zstd}/bin/zstd -d -q -c <&4
+        }
+      ''
+    )}
     # The installer ISO: built in the builder's store, streamed from there
     # through the broker to the VM like `nox copy builder <vm>` (dom0's own
     # call: the copy policy doesn't ask), then deleted in the builder. The
     # broker gives the manifest 10 s, so the stream starts only after the build
     if [ "$action" = iso ]; then
-      out="$(from_builder builder-build "''${nixjobs[@]}" --iso "$branch")"
+      out="$(${
+        if localSource then
+          "config_bundle | from_builder builder-build --bundle"
+        else
+          "from_builder builder-build"
+      } "''${nixjobs[@]}" --iso "$branch")"
       [[ "$out" =~ ^/nix/store/[0-9a-z]{32}-nox-installer\.iso$ ]] || unexpected "$out"
       # The VM may still be booting: wait until its rpc side answers (a
       # side-effect-free `send list` of a missing path answers "error: …
@@ -253,9 +296,25 @@ let
         fi
         t0=$now
       }
-      out="$(from_builder builder-build "''${bump[@]}" "''${nixjobs[@]}" "$machine" "$branch")"
+      out="$(${
+        if localSource then
+          "config_bundle | from_builder builder-build --bundle"
+        else
+          "from_builder builder-build"
+      } "''${bump[@]}" "''${nixjobs[@]}" "$machine" "$branch")"
       [[ "$out" =~ ^/nix/store/[0-9a-z]{32}-nixos-system-[A-Za-z0-9._+-]+$ ]] || unexpected "$out"
       timing builder
+      ${lib.optionalString localSource ''
+        # A flake.lock bump goes back to the config VM (nox copy: lands in
+        # its ~/Incoming/dom0, nox-config takes it in)
+        if ssh ${builderIp} test -s /var/lib/builder/bump.bundle; then
+          bdir="$(mktemp -d)"
+          ssh ${builderIp} cat /var/lib/builder/bump.bundle >"$bdir/update.bundle"
+          nox copy ${configVm.name} "$bdir/update.bundle" ||
+            echo "dom0-update: the bump did not reach ${configVm.name}; it is in the builder (/var/lib/builder/bump.bundle)" >&2
+          rm -rf "$bdir"
+        fi
+      ''}
 
       echo "dom0-update: copying $out" >&2
       # stderr carries the builder's nix-daemon output too: filtered
@@ -580,5 +639,31 @@ in
     # The group builders, for nox update/rebuild --builder (nox-cli checks
     # the names)
     programs.nox.registry.builders = map (vm: vm.name) groupBuilderVms;
+
+    # nox-install's seed (/var/lib/nox/seed: the config as a git bundle,
+    # the signing key of a new config, the remote): into the config VM at the
+    # first login, then gone from dom0 (nox-config there takes it in)
+    systemd.user.services.nox-config-seed = lib.mkIf (configVm != null) {
+      description = "nox-install's config into ${configVm.name}";
+      wantedBy = [ "graphical-session.target" ];
+      after = [ "graphical-session.target" ];
+      unitConfig.ConditionPathExists = "/var/lib/nox/seed/config.bundle";
+      serviceConfig.Type = "oneshot";
+      path = [ config.programs.nox.package ];
+      script = ''
+        seed=/var/lib/nox/seed
+        nox start ${configVm.name}
+        for _ in $(seq 120); do
+          [ -e /run/nox-relay/${configVm.name}.ready ] && break
+          sleep 1
+        done
+        files=("$seed/config.bundle")
+        for f in signing-key remote; do
+          [ ! -e "$seed/$f" ] || files+=("$seed/$f")
+        done
+        nox copy ${configVm.name} "''${files[@]}"
+        rm -f "''${files[@]}"
+      '';
+    };
   };
 }

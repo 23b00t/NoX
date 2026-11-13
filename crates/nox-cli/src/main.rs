@@ -1,12 +1,12 @@
 //! nox: one command for the NoX tools in dom0.
 //!
 //! Moving from scripts to Rust tool by tool (xen-migration.md, nox-cli
-//! spec): `doctor`, `backup`, `vm-run` and `manage-vms` run here (src/doctor.rs,
-//! src/backup.rs, src/run.rs, src/manage.rs; their old names are links to nox, picked by
-//! argv[0]), so does the hidden `term-filter` (src/term_filter.rs, for
-//! dom0-update); every other subcommand execs the script that does the work
-//! (vm-clip, nox-copy, dom0-update, update-all, vm-usb, …), found on PATH,
-//! so its output and exit code are the script's own.
+//! spec): `doctor`, `backup`, `run`/`exec` and `list`/`start`/`stop`/`restart`
+//! run here (src/doctor.rs, src/backup.rs, src/run.rs, src/manage.rs), so
+//! does the hidden `term-filter` (src/term_filter.rs, for dom0-update);
+//! every other subcommand execs the script that does the work (vm-clip,
+//! nox-copy, dom0-update, update-all, vm-usb, …), found on PATH, so its
+//! output and exit code are the script's own.
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -77,7 +77,7 @@ impl Filter {
 }
 
 /// `--fresh` for start/restart: disposable VMs (registry `disposable`) with
-/// their volume images set aside (manage-vms keeps them as `*.pre-fresh`)
+/// their volume images set aside (kept as `*.pre-fresh`)
 #[derive(Args)]
 struct Fresh {
     /// Disposable VMs only: start without their data volumes (emergency,
@@ -864,23 +864,6 @@ fn enough_memory(vm: &str, need: u64, free: u64) -> Result<(), String> {
 fn main() -> ExitCode {
     sys::default_sigpipe();
     let args: Vec<OsString> = std::env::args_os().collect();
-    // Old tool names linked to nox pick their tool (vm-doctor -> nox doctor)
-    let name = args
-        .first()
-        .and_then(|a| std::path::Path::new(a).file_name())
-        .map(|n| n.to_string_lossy().into_owned());
-    match name.as_deref() {
-        Some("vm-doctor") => {
-            let rest: Vec<String> = args[1..]
-                .iter()
-                .map(|a| a.to_string_lossy().into_owned())
-                .collect();
-            return doctor::main_args(&rest);
-        }
-        Some("vm-run") => return run::main(&args[1..]),
-        Some("manage-vms") => return manage::main(&args[1..]),
-        _ => {}
-    }
     let cli = Cli::parse_from(help_word(args));
     let Some(cmd) = cli.command else {
         return manage::main(&["status".into(), "--running".into()]);
@@ -901,16 +884,8 @@ fn main() -> ExitCode {
             a.extend(file.map(OsString::from));
             exec("vm-pull", a)
         }
-        Cmd::Run { vm, cmd } => {
-            let mut a: Vec<OsString> = vec![vm.into()];
-            a.extend(cmd);
-            run::main(&a)
-        }
-        Cmd::Exec { vm, cmd } => {
-            let mut a: Vec<OsString> = vec!["-c".into(), vm.into()];
-            a.extend(cmd);
-            run::main(&a)
-        }
+        Cmd::Run { vm, cmd } => run::main(false, &vm, &cmd),
+        Cmd::Exec { vm, cmd } => run::main(true, &vm, &cmd),
         Cmd::Ssh { vm, args } => {
             let mut a: Vec<OsString> = vec![vm.into()];
             a.extend(args);

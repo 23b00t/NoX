@@ -573,7 +573,7 @@ in
   # Outside: eth0 on sys-firewall's `vm-whx-ext` (10.0.2.15 via 10.0.2.2, as in the
   # image). Inside: it serves the vifs of irc/workstation itself on the bridge
   # `eth1` (Whonix' internal interface), so sys-firewall/sys-net only see Tor traffic.
-  # Terminal: foot from the store disk over wprs (`vm-run -c wg …`). Image setup with
+  # Terminal: foot from the store disk over wprs (`nox exec wg …`). Image setup with
   # `xen-image-setup whonix-gateway` (xen-migration.md).
   services.xen-image-domains.domains.whonix-gateway = {
     # Test phase: the converted download; later /var/lib/xen-images
@@ -599,7 +599,7 @@ in
   };
 
   # v3: Whonix-Workstation (LXQt image), only network: the gateway's eth1.
-  # Apps over wprs (`vm-run ww torbrowser`), audio over dom0's pulse.
+  # Apps over wprs (`nox run ww torbrowser`), audio over dom0's pulse.
   services.xen-image-domains.domains.whonix-workstation = {
     image = "/home/${config.nox.user}/vm-images/whonix/whonix-workstation.raw";
     rootPartition = 3;
@@ -629,7 +629,7 @@ in
     updateAll
   ];
 
-  # `nox`: one command over manage-vms, vm-run, vm-clip, nox-copy, dom0-update,
+  # `nox`: one command over the VM tools (list, run, …), vm-clip, nox-copy, dom0-update,
   # update-all and vm-usb; the VM names feed its completion
   programs.nox = {
     enable = true;
@@ -730,13 +730,6 @@ in
               Type = "oneshot";
               ExecStart = "${vmFailed} %i";
             };
-          };
-
-          # steam: shutting it down from inside Steam must keep it off. Guest
-          # poweroff and reboot both end `xl create -F` with exit code 0; steam
-          # sets on_reboot = "restart" so xl handles reboots itself (vms/steam)
-          "microvm@steam" = lib.mkIf (config.microvm.vms ? steam) {
-            serviceConfig.Restart = "on-failure";
           };
 
           # CPU and memory of the whole machine (all domains) for waybar, which
@@ -903,6 +896,58 @@ in
           lib.filterAttrs (n: _: !builtins.elem n sysGroup.images) imageDomains
         )
       )
+      # Gaming VMs (role gaming): shutting one down from inside Steam must
+      # keep it off. Guest poweroff and reboot both end `xl create -F` with
+      # exit code 0; the role sets on_reboot = "restart" so xl handles
+      # reboots itself
+      (lib.listToAttrs (
+        map (vm: lib.nameValuePair "microvm@${vm.name}" { serviceConfig.Restart = "on-failure"; }) (
+          builtins.filter (vm: (vm.role or null) == "gaming") vmRegistry.vms
+        )
+      ))
+      # `cpuPool` (registry): the VM's CPUs move from Pool-0 into the cpupool
+      # <vm> (microvm.xen.pool, roles/vm.nix) before the start and back after
+      # the stop (ExecStopPost of microvm@ above runs first: the domain is
+      # gone). A CPU Xen refuses to move (CPU 0 may have to stay in Pool-0)
+      # stays there
+      (lib.listToAttrs (
+        map (
+          vm:
+          let
+            xl = "${config.virtualisation.xen.package}/bin/xl";
+            awk = "${pkgs.gawk}/bin/awk";
+            cpus = lib.concatMapStringsSep " " toString vm.cpuPool;
+            exists = "${xl} cpupool-list | ${awk} '$1 == \"${vm.name}\" { found = 1 } END { exit !found }'";
+          in
+          lib.nameValuePair "microvm@${vm.name}" {
+            serviceConfig = {
+              ExecStartPre = [
+                (pkgs.writeShellScript "cpupool-up-${vm.name}" ''
+                  set -u
+                  ${exists} || ${xl} cpupool-create name=\"${vm.name}\" || exit 1
+                  for cpu in ${cpus}; do
+                    ${xl} cpupool-cpu-remove Pool-0 "$cpu" 2>/dev/null || {
+                      echo "cpupool ${vm.name}: CPU $cpu stays in Pool-0" >&2
+                      continue
+                    }
+                    ${xl} cpupool-cpu-add ${vm.name} "$cpu" || ${xl} cpupool-cpu-add Pool-0 "$cpu"
+                  done
+                '')
+              ];
+              ExecStopPost = [
+                (pkgs.writeShellScript "cpupool-down-${vm.name}" ''
+                  set -u
+                  ${exists} || exit 0
+                  for cpu in ${cpus}; do
+                    ${xl} cpupool-cpu-remove ${vm.name} "$cpu" 2>/dev/null && ${xl} cpupool-cpu-add Pool-0 "$cpu"
+                  done
+                  ${xl} cpupool-destroy ${vm.name}
+                '')
+              ];
+            };
+          }
+        ) (builtins.filter (vm: vm.cpuPool or null != null) vmRegistry.vms)
+      ))
     ];
 
     network.networks =

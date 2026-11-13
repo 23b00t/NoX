@@ -23,7 +23,7 @@
         linemode = "size"
         show_hidden = true
 
-        # GUI apps need the wprs display like vm-run starts them; text files
+        # GUI apps need the wprs display like nox run starts them; text files
         # open in $EDITOR (vim/nvim)
         [opener]
         open = [

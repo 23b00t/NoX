@@ -61,7 +61,8 @@ nox = {
   # `builder-<machine> namespaces="git" <key>` in vms/builder/bump-signers;
   # it also needs `builderKeys = ./vms/builder;` in mkSystems (flake.nix),
   # that directory with at least `allowed-signers` (the keys whose signed
-  # commits it builds)
+  # commits it builds). nox-install makes the builders' keys and writes
+  # their public parts there (README "Installer", step 5)
   # vms.builder.module.nox.builder.repoUrl = "git@github.com:<you>/<config>.git";
   vms.builder.module.nox.builder.repoUrl = "https://github.com/<you>/<config>";
   # theme of dom0 and every VM (NoX: nox, organic logo, dark, moon and
@@ -70,6 +71,7 @@ nox = {
   # theme = { name = "tokyo-night"; flavor = "neon"; lock.decor = [ ]; };
   # trust labels (a VM's `label`): the border color of its windows in dom0;
   # labels dom0, unknown, sys, dev, personal, social, untrusted, vault, anon,
+  # config (the config VM: your signing key),
   # each theme has a color for every one, single ones can be overridden
   # theme.labels = { social = "d1bfff"; untrusted = "ff9e64"; };
 };
@@ -168,9 +170,10 @@ passthrough), network cards for sys-net, USB controllers for sys-usb,
 whether keyboard and mouse only come over USB, CPU threads and P/E cores,
 shared interrupt lines and firmware warnings. It changes nothing.
 
-`nox-hwcheck --nix` prints a block for the config's `machines/hardware.nix`
-(format of `template/machines/hardware.nix`): profile, PCI paths, the
-drivers dom0 must not load, the USB devices with a suggested policy.
+`nox-hwcheck --nix` prints the hardware of one machine (format of
+`template/machines/nox/hardware.nix`; nox-install writes it there):
+profile, PCI paths, the drivers dom0 must not load, the USB devices with a
+suggested policy.
 Review it: `dom0Pv` and the owners are decisions, not hardware.
 
 Run it with `sudo`. In a running dom0 under Xen it reads Xen's view (`xl
@@ -204,7 +207,7 @@ Build it one of two ways:
   `result/iso/`.
 
 Write it to a stick (`dd`, in the VM the stick is attached to), boot it,
-then `sudo nox-install`. It guides through eight steps, Ctrl-C aborts any
+then `sudo nox-install`. It guides through nine steps, Ctrl-C aborts any
 time:
 
 1. network: the addresses (`ip -brief address`) and a test against
@@ -213,32 +216,57 @@ time:
    hidden one, `nmcli --ask device wifi connect <ssid> [hidden yes]`),
    `nmtui`, the shell, or on without
 2. the `nox-hwcheck` report, paged with `less`
-3. the config: its git URL and branch, cloned to `/tmp/nixos-config`. A
+3. the config, cloned to `/tmp/nixos-config`, or a new one (below). Its
+   git URL (or a path, e.g. a git bundle on the stick) and branch. A
    GitHub repo is cloned over https first (an SSH URL is rewritten), so a
-   public config needs no key. Only if that fails (private repo) a key
-   from the stick or a new one, whose public part you register at GitHub,
-   and the clone over SSH
+   public config needs no key; only if that fails (private repo) a key
+   from the stick or a new one, registered at GitHub as a deploy key (it
+   offers GitHub's page in lynx; there is no copy and paste on the
+   console: in lynx's "Key" field Ctrl-X i inserts a file, Ctrl-X e opens
+   the field in the editor), and the clone over SSH. GitHub's host key is
+   pinned in the installer, as in the builder.
+   **Nothing of the clone runs before its HEAD is checked:** it shows the
+   keys of the config's `allowed-signers` (principal and fingerprint), you
+   confirm they are yours, and HEAD must be signed by one of them (or be a
+   builder's flake.lock bump on top of such a commit, as the builder
+   checks it). An unsigned HEAD stops the installation
 4. the host: one of the machines (directories under `machines/` with a
    `hardware-configuration.nix`), or a new name: then it writes
    `machines/<host>/hardware-configuration.nix` (without file systems) and
-   `machines/<host>/hwcheck.nix` (`nox-hwcheck --nix`), opens the editor
-   (flake.nix, hardware.nix, `nox.disk.device`) and commits + pushes
-   unsigned over SSH: it asks for the key now if it has none (write access:
-   a deploy key with "Allow write access" or a key of your account) and
-   offers to open GitHub's page for the key in lynx. There is no copy and
-   paste on the console: in lynx's "Key" field Ctrl-X i inserts a file
-   (`/root/.ssh/id_ed25519.pub`), Ctrl-X e opens the field in the editor.
-   Sign the commit again later, else a builder doesn't take it.
+   the `nox-hwcheck --nix` block: as `machines/<host>/hardware.nix` in the
+   template's layout (flake.nix finds the machines itself, the
+   configuration of another machine is copied as the start), else as
+   `hwcheck.nix` for your own `machines/hardware.nix`; then the editor.
+   Without `nox.disk.device` it lists the disks, asks for one and writes
+   `machines/<host>/disk.nix` (the template imports it; else add it to the
+   machine's imports)
+5. the builders' keys (with a builder on the machine): made here instead
+   of at the builders' first boot, so dom0 trusts its builder from the first
+   boot on and the first `nox update` works. The public parts go into the
+   config's `builderKeys` directory: `signing-key-<host>.pub`,
+   `image-key-<host>.pub`, `image-key-<builder>-<host>.pub` (group builders),
+   `ssh-key-<builder>-<host>.pub` (dom0's login key; a `hostSSHKey` in
+   vms.nix would win, it asks you to delete it) and the `builder-<host>` line
+   of `bump-signers`. One commit with the new machine and the keys, signed
+   with your key (from the stick; without it unsigned: sign it later from
+   your machine, `git commit --amend -S`, else the builder doesn't build
+   it), pushed over SSH (a deploy key with write access). It shows the
+   builder's deploy key (read, a private repo) and bump key (write, `nox
+   update`) for GitHub and offers the page in lynx.
    If the config runs the Whonix-Gateway on this machine, it asks whether
-   to fetch its image during the installation (step 7)
-5. the disk from the host's `nox.disk.device`: type its name, disko erases
+   to fetch its image during the installation (step 8)
+6. the disk from the host's `nox.disk.device`: type its name, disko erases
    it and asks the LUKS passphrase
-6. the minimal system (`nox.install.minimal`): dom0, sys-net, sys-usb,
-   sys-firewall, the builder and the group builders (plus the
-   Whonix-Gateway if wanted); every other domain is left out. Built into
-   the new disk's store from `nixosConfigurations.<host>.noxInstall`, then
-   `nixos-install --system`
-7. the Whonix-Gateway image, if wanted: the CLI archive of the current
+7. the minimal system (`nox.install.minimal`): dom0, sys-net, sys-usb,
+   sys-firewall, the builder and the group builders, the config VM (plus
+   the Whonix-Gateway if wanted); every other domain is left out. Built
+   into the new disk's store from `nixosConfigurations.<host>.noxInstall`,
+   then `nixos-install --system`. Then the builders' state volumes
+   (`/var/lib/microvms/<builder>/builder.img`, ext4 with their keys; the
+   size from the VM's `microvm.volumes`) and dom0's login keys
+   (`~/.ssh/<builder>-vm`), and the config as a git bundle in
+   `/var/lib/nox/seed` (also when the push failed)
+8. the Whonix-Gateway image, if wanted: the CLI archive of the current
    stable release (asked from whonix.org at install time: the version its
    KVM page downloads, wiki template `Version_KVM`). Its signature has to
    be good, by Whonix' signing key `916B8D99C38EAF5E8ADC7A2A8D66066A2EEACCDA`
@@ -249,18 +277,53 @@ time:
    `xen-image-setup whonix-gateway` run in the new system. Tor still needs
    `DisableNetwork 0` after the first boot (see the Whonix steps of your
    config's README)
-8. the user's password (`passwd` in the new system; none is in the config),
+9. the user's password (`passwd` in the new system; none is in the config),
    then reboot
 
 After the first boot `nox update` builds and installs the rest on the
-builder. It only builds a branch whose HEAD you signed: a new machine's
-commit has to be signed first (`git commit --amend -S`, push).
+builder.
 
-`nox-install --dry-run` runs steps 1-4 and prints the commands of 5-8;
-`--config URL`, `--branch B` and `--host H` skip those questions,
-`--whonix-from DIR` takes the Whonix files (archive, `.asc`,
-`derivative.asc`) from DIR instead of downloading them (the version is
-the archive's).
+**A new config** (step 3 with an empty URL): from the template in the ISO,
+NoX pinned in its flake.lock to the revision the ISO is built from, with
+the nixpkgs and disko the ISO is built with (the template's nixpkgs
+follows NoX's; `template/flake.lock` only pins microvm.nix and wprs, a
+release refreshes it with `nix flake update` in `template/`). It
+asks where the config lives: only on this machine in the config VM
+(no account; `nox.builder.source = "local"`), on GitHub (an empty repo you
+created; public: the builder fetches over https), or both (the config VM
+pushes to GitHub); your name and email, and your signing key (from the
+stick or a new one, into `allowed-signers`). In step 4 the host name, your
+user name, the editor of the config VM, keyboard layout and time zone, and
+the VMs as profiles: browser, vault, office, chat, media, dev, windows,
+tor (Whonix), printing (sys-print), gaming (Steam, only with a second GPU,
+in an own store image, see "Gaming"). The branch is named after the host
+(dom0-update fetches that one). The first commit is signed with your key.
+
+Every machine has exactly one config VM (role `config`, label `config`;
+512 MB, up to 2 GB for a GUI editor, 2 GB home; the registry asserts it).
+It gets the repo and the key at the first login: dom0's user unit
+`nox-config-seed` copies `/var/lib/nox/seed` into it (dom0's own copy, no
+question) and deletes it; in the VM `nox-config` takes them in
+(`~/config`, `~/.ssh/nox-signing-key`). With GitHub it pushes through
+dom0's GitHub agent (`githubAgent = true`), a local config has no network.
+
+`nox-config` in the config VM: `status`, `diff`, `commit <message>`
+(signed), `push` (to GitHub, if the config has a remote), `pull` (the
+bundles dom0 copied in), `edit` (the editor of `nox.configVm.editor`: nano,
+helix, nvim, or kate, gnome-text-editor, vscodium, zed as windows over
+wprs). Every commit (also with lazygit) writes `~/outbox/config.bundle`.
+With `nox.builder.source = "local"` `nox update` takes it from there (nox
+pull's rpc, the config VM is started if it is off) and hands it to the
+builder on stdin (`builder-build --bundle`); the builder checks the
+signature as for a fetched repo. A flake.lock bump comes back the same way:
+dom0 copies the builder's `bump.bundle` into the config VM, where
+`nox-config` fast-forwards the branch.
+
+`nox-install --dry-run` runs steps 1-5 (without commit and push) and
+prints the commands of 6-9; `--config URL`, `--branch B` and `--host H`
+skip those questions, `--whonix-from DIR` takes the Whonix files (archive,
+`.asc`, `derivative.asc`) from DIR instead of downloading them (the version
+is the archive's).
 
 The disk layout is NoX's module `nox.disk`: `nox.disk.device =
 "/dev/disk/by-id/…"` gives GPT, ESP 1 GB (`/boot`), the rest LUKS2 with
@@ -269,24 +332,80 @@ disko derives `fileSystems` and the LUKS device from it, so set it only on a
 machine installed this way and leave those out of its
 hardware-configuration; without it nothing changes.
 
+## Gaming
+
+A VM with `role = "gaming"` runs Steam in a gamescope session on the
+second GPU (`gpu = true`, the GPU from `hardware.nix`, which
+`nox-hwcheck --nix` writes): an HVM guest (PCI passthrough with a PV dom0
+needs it), its own base without common-config, the autologin on tty1
+runs the session (`nox.gaming.session`, `gamescopeArgs`, `steamArgs`;
+output in `~/session.log`). Sound over pipewire, Bluetooth for gamepads
+(`nox exec <vm> pad-pair` pairs them without a keyboard), keyboard and
+mouse over USB/IP from sys-usb (`nox usb attach <device> <vm>`). A
+poweroff from inside Steam keeps the VM off. Steam is unfree, the role
+allows it by name: the VM needs an own store image (`storeGroup = null`)
+or an unfree store group.
+
+`cpuPool = [ … ]` gives the VM its own CPUs while it runs: dom0 moves them
+from Pool-0 into a cpupool named after the VM and back after the stop.
+nox-install proposes the P-cores of a hybrid CPU, else the upper half;
+check the numbers with `xl info -n` after the first boot.
+
+The GPU driver is the config's, in the VM's module. NVIDIA, the tested
+setup:
+
+```nix
+# vms/steam.nix
+{ pkgs, config, ... }:
+let
+  # SeaBIOS must not run the card's VGA option ROM (it hangs there)
+  optionRomExecOff = pkgs.runCommand "pci-optionrom-exec-0" { } "printf '\\000' > $out";
+in
+{
+  nox.unfree = [ "nvidia-x11" "nvidia-settings" ];
+  # The driver writes config space registers pciback filters otherwise
+  microvm.xen.extraConfig = ''
+    pci_permissive = 1
+    device_model_args_hvm = [ "-fw_cfg", "name=etc/pci-optionrom-exec,file=${optionRomExecOff}" ]
+  '';
+  services.xserver.videoDrivers = [ "nvidia" ];
+  boot = {
+    kernelParams = [ "nvidia-drm.modeset=1" "pci=realloc=on" "pci=assign-busses" ];
+    extraModprobeConfig = "options nvidia-drm modeset=1 fbdev=1";
+    blacklistedKernelModules = [ "nouveau" ];
+  };
+  hardware.nvidia = {
+    modesetting.enable = true;
+    open = true; # Turing and newer
+    package = config.boot.kernelPackages.nvidiaPackages.stable;
+    powerManagement.enable = false;
+  };
+  # gamescope picks the vendor library itself; with NVIDIA set it
+  environment.sessionVariables.__GLX_VENDOR_LIBRARY_NAME = "nvidia";
+}
+```
+
+AMD and Intel GPUs are untested; mesa comes with `hardware.graphics` (on
+in the role), so they should need no driver module.
+
 ## nox (CLI)
 
-One command for dom0. `doctor`, `backup`, `manage-vms` and `vm-run` are built in
-(their old names are links to nox); the other subcommands run the script
+One command for dom0. `doctor`, `backup`, `list`/`start`/`stop`/`restart` and
+`run`/`exec` are built in; the other subcommands run the script
 that does the work (from the system configuration, on PATH) and pass its
 output and exit code through. The built-in tools read their data from
 `/etc/nox/registry.json`, which Nix writes.
 
 | Command | Runs |
 |---|---|
-| `nox` | `manage-vms status --running` (built in: src/manage.rs) |
-| `nox list\|ls [--running] [--stale] [--group g]` | `manage-vms status …` |
-| `nox start\|stop\|restart [vm…] [--running] [--stale] [--group g]` | `manage-vms <action> …` |
-| `nox start\|restart --fresh <vm…>` | `manage-vms <action> --fresh …`: disposable VMs (registry `disposable`) with their volume images set aside (`*.pre-fresh`) |
+| `nox` | `nox list --running` |
+| `nox list\|ls [--running] [--stale] [--group g]` | built in (src/manage.rs): state of the VMs |
+| `nox start\|stop\|restart [vm…] [--running] [--stale] [--group g]` | built in (src/manage.rs); a (re)started VM gets its tray apps and session windows again |
+| `nox start\|restart --fresh <vm…>` | disposable VMs (registry `disposable`) with their volume images set aside (`*.pre-fresh`) |
 | `nox disp [--from <vm>] [cmd…]` | `vm-disp`: start the ad-hoc disposable `disp` (with `--from`: the VM's own disposable `disp-<vm>`, registry `hasDisposable`), open `cmd` (default foot) in it; a disposable that is down starts only if Xen has its boot memory free |
 | `nox backup [--level n] <target…>\|--all`, `restore [--from gen] <target…>\|--all`, `disks`, `list`, `prune --keep n [-n] [target…]` (whole disks; `--all` = registry `backup` + dom0) | in nox (crates/nox-cli/src/backup.rs; external LUKS disk on `disp-backup`, `nox backup help`) |
-| `nox run <vm> <program> [args]` | `vm-run <vm> …` (GUI over wprs; built in: src/run.rs) |
-| `nox exec <vm> <cmd> [args]` | `vm-run -c <vm> …` (a terminal window in the VM runs the command and stays open; the builder: SSH in this terminal) |
+| `nox run <vm> <program> [args]` | built in (src/run.rs): GUI over wprs; a stopped VM is started first |
+| `nox exec <vm> <cmd> [args]` | built in (src/run.rs): a terminal window in the VM runs the command and stays open; the builder: SSH in this terminal |
 | `nox ssh builder [ssh args]` | `ssh builder …` (only the builder has sshd; the other VMs: `nox exec`) |
 | `nox clip copy\|paste` | `vm-clip copy\|paste` |
 | `nox copy [-m] [-n] [--max b] [<from-vm>] <to-vm> <paths…>` | `nox-copy …` (lands in `~/Incoming/<source>` in the target, merging into folders already there; never overwrites) |
@@ -298,8 +417,8 @@ output and exit code through. The built-in tools read their data from
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
 | `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
 | `nox lab list\|attach\|detach [vm]` | `vm-lab status\|attach\|detach …`: a labTarget VM on sys-firewall's lab bridge while kali tests it |
-| `nox doctor [-v\|-vv]` | built in (src/doctor.rs; `vm-doctor` is a link to nox): smoke test of the running system; prints the result line and the failures with their details, `-v` every check, `-vv` every check with details |
-| `nox doctor --ack` | the kernel / `xl dmesg` errors the runs reported become known noise of this machine (no longer a failure; list in `~/.local/state/vm-doctor/errors-known`, delete a line to forget it) |
+| `nox doctor [-v\|-vv]` | built in (src/doctor.rs): smoke test of the running system; prints the result line and the failures with their details, `-v` every check, `-vv` every check with details |
+| `nox doctor --ack` | the kernel / `xl dmesg` errors the runs reported become known noise of this machine (no longer a failure; list in `~/.local/state/nox-doctor/errors-known`, delete a line to forget it) |
 | `nox rollback <vm> [--gen n\|mark \| --mark \| --unmark \| --reset]` | `vm-rollback …`: runner of an older system generation (or the VM's mark) as its `current`, VM restarted; holds over reboots until another system is activated (update, rebuild) or `--reset`. `--mark`: the VM's current runner as known good, one per VM, survives `nox gc`; `--unmark` drops it again (a rollback to the mark holds until `--reset`). `nox list` (ROLLBACK) and `nox doctor` (WARN) show rolled back VMs. Configuration only; data comes back with `nox backup restore` |
 | `nox gc [--keep n] [-n]` | `vm-gc …` (old system generations, then GC; default keeps 3) |
 

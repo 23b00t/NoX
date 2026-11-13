@@ -61,7 +61,8 @@ let
       map (
         app:
         [
-          "vm-run"
+          "nox"
+          "run"
           vm
         ]
         ++ app
@@ -74,7 +75,7 @@ let
   # start at once; niri's event stream reports each window as it opens (VMs
   # may still boot), it goes into the column right away, at its place in
   # the order of terminalTabs; after 5 min the rest is given up. A VM's foot
-  # could come twice at boot (vm-run retried an app start whose answer got
+  # could come twice at boot (nox run retried an app start whose answer got
   # lost): the first window stays, later ones (more zellij
   # clients of the same session) are closed when they appear. Terminals
   # that are already open are not started again (vm-autostart)
@@ -160,7 +161,7 @@ let
             if [ "$t" = dom0 ]; then
               foot -a term-dom0 ${lib.escapeShellArgs login.dom0Command} &
             else
-              vm-run "$t" foot -a "term-$t" ${lib.escapeShellArgs vmZellij} &
+              nox run "$t" foot -a "term-$t" ${lib.escapeShellArgs vmZellij} &
             fi
           done
           [ "$pending" -gt 0 ] || break
@@ -559,7 +560,8 @@ in
           ]
           ++ map (w: {
             "spawn-at-startup"._args = [
-              "vm-run"
+              "nox"
+              "run"
               w.vm
             ]
             ++ w.command;

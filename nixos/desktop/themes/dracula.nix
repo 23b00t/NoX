@@ -52,6 +52,8 @@ rec {
     untrusted = palette.yellow;
     vault = palette.cyan;
     anon = palette.orange;
+    # pink is social here: a lighter one
+    config = "f4a6d7";
   };
 
   # Logo and wallpaper colors from the (overridden) roles

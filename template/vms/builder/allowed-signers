@@ -1,0 +1,4 @@
+# Keys allowed to sign the commits the builder builds (ssh-keygen
+# allowed-signers format, one per line):
+#   <your email> namespaces="git" ssh-ed25519 AAAA…
+# nox-install adds yours when it creates or signs the config.

@@ -1,5 +1,5 @@
 # Tray apps per VM, started with the session and again by `vm-tray <vm>`
-# after that VM is (re)started (manage-vms): the VMs' apps with
+# after that VM is (re)started (nox start|restart): the VMs' apps with
 # `tray = true` (registry `apps`; sys-net's nm-applet, too).
 # { <vm> = [ [ binary args… ] … ]; }
 { lib, vmRegistry }:

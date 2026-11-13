@@ -51,6 +51,7 @@ rec {
     untrusted = palette.yellow;
     vault = palette.cyan;
     anon = palette.blue;
+    config = palette.pink;
   };
 
   # Logo and wallpaper colors from the (overridden) roles; bg and bgDark

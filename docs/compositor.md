@@ -18,8 +18,8 @@ generated config.
 - waybar, rofi, swaync (notifications), wpaperd (wallpaper), swaylock (lock
   screen with the NoX logo), foot, the GTK/Qt theme, cursor, plymouth
 - The session services start with `graphical-session.target`
-- The tools: `vm-run`, `vm-clip`, `vm-tray`, `vm-autostart`, `close-guard`,
-  `screenrec-region`, `screenrec-full`, `explorer`, `nox`; wprs windows of the
+- The tools: `nox` (`nox run`), `vm-clip`, `vm-tray`, `vm-autostart`, `close-guard`,
+  `screenrec-region`, `screenrec-full`, `explorer`; wprs windows of the
   VMs with their `[<vm>] ` app id prefix
 
 ## What goes
@@ -78,7 +78,7 @@ A build warning lists the open points while `nox.desktop.wm` hooks are unset.
 
 6. **Autostart.** At session start: `vm-autostart` (the windows of
    `nox.desktop.login`) and `vm-tray <vm>` for each VM with tray apps.
-   `manage-vms` calls both again after a VM's (re)start.
+   `nox start|restart` calls both again after a VM's (re)start.
 7. **Keyboard, outputs, workspaces.** `nox.desktop.keyboard` is read by the
    niri module only; pass it to the compositor yourself. Outputs and
    workspaces belong in the own config anyway.

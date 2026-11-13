@@ -1,4 +1,4 @@
-//! `nox doctor` (also as `vm-doctor`): smoke test of the running system.
+//! `nox doctor`: smoke test of the running system.
 //!
 //! Starts no VMs, checks only what runs: rpc and relay per VM, network over
 //! sys-firewall (and the tunnel for sys-vpn clients), app start by RPC,
@@ -6,7 +6,7 @@
 //! Whonix-Gateway, USB (controllers, assignments, input proxy), backup age,
 //! stale runners, rollbacks, disk, failed units, kernel/Xen errors. Table of
 //! PASS/FAIL/WARN/SKIP, exit 1 on any FAIL. The data per domain comes from
-//! `/etc/nox/registry.json` (`doctor`), written by NoX's vm-doctor module;
+//! `/etc/nox/registry.json` (`doctor`), written by NoX's dom0/tools/vm-doctor.nix;
 //! the tools it asks (systemctl, nox-rpc, journalctl, xl, wl-clipboard, df,
 //! wpctl, pw-dump) run as processes. Sound, Tor and USB only read: no sound
 //! is played, no pipewire started, no device moved.
@@ -124,6 +124,7 @@ impl Stat {
 pub struct Table {
     pub pass: u32,
     pub fail: u32,
+    pub warn: u32,
     pub skip: u32,
     pub verbose: u8,
     header: bool,
@@ -159,8 +160,8 @@ impl Table {
         match stat {
             Stat::Pass => self.pass += 1,
             Stat::Fail => self.fail += 1,
-            // as the shell version: WARN counts with the skipped ones
-            Stat::Warn | Stat::Skip => self.skip += 1,
+            Stat::Warn => self.warn += 1,
+            Stat::Skip => self.skip += 1,
         }
     }
 }
@@ -395,7 +396,7 @@ fn cut(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
-/// `vm-doctor [-v|-vv] [--ack]` (the old name; nox doctor parses with clap)
+/// `[-v|-vv] [--ack]` (`nox doctor --ack` comes here; nox parses with clap)
 pub fn main_args(args: &[String]) -> ExitCode {
     let mut verbose = 0;
     let mut ack = false;
@@ -405,7 +406,7 @@ pub fn main_args(args: &[String]) -> ExitCode {
             "-vv" => verbose += 2,
             "--ack" => ack = true,
             _ => {
-                eprintln!("usage: vm-doctor [-v|-vv] [--ack]   (checks the running system, starts nothing)");
+                eprintln!("usage: nox doctor [-v|-vv] [--ack]   (checks the running system, starts nothing)");
                 return ExitCode::from(2);
             }
         }
@@ -489,7 +490,7 @@ fn remember_pending(dir: &std::path::Path, lines: &[String]) {
 /// `nox doctor --ack`: the errors the runs reported become known noise of
 /// this machine (they no longer fail; `-vv` still lists them)
 fn acknowledge() -> ExitCode {
-    let dir = state_dir("vm-doctor");
+    let dir = state_dir("nox-doctor");
     let pending = read_set(&dir.join(PENDING));
     if pending.is_empty() {
         println!("nothing to acknowledge (no reported errors pending)");
@@ -850,7 +851,7 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
     // Errors since the last run (first run: since boot). Known noise of
     // this machine (`nox doctor --ack`, e.g. a Bluetooth firmware message at
     // every boot) is no failure; new ones are remembered until acknowledged
-    let dir = state_dir("vm-doctor");
+    let dir = state_dir("nox-doctor");
     let _ = fs::create_dir_all(&dir);
     let known = read_set(&dir.join(KNOWN));
     let boot = fs::read_to_string("/proc/sys/kernel/random/boot_id")
@@ -904,7 +905,10 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
     let _ = fs::write(dir.join("last"), format!("{boot}\n{}\n{xerr}\n", now()));
 
     println!();
-    println!("{} passed, {} failed, {} skipped", t.pass, t.fail, t.skip);
+    println!(
+        "{} passed, {} failed, {} warnings, {} skipped",
+        t.pass, t.fail, t.warn, t.skip
+    );
     if t.fail == 0 {
         ExitCode::SUCCESS
     } else {
@@ -1550,7 +1554,7 @@ fn clipboard(t: &mut Table, vm: &str) {
     let dom0 = run("wl-paste", &["--no-newline", "--type", "text"], None);
     let saved_vm = clip_get(vm);
     let token = format!(
-        "vm-doctor-{}-{}",
+        "nox-doctor-{}-{}",
         std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1832,12 +1836,12 @@ mod tests {
     }
 
     #[test]
-    fn stats_count_like_the_script() {
+    fn warn_counts_on_its_own() {
         let mut t = Table::default();
         t.row(Stat::Pass, "a", "");
         t.row(Stat::Warn, "b", "");
         t.row(Stat::Skip, "c", "");
         t.row(Stat::Fail, "d", "");
-        assert_eq!((t.pass, t.fail, t.skip), (1, 1, 2));
+        assert_eq!((t.pass, t.fail, t.warn, t.skip), (1, 1, 1, 1));
     }
 }

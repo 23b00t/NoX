@@ -1,9 +1,8 @@
-# vm-doctor (`nox doctor`): smoke test of the running system on demand.
+# `nox doctor`: smoke test of the running system on demand.
 # The checks live in nox-cli (crates/nox-cli/src/doctor.rs); this module
 # gives it its data (/etc/nox/registry.json `doctor`: per domain the unit,
 # relay domain, wprs and its grants, D-Bus, sound, Tor, uplink, clipboard
-# rule; the USB inventory), the tools it calls and the old name `vm-doctor`
-# (a link to nox, which picks the tool by argv[0]).
+# rule; the USB inventory) and the tools it calls.
 {
   lib,
   pkgs,
@@ -64,10 +63,6 @@ in
   };
 
   environment.systemPackages = [
-    (pkgs.runCommand "vm-doctor" { } ''
-      mkdir -p $out/bin
-      ln -s ${config.programs.nox.package}/bin/nox $out/bin/vm-doctor
-    '')
     # what nox doctor calls besides systemd, journalctl, sudo/xl, nox-rpc
     # and pipewire's tools (wpctl, pw-dump: services.pipewire)
     pkgs.coreutils

@@ -32,7 +32,7 @@ let
           mimeType
           icon
           ;
-        exec = if args == "" then "vm-run ${vm} ${binary} %U" else "vm-run ${vm} ${binary} ${args} %U";
+        exec = if args == "" then "nox run ${vm} ${binary} %U" else "nox run ${vm} ${binary} ${args} %U";
         terminal = false;
         type = "Application";
       };
@@ -58,7 +58,7 @@ let
       "nox-${vm.name}-terminal" = {
         name = "Terminal (${vm.name})";
         genericName = "Terminal";
-        exec = "vm-run ${vm.name} ${terminalOf vm}";
+        exec = "nox run ${vm.name} ${terminalOf vm}";
         icon = "utilities-terminal";
         categories = [
           "System"

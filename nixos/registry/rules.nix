@@ -41,6 +41,9 @@ let
   missingUplink = builtins.filter (
     vm: uplinkOf vm != null && !builtins.elem (uplinkOf vm) names
   ) vmRegistry.vms;
+  # Every machine has exactly one config VM (role config): the config repo
+  # and the signing key live there, dom0-update and nox-install rely on it
+  configVms = map (vm: vm.name) (builtins.filter (vm: (vm.role or null) == "config") vmRegistry.vms);
 in
 [
   {
@@ -57,5 +60,11 @@ in
     message = "registry (${host}): the uplink must run on this machine: ${
       lib.concatMapStringsSep ", " (vm: "${vm.name} -> ${uplinkOf vm}") missingUplink
     } (nox.vms.<uplink>.enable, nox.infra.<uplink>.enable)";
+  }
+  {
+    assertion = builtins.length configVms == 1;
+    message = "registry (${host}): exactly one VM needs role = \"config\" (the config repo and your signing key; nox-install adds it), found: ${
+      if configVms == [ ] then "none" else lib.concatStringsSep ", " configVms
+    }";
   }
 ]

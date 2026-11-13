@@ -172,7 +172,7 @@ in
 
     # vm-autostart [vm…]: opens the login windows that are missing
     # (nox.desktop.login: terminal tabs, further windows; open ones from
-    # nox-wm windows). With VM names only theirs (manage-vms after a
+    # nox-wm windows). With VM names only theirs (nox start|restart after a
     # (re)start, next to vm-tray); tray apps have no window to check, that
     # is vm-tray
     (writeShellScriptBin "vm-autostart" ''
@@ -187,13 +187,13 @@ in
       [ ''${#terms[@]} -eq 0 ] || setsid -f nox-wm open-terminals "''${terms[@]}" >/dev/null 2>&1
       ${lib.concatMapStrings (w: ''
         if pick ${w.vm} && ! has ${lib.escapeShellArg "\\[${w.vm}\\] (${w.appId})"}; then
-          setsid -f vm-run ${w.vm} ${lib.escapeShellArgs w.command} >/dev/null 2>&1
+          setsid -f nox run ${w.vm} ${lib.escapeShellArgs w.command} >/dev/null 2>&1
         fi
       '') login.windows}
     '')
 
     # Starts the tray apps of one VM again (after a restart the old ones are
-    # gone); detached, vm-run waits for the VM itself
+    # gone); detached, nox run waits for the VM itself
     (writeShellScriptBin "vm-tray" ''
       case "''${1:-}" in
       ${
@@ -206,7 +206,8 @@ in
               "    setsid -f ${
                     lib.escapeShellArgs (
                       [
-                        "vm-run"
+                        "nox"
+                        "run"
                         vm
                       ]
                       ++ app

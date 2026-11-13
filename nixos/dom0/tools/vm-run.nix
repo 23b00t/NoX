@@ -1,9 +1,8 @@
-# vm-run and manage-vms (`nox run|exec|list|start|stop|restart`): the work
-# lives in nox-cli (crates/nox-cli/src/run.rs, manage.rs); this module gives
-# it its data (/etc/nox/registry.json `domains`: every VM and image domain of
-# the registry with unit, short alias, user, wprs, terminal, store group,
-# disposable) and the old names (links to nox, which picks the tool by
-# argv[0]).
+# `nox run|exec|list|start|stop|restart`: the work lives in nox-cli
+# (crates/nox-cli/src/run.rs, manage.rs); this module gives it its data
+# (/etc/nox/registry.json `domains`: every VM and image domain of the
+# registry with unit, short alias, user, wprs, terminal, store group,
+# disposable).
 {
   pkgs,
   config,
@@ -36,12 +35,7 @@ in
   }) (vmRegistry.vms ++ imageDomains);
 
   environment.systemPackages = [
-    (pkgs.runCommand "vm-run" { } ''
-      mkdir -p $out/bin
-      ln -s ${config.programs.nox.package}/bin/nox $out/bin/vm-run
-      ln -s ${config.programs.nox.package}/bin/nox $out/bin/manage-vms
-    '')
-    # vm-run's "Starting VM" notification
+    # nox run's "Starting VM" notification
     pkgs.libnotify
   ];
 }
