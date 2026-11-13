@@ -206,6 +206,28 @@ Build it one of two ways:
   `nix build github:23b00t/NoX#installer-iso`, the ISO is in
   `result/iso/`.
 
+**Verify a release.** Releases are signed with the key `nox-release`
+(`release/allowed-signers`; compare its fingerprint with the one outside
+the repo, e.g. the maintainer's GitHub profile: a key that only stands in
+the repo proves nothing). Until the first tag exists, `main` is the only
+source. Either build from the signed tag:
+
+```sh
+git clone https://github.com/23b00t/NoX && cd NoX
+git -c gpg.ssh.allowedSignersFile=release/allowed-signers verify-tag vX.Y.Z
+nix build github:23b00t/NoX/vX.Y.Z#installer-iso
+```
+
+or take the ISO from GitHub Releases (with `SHA256SUMS` and
+`SHA256SUMS.sig`, in one directory, `release/allowed-signers` from the tag):
+
+```sh
+ssh-keygen -Y verify -f release/allowed-signers -I nox-release -n nox-release -s SHA256SUMS.sig < SHA256SUMS
+sha256sum -c SHA256SUMS
+```
+
+Maintainers: [docs/release.md](docs/release.md).
+
 Write it to a stick (`dd`, in the VM the stick is attached to), boot it,
 then `sudo nox-install`. It guides through nine steps, Ctrl-C aborts any
 time:
@@ -272,11 +294,14 @@ time:
    be good, by Whonix' signing key `916B8D99C38EAF5E8ADC7A2A8D66066A2EEACCDA`
    (`derivative.asc` is fetched, its fingerprint is pinned in NoX; an
    expired or revoked key stops it) and for this file name (notation
-   `file@name`). Then the Gateway is converted to raw at the image path of
-   the config (default `/home/<nox.user>/vm-images/whonix/`) and
-   `xen-image-setup whonix-gateway` run in the new system. Tor still needs
+   `file@name`). The version must not be lower than `whonixMinVersion` in
+   NoX (against a downgrade; raised at each release). Then the Gateway is
+   converted to raw at the image path of the config (default
+   `/home/<nox.user>/vm-images/whonix/`) and `xen-image-setup
+   whonix-gateway` run in the new system. Tor still needs
    `DisableNetwork 0` after the first boot (see the Whonix steps of your
-   config's README)
+   config's README). If this step fails, the installer skips it and
+   continues; set it up by hand later
 9. the user's password (`passwd` in the new system; none is in the config),
    then reboot
 
@@ -287,7 +312,8 @@ builder.
 NoX pinned in its flake.lock to the revision the ISO is built from, with
 the nixpkgs and disko the ISO is built with (the template's nixpkgs
 follows NoX's; `template/flake.lock` only pins microvm.nix and wprs, a
-release refreshes it with `nix flake update` in `template/`). It
+release refreshes it with `nix flake update` in `template/` and raises
+`whonixMinVersion` to the current Whonix stable release). It
 asks where the config lives: only on this machine in the config VM
 (no account; `nox.builder.source = "local"`), on GitHub (an empty repo you
 created; public: the builder fetches over https), or both (the config VM
@@ -417,8 +443,9 @@ output and exit code through. The built-in tools read their data from
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
 | `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
 | `nox lab list\|attach\|detach [vm]` | `vm-lab status\|attach\|detach …`: a labTarget VM on sys-firewall's lab bridge while kali tests it |
-| `nox doctor [-v\|-vv]` | built in (src/doctor.rs): smoke test of the running system; prints the result line and the failures with their details, `-v` every check, `-vv` every check with details |
+| `nox doctor [-v\|-vv]` | built in (src/doctor.rs): smoke test of the running system (starts nothing and only reads, except the clipboard round trip, which restores both clipboards); prints the result line and the failures with their details, `-v` every check, `-vv` every check with details |
 | `nox doctor --ack` | the kernel / `xl dmesg` errors the runs reported become known noise of this machine (no longer a failure; list in `~/.local/state/nox-doctor/errors-known`, delete a line to forget it) |
+| `nox doctor --mark` | marks the kernel / `xl dmesg` errors shown so far as seen: only this run moves the marker, every other run (`-v` too) shows the errors since the last `--mark` (first run: since boot) |
 | `nox rollback <vm> [--gen n\|mark \| --mark \| --unmark \| --reset]` | `vm-rollback …`: runner of an older system generation (or the VM's mark) as its `current`, VM restarted; holds over reboots until another system is activated (update, rebuild) or `--reset`. `--mark`: the VM's current runner as known good, one per VM, survives `nox gc`; `--unmark` drops it again (a rollback to the mark holds until `--reset`). `nox list` (ROLLBACK) and `nox doctor` (WARN) show rolled back VMs. Configuration only; data comes back with `nox backup restore` |
 | `nox gc [--keep n] [-n]` | `vm-gc …` (old system generations, then GC; default keeps 3) |
 
@@ -433,6 +460,35 @@ programs.nox = {
   vms = [ "coding" "chat" ];
 };
 ```
+
+## Limits
+
+NoX 0.1.0 does not protect against physical access to the machine ("evil
+maid"). There is no Secure Boot and no measured boot, and the ESP (`/boot`:
+systemd-boot, Xen, kernel, initrd) is not encrypted. Someone with brief access
+can replace the kernel or initrd and capture the LUKS passphrase at the next
+boot. `nox-hwcheck` accordingly asks you to switch Secure Boot off.
+
+Not now, because Xen's [host EFI Secure Boot is only "experimental"][xen-support]
+in its upstream support statement, and [lanzaboote's Xen support][lanza-xen] is
+an open pull request, not part of a release. Until then: do not leave the
+machine unattended where others have access, and shut it down instead of
+suspending when it is out of your hands (the LUKS key is then not in RAM).
+
+Planned after 0.1.0: measuring Xen, kernel and initrd with the TPM, in the
+style of Qubes Anti Evil Maid.
+
+The standard disk layout (`nox.disk`) opens LUKS with `allowDiscards = true`:
+TRIM keeps the SSD fast, but whoever reads the raw disk can see which blocks
+are in use (not their content). This is a deliberate trade-off. A damaged LUKS
+header loses the whole disk even with the passphrase, so keep a header backup
+off the machine: `sudo cryptsetup luksHeaderBackup
+/dev/disk/by-partlabel/disk-main-root --header-backup-file <file on a stick>`.
+Store it safely: with an old passphrase it still opens the disk after a
+passphrase change.
+
+[xen-support]: https://xenbits.xen.org/docs/unstable/SUPPORT.html
+[lanza-xen]: https://github.com/nix-community/lanzaboote/pull/387
 
 ## Development
 

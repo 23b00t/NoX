@@ -88,7 +88,7 @@ _nox() {
         words="$(_nox_vms)"
       fi
       ;;
-    doctor) words="-v -vv --ack" ;;
+    doctor) words="-v -vv --ack --mark" ;;
     disp)
       if [ "${COMP_WORDS[COMP_CWORD - 1]}" = --from ]; then
         words="$(_nox_vms)"

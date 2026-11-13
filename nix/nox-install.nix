@@ -57,6 +57,10 @@
   # images are signed with (Whonix' project signing key, derivative.asc);
   # the version is always the current stable one, asked at install time
   whonixFingerprint ? "916B8D99C38EAF5E8ADC7A2A8D66066A2EEACCDA",
+  # The lowest Whonix version accepted: against a downgrade to an older, still
+  # validly signed release announced by whonix.org or a man in the middle.
+  # Raised at each NoX release to the then current stable release
+  whonixMinVersion ? "18.2.4.3",
 }:
 let
   noxLockJson = lib.optionalString (noxLocked != null) (builtins.toJSON noxLocked);
@@ -921,83 +925,119 @@ writeShellApplication {
     if [ "$whonix" = 0 ]; then
       echo "Not wanted or not in the config: skipped."
     else
-      image="$(nix eval --raw "$config.services.xen-image-domains.domains.whonix-gateway.image")"
-      fpr=${whonixFingerprint}
-      v=""
-      if [ -n "$whonix_from" ]; then
-        # The version of the archive in DIR
-        for f in "$whonix_from"/Whonix-CLI-*.Intel_AMD64.qcow2.libvirt.xz; do
-          v="''${f##*/Whonix-CLI-}"
-          v="''${v%.Intel_AMD64.qcow2.libvirt.xz}"
-        done
-        echo "Whonix version: $v (from $whonix_from)"
-      else
-        # Always the current stable release: the version whonix.org's KVM
-        # page downloads (wiki template Version_KVM; the directory listing
-        # also holds testers-only versions)
-        until v="$(curl -fsSL --max-time 20 \
-          'https://www.whonix.org/w/api.php?action=expandtemplates&text=%7B%7BVersion_KVM%7D%7D&prop=wikitext&format=json' \
-          | grep -oE '"wikitext":"[0-9]+(\.[0-9]+)+"' | grep -oE '[0-9]+(\.[0-9]+)+')"; do
-          yes_no "No stable version from whonix.org. Try again?" || exit 1
-        done
-        echo "Whonix version: $v (the current stable release)"
-      fi
-      if ! [[ "$v" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
-        echo "not a version: $v" >&2
-        exit 1
-      fi
-      archive="Whonix-CLI-$v.Intel_AMD64.qcow2.libvirt.xz"
-      # On the new disk: the live system's /tmp is RAM
-      work=/mnt/var/tmp/nox-install-whonix
-      if [ "$dry_run" = 1 ]; then
-        echo "dry-run: $archive (+ .asc, derivative.asc) to $work, signature by $fpr"
-        echo "dry-run: tar -xJf $archive (Gateway), qemu-img convert -O raw -S 4k to /mnt$image"
-        echo "dry-run: nixos-enter --root /mnt -c '$system/sw/bin/xen-image-setup whonix-gateway'"
-      else
-        mkdir -p "$work"
+      # Any failure skips Whonix and goes on to the password: every command
+      # is checked by hand (set -e is off in a function called from an if)
+      image="" work="" reason=""
+      whonix_install() {
+        local fpr v f archive base
+        image="$(nix eval --raw "$config.services.xen-image-domains.domains.whonix-gateway.image")" \
+          || { reason="cannot evaluate the image path"; return 1; }
+        fpr=${whonixFingerprint}
+        v=""
         if [ -n "$whonix_from" ]; then
-          cp "$whonix_from/$archive" "$whonix_from/$archive.asc" "$whonix_from/derivative.asc" "$work/"
-        else
-          base="https://www.whonix.org/download/libvirt/$v"
-          until curl -fSL -C - -o "$work/$archive" "$base/$archive"; do
-            yes_no "Download failed. Try again (it continues)?" || exit 1
+          # The version of the archive in DIR
+          for f in "$whonix_from"/Whonix-CLI-*.Intel_AMD64.qcow2.libvirt.xz; do
+            v="''${f##*/Whonix-CLI-}"
+            v="''${v%.Intel_AMD64.qcow2.libvirt.xz}"
           done
-          curl -fsSL -o "$work/$archive.asc" "$base/$archive.asc"
-          curl -fsSL -o "$work/derivative.asc" https://www.whonix.org/keys/derivative.asc
+          echo "Whonix version: $v (from $whonix_from)"
+        else
+          # Always the current stable release: the version whonix.org's KVM
+          # page downloads (wiki template Version_KVM; the directory listing
+          # also holds testers-only versions)
+          until v="$(curl -fsSL --max-time 20 \
+            'https://www.whonix.org/w/api.php?action=expandtemplates&text=%7B%7BVersion_KVM%7D%7D&prop=wikitext&format=json' \
+            | grep -oE '"wikitext":"[0-9]+(\.[0-9]+)+"' | grep -oE '[0-9]+(\.[0-9]+)+')"; do
+            yes_no "No stable version from whonix.org. Try again?" \
+              || { reason="no stable version from whonix.org"; return 1; }
+          done
+          echo "Whonix version: $v (the current stable release)"
         fi
-        export GNUPGHOME="$work/gnupg"
-        rm -rf "$GNUPGHOME"
-        mkdir -m 700 "$GNUPGHOME"
-        gpg --batch --quiet --import "$work/derivative.asc"
-        if ! gpg --batch --with-colons --fingerprint | grep -q "^fpr:::::::::$fpr:"; then
-          echo "derivative.asc does not hold the Whonix key $fpr: stopped, no image." >&2
-          exit 1
+        if ! [[ "$v" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
+          reason="not a version: $v"
+          return 1
         fi
-        # Good (GOODSIG: not by an expired or revoked key), by that key
-        # (VALIDSIG ends with the primary key's fingerprint), made for this
-        # file (notation file@name: Whonix signs the file name too, against
-        # an older signed archive under the new name)
-        gpg --batch --status-fd 1 --verify "$work/$archive.asc" "$work/$archive" \
-          >"$work/verify" 2>/dev/null || true
-        if ! grep -aq "^\[GNUPG:\] GOODSIG " "$work/verify" \
-          || ! grep -aqE "^\[GNUPG:\] VALIDSIG .* $fpr\$" "$work/verify" \
-          || ! grep -aqxF "[GNUPG:] NOTATION_DATA $archive" "$work/verify"; then
-          echo "BAD SIGNATURE on $archive: stopped, no image." >&2
-          exit 1
+        if [ "$(printf '%s\n' "${whonixMinVersion}" "$v" | sort -V | head -n1)" != "${whonixMinVersion}" ]; then
+          reason="version $v is older than the minimum ${whonixMinVersion} (downgrade?)"
+          return 1
         fi
-        echo "Signature good ($fpr)."
+        archive="Whonix-CLI-$v.Intel_AMD64.qcow2.libvirt.xz"
+        # On the new disk: the live system's /tmp is RAM
+        work=/mnt/var/tmp/nox-install-whonix
+        if [ "$dry_run" = 1 ]; then
+          echo "dry-run: $archive (+ .asc, derivative.asc) to $work, signature by $fpr"
+          echo "dry-run: tar -xJf $archive (Gateway), qemu-img convert -O raw -S 4k to /mnt$image"
+          echo "dry-run: nixos-enter --root /mnt -c '$system/sw/bin/xen-image-setup whonix-gateway'"
+        else
+          mkdir -p "$work" || { reason="cannot create $work"; return 1; }
+          if [ -n "$whonix_from" ]; then
+            cp "$whonix_from/$archive" "$whonix_from/$archive.asc" "$whonix_from/derivative.asc" "$work/" \
+              || { reason="cannot copy the files from $whonix_from"; return 1; }
+          else
+            base="https://www.whonix.org/download/libvirt/$v"
+            until curl -fSL -C - -o "$work/$archive" "$base/$archive"; do
+              yes_no "Download failed. Try again (it continues)?" \
+                || { reason="download of $archive failed"; return 1; }
+            done
+            curl -fsSL -o "$work/$archive.asc" "$base/$archive.asc" \
+              || { reason="download of $archive.asc failed"; return 1; }
+            curl -fsSL -o "$work/derivative.asc" https://www.whonix.org/keys/derivative.asc \
+              || { reason="download of derivative.asc failed"; return 1; }
+          fi
+          export GNUPGHOME="$work/gnupg"
+          rm -rf "$GNUPGHOME" || { reason="cannot clear $GNUPGHOME"; return 1; }
+          mkdir -m 700 "$GNUPGHOME" || { reason="cannot create $GNUPGHOME"; return 1; }
+          gpg --batch --quiet --import "$work/derivative.asc" \
+            || { reason="cannot import derivative.asc"; return 1; }
+          if ! gpg --batch --with-colons --fingerprint | grep -q "^fpr:::::::::$fpr:"; then
+            reason="derivative.asc does not hold the Whonix key $fpr"
+            return 1
+          fi
+          # Good (GOODSIG: not by an expired or revoked key), by that key
+          # (VALIDSIG ends with the primary key's fingerprint), made for this
+          # file (notation file@name: Whonix signs the file name too, against
+          # an older signed archive under the new name)
+          gpg --batch --status-fd 1 --verify "$work/$archive.asc" "$work/$archive" \
+            >"$work/verify" 2>/dev/null || true
+          if ! grep -aq "^\[GNUPG:\] GOODSIG " "$work/verify" \
+            || ! grep -aqE "^\[GNUPG:\] VALIDSIG .* $fpr\$" "$work/verify" \
+            || ! grep -aqxF "[GNUPG:] NOTATION_DATA $archive" "$work/verify"; then
+            reason="BAD SIGNATURE on $archive"
+            return 1
+          fi
+          echo "Signature good ($fpr)."
+          unset GNUPGHOME
+          tar -C "$work" -xJf "$work/$archive" --wildcards '*Gateway*' \
+            || { reason="cannot unpack $archive"; return 1; }
+          mkdir -p "$(dirname "/mnt$image")" || { reason="cannot create the image directory"; return 1; }
+          written=1
+          qemu-img convert -p -O raw -S 4k "$work"/Whonix-Gateway-*.qcow2 "/mnt$image" \
+            || { reason="qemu-img convert failed"; return 1; }
+          rm -rf "$work" || { reason="cannot remove $work"; return 1; }
+          # The units into the stopped image (debugfs, works offline)
+          nixos-enter --root /mnt -c "$system/sw/bin/xen-image-setup whonix-gateway" \
+            || { reason="xen-image-setup failed"; return 1; }
+          # An image in the home belongs to the user
+          case "$image" in
+            "/home/$user/"*)
+              nixos-enter --root /mnt -c "chown -R $user: /home/$user" \
+                || { reason="cannot chown the image"; return 1; }
+              ;;
+          esac
+          echo "Whonix-Gateway image: $image. After the first boot enable Tor in it (README \"Whonix\": DisableNetwork 0)."
+        fi
+        return 0
+      }
+      written=0
+      if ! whonix_install; then
         unset GNUPGHOME
-        tar -C "$work" -xJf "$work/$archive" --wildcards '*Gateway*'
-        mkdir -p "$(dirname "/mnt$image")"
-        qemu-img convert -p -O raw -S 4k "$work"/Whonix-Gateway-*.qcow2 "/mnt$image"
-        rm -rf "$work"
-        # The units into the stopped image (debugfs, works offline)
-        nixos-enter --root /mnt -c "$system/sw/bin/xen-image-setup whonix-gateway"
-        # An image in the home belongs to the user
-        case "$image" in
-          "/home/$user/"*) nixos-enter --root /mnt -c "chown -R $user: /home/$user" ;;
-        esac
-        echo "Whonix-Gateway image: $image. After the first boot enable Tor in it (README \"Whonix\": DisableNetwork 0)."
+        if [ "$dry_run" != 1 ]; then
+          [ -z "$work" ] || rm -rf "$work"
+          # Never leave a half-written or unverified image
+          [ "$written" = 0 ] || rm -f "/mnt$image"
+        fi
+        echo "Whonix-Gateway not installed: $reason." >&2
+        echo "The system works without it; set it up by hand later (the Whonix steps of your config's README)." >&2
       fi
     fi
 

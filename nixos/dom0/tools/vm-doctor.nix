@@ -25,6 +25,10 @@ let
   clipPolicy = vm: vm.clipboard or (if lib.hasPrefix "sys-" vm.name then "deny" else "allow");
   listen = h: relayed.${h.name}.listen or { };
   serve = h: relayed.${h.name}.serve or { };
+
+  # sys-usb's Xen domain, only on a machine with sys-usb (as `usb` below)
+  hasSysUsb = (config.services.xen-usb.enable or false) && microvms ? sys-usb;
+  usbDomain = (import ../../vms/usb-links.nix { inherit lib vmRegistry; }).domain;
 in
 {
   programs.nox.registry.doctor = {
@@ -48,8 +52,9 @@ in
     # USB (modules/xen-usb.nix, vms/usb-links.nix): sys-usb's controllers and
     # the registry inventory, compared with what sys-usb and vm-usb report
     usb =
-      if (config.services.xen-usb.enable or false) && microvms ? sys-usb then
+      if hasSysUsb then
         {
+          domain = usbDomain;
           pci = vmRegistry.hardware.pci.devicePaths.usb or [ ];
           devices = map (d: {
             id = "${d.vendorId}:${d.productId}";
@@ -71,10 +76,11 @@ in
     pkgs.wl-clipboard
   ];
 
-  # Two read-only xl calls of nox without a password for the wheel group,
+  # Read-only xl calls of nox without a password for the wheel group,
   # exactly these: Xen's log for the doctor's check `xl dmesg`, the free
-  # memory nox disp checks before a start. The rest of xl still asks where
-  # sudo asks
+  # memory nox disp checks before a start, and (with sys-usb) the PCI devices
+  # of sys-usb's domain for the check `usb controllers`. The rest of xl still
+  # asks where sudo asks
   security.sudo.extraRules = [
     {
       groups = [ "wheel" ];
@@ -84,10 +90,13 @@ in
             inherit command;
             options = [ "NOPASSWD" ];
           })
-          [
-            "/run/current-system/sw/bin/xl dmesg"
-            "/run/current-system/sw/bin/xl info free_memory"
-          ];
+          (
+            [
+              "/run/current-system/sw/bin/xl dmesg"
+              "/run/current-system/sw/bin/xl info free_memory"
+            ]
+            ++ lib.optional hasSysUsb "/run/current-system/sw/bin/xl pci-list ${usbDomain}"
+          );
     }
   ];
 }

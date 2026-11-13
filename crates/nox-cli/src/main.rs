@@ -336,6 +336,10 @@ enum Cmd {
         /// of this machine from now on: they no longer fail
         #[arg(long, conflicts_with = "verbose")]
         ack: bool,
+        /// Mark the kernel/Xen errors shown so far as seen (only this run
+        /// moves the marker; others show the errors again)
+        #[arg(long, conflicts_with = "ack")]
+        mark: bool,
     },
     /// Run a VM from an older system generation or its mark (configuration, not data)
     #[command(
@@ -975,11 +979,11 @@ fn main() -> ExitCode {
             }
             Input::Back { vm } => exec("input-back", vm),
         },
-        Cmd::Doctor { verbose, ack } => {
+        Cmd::Doctor { verbose, ack, mark } => {
             if ack {
                 doctor::main_args(&["--ack".into()])
             } else {
-                doctor::run_doctor(verbose)
+                doctor::run_doctor(verbose, mark)
             }
         }
         Cmd::Rollback {

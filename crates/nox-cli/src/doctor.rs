@@ -12,6 +12,7 @@
 //! is played, no pipewire started, no device moved.
 
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
@@ -39,6 +40,9 @@ pub struct Usb {
     /// PCI paths of the USB controllers sys-usb owns
     #[serde(default)]
     pub pci: Vec<String>,
+    /// Xen domain name of sys-usb (for `xl pci-list`; empty: not checked)
+    #[serde(default)]
+    pub domain: String,
     #[serde(default)]
     pub devices: Vec<UsbDevice>,
 }
@@ -396,17 +400,20 @@ fn cut(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
-/// `[-v|-vv] [--ack]` (`nox doctor --ack` comes here; nox parses with clap)
+/// `[-v|-vv] [--ack] [--mark]` (`nox doctor --ack` comes here; nox parses
+/// with clap)
 pub fn main_args(args: &[String]) -> ExitCode {
     let mut verbose = 0;
     let mut ack = false;
+    let mut mark = false;
     for a in args {
         match a.as_str() {
             "-v" => verbose += 1,
             "-vv" => verbose += 2,
             "--ack" => ack = true,
+            "--mark" => mark = true,
             _ => {
-                eprintln!("usage: nox doctor [-v|-vv] [--ack]   (checks the running system, starts nothing)");
+                eprintln!("usage: nox doctor [-v|-vv] [--ack|--mark]   (checks the running system, starts nothing)");
                 return ExitCode::from(2);
             }
         }
@@ -414,7 +421,7 @@ pub fn main_args(args: &[String]) -> ExitCode {
     if ack {
         acknowledge()
     } else {
-        run_doctor(verbose)
+        run_doctor(verbose, mark)
     }
 }
 
@@ -530,7 +537,27 @@ pub fn split_known(lines: Vec<String>, known: &[String]) -> (Vec<String>, Vec<St
         .partition(|l| !known.contains(&normalize(l)))
 }
 
-pub fn run_doctor(verbose: u8) -> ExitCode {
+/// The error checks' marker (file `last`: boot id, time, count of Xen error
+/// lines): what `journalctl --since` and the `xl dmesg` skip count start
+/// from. A marker of another boot counts as none: since boot (journalctl
+/// `-b`, no Xen line skipped)
+pub fn marker_state(prev: &str, boot: &str) -> (String, usize) {
+    let prev: Vec<&str> = prev.lines().collect();
+    if prev.first() != Some(&boot) {
+        return ("-b".to_string(), 0);
+    }
+    let since = prev
+        .get(1)
+        .map_or("-b".to_string(), |ts| format!("--since=@{ts}"));
+    let xen = prev.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+    (since, xen)
+}
+
+/// `mark`: `nox doctor --mark` moves the marker (writes `last`); every other
+/// run, `-v`/`-vv` included, only reads it, so new errors stay new until
+/// someone has seen them. `--ack` does not move it either (it only turns the
+/// pending lines into known noise).
+pub fn run_doctor(verbose: u8, mark: bool) -> ExitCode {
     // NOX_REGISTRY: another registry (tests), as registry.rs
     let path = std::env::var("NOX_REGISTRY").unwrap_or_else(|_| REGISTRY.into());
     let data = match load(&path) {
@@ -859,12 +886,7 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
         .trim()
         .to_string();
     let prev = fs::read_to_string(dir.join("last")).unwrap_or_default();
-    let prev: Vec<&str> = prev.lines().collect();
-    let same_boot = prev.first() == Some(&boot.as_str());
-    let since = match (same_boot, prev.get(1)) {
-        (true, Some(ts)) => format!("--since=@{ts}"),
-        _ => "-b".to_string(),
-    };
+    let (since, before) = marker_state(&prev, &boot);
     let kerr: Vec<String> = output(
         "journalctl",
         &["-k", "-p", "err", "-q", "--no-pager", &since],
@@ -882,11 +904,6 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
             // Xen's own lines only: (dN) lines are guest consoles. The ring
             // keeps the whole boot: the count of the last run marks the new ones
             let errs = xen_errors(&xd);
-            let before: usize = if same_boot {
-                prev.get(2).and_then(|s| s.parse().ok()).unwrap_or(0)
-            } else {
-                0
-            };
             let fresh = errs.iter().skip(before).cloned().collect();
             let (new, old) = split_known(fresh, &known);
             errors_row(&mut t, "xl dmesg", &new, &old);
@@ -902,7 +919,9 @@ pub fn run_doctor(verbose: u8) -> ExitCode {
             0
         }
     };
-    let _ = fs::write(dir.join("last"), format!("{boot}\n{}\n{xerr}\n", now()));
+    if mark {
+        let _ = fs::write(dir.join("last"), format!("{boot}\n{}\n{xerr}\n", now()));
+    }
 
     println!();
     println!(
@@ -1145,6 +1164,19 @@ pub fn parse_assign(s: &str) -> Vec<(String, String, String)> {
         .collect()
 }
 
+/// A USB inconsistency; `vm` is set when it concerns a running VM and may
+/// just be vm-usb-auto not having got there yet (see `usb_verdict`)
+#[derive(Debug, PartialEq)]
+pub struct UsbProblem {
+    pub vm: Option<String>,
+    pub text: String,
+}
+
+/// Seconds a VM may take after its start until vm-usb-auto has attached its
+/// devices: the loop runs every 5 s, the webcam reached chat after 16 s
+/// (2026-10-10)
+const USB_GRACE_S: u64 = 60;
+
 /// Where sys-usb's devices are vs. where the registry and vm-usb want them:
 /// a device on a VM outside its allowedOwners, assigned to a running VM but
 /// not in use there, exported without an assignment, or not on its running
@@ -1154,8 +1186,14 @@ pub fn usb_problems(
     assign: &[(String, String, String)],
     registry: &[UsbDevice],
     running: &[&str],
-) -> Vec<String> {
+) -> Vec<UsbProblem> {
     let mut out = Vec::new();
+    let mut add = |vm: Option<&str>, text: String| {
+        out.push(UsbProblem {
+            vm: vm.map(String::from),
+            text,
+        })
+    };
     for dev in devs {
         let reg = registry.iter().find(|r| r.id == dev.id);
         let name = reg.map_or(dev.name.as_str(), |r| r.name.as_str());
@@ -1168,35 +1206,99 @@ pub fn usb_problems(
             Some(vm) if vm != "-" => {
                 if let Some(r) = reg {
                     if !r.allowed.is_empty() && !r.allowed.iter().any(|a| a == vm) {
-                        out.push(format!("{name} ({b}) on {vm}, not in its allowedOwners"));
+                        add(
+                            None,
+                            format!("{name} ({b}) on {vm}, not in its allowedOwners"),
+                        );
                     }
                 }
                 if running.contains(&vm) && dev.status != "2" {
-                    out.push(format!(
-                        "{name} ({b}) assigned to {vm}, not in use there (USB/IP link?)"
-                    ));
+                    add(
+                        Some(vm),
+                        format!("{name} ({b}) assigned to {vm}, not in use there (USB/IP link?)"),
+                    );
                 }
             }
             _ => {
                 if dev.status == "1" || dev.status == "2" {
-                    out.push(format!(
-                        "{name} ({b}) exported over USB/IP without an assignment"
-                    ));
+                    add(
+                        None,
+                        format!("{name} ({b}) exported over USB/IP without an assignment"),
+                    );
                 }
                 let default_vm = reg
                     .map(|r| r.owner.as_str())
                     .filter(|o| !["", "host", "sys-usb"].contains(o));
                 if let (None, Some(vm)) = (owner, default_vm) {
                     if running.contains(&vm) {
-                        out.push(format!(
-                            "{name} ({b}) not on {vm} (defaultOwner, vm-usb-auto)"
-                        ));
+                        add(
+                            Some(vm),
+                            format!("{name} ({b}) not on {vm} (defaultOwner, vm-usb-auto)"),
+                        );
                     }
                 }
             }
         }
     }
     out
+}
+
+/// Verdict of the `usb assignments` row: PASS without problems; WARN when
+/// every problem concerns a VM that started less than USB_GRACE_S ago (`ages`:
+/// seconds since the start, per VM), detail with "<vm> started N s ago";
+/// otherwise FAIL (one non-fresh problem decides, also allowedOwners
+/// violations and exports without an assignment, which have no VM)
+pub fn usb_verdict(problems: &[UsbProblem], ages: &HashMap<String, u64>) -> (Stat, String) {
+    let Some(first) = problems.first() else {
+        return (Stat::Pass, String::new());
+    };
+    let age = |p: &UsbProblem| {
+        p.vm.as_ref().and_then(|v| {
+            ages.get(v)
+                .filter(|a| **a < USB_GRACE_S)
+                .map(|a| (v.clone(), *a))
+        })
+    };
+    let detail = if problems.len() > 1 {
+        format!("{} problems, first: {}", problems.len(), cut90(&first.text))
+    } else {
+        first.text.clone()
+    };
+    if problems.iter().all(|p| age(p).is_some()) {
+        let mut started: Vec<(String, u64)> = problems.iter().filter_map(age).collect();
+        started.sort();
+        started.dedup();
+        let started: Vec<String> = started
+            .iter()
+            .map(|(v, a)| format!("{v} started {a} s ago"))
+            .collect();
+        (Stat::Warn, format!("{detail}, {}", started.join(", ")))
+    } else {
+        (Stat::Fail, detail)
+    }
+}
+
+/// Seconds since `unit` became active (ActiveEnterTimestampMonotonic vs.
+/// /proc/uptime), None when it is not active
+fn unit_age(unit: &str) -> Option<u64> {
+    let up: f64 = fs::read_to_string("/proc/uptime")
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()?;
+    let ts = output(
+        "systemctl",
+        &[
+            "show",
+            "-p",
+            "ActiveEnterTimestampMonotonic",
+            "--value",
+            &format!("{unit}.service"),
+        ],
+    );
+    let us: u64 = ts.trim().parse().ok().filter(|u| *u > 0)?;
+    Some((up as u64).saturating_sub(us / 1_000_000))
 }
 
 /// The input proxy's devices in dom0 (/proc/bus/input/devices):
@@ -1255,6 +1357,38 @@ fn usb_helper(cmd: &str) -> Option<String> {
     (rc == "exit 0").then(|| body.to_string())
 }
 
+/// A PCI address as `dddd:bb:dd.f`, lower case: xl prints the domain, the
+/// registry may leave it out (`00:14.0`)
+pub fn norm_bdf(s: &str) -> String {
+    let s = s.to_ascii_lowercase();
+    if s.matches(':').count() == 1 {
+        format!("0000:{s}")
+    } else {
+        s
+    }
+}
+
+/// The devices of `xl pci-list <domain>` as normalized addresses. Format
+/// (Xen tools/xl/xl_pci.c, `pcilist`, from memory of the source, no source
+/// tree at hand): a header `Vdev Device`, then per device
+/// `%02x.%01x %04x:%02x:%02x.%01x`, e.g. `04.0 0000:00:14.0`. Any token
+/// that looks like an address counts, so a changed column layout still parses.
+pub fn parse_pci_list(s: &str) -> Vec<String> {
+    s.lines()
+        .flat_map(str::split_whitespace)
+        .filter(|w| w.contains(':') && w.contains('.'))
+        .map(norm_bdf)
+        .collect()
+}
+
+/// Controllers (on pciback) the domain does not hold, as problems
+pub fn pci_unassigned(want: &[String], assigned: &[String], domain: &str) -> Vec<String> {
+    want.iter()
+        .filter(|p| !assigned.contains(&norm_bdf(p)))
+        .map(|p| format!("{p} on pciback, not assigned to {domain}"))
+        .collect()
+}
+
 /// USB: the controllers on pciback (sys-usb's, not back in dom0), sys-usb's
 /// helper and dom0's two USB services, the assignments, the input proxy
 fn usb(t: &mut Table, usb: Option<&Usb>, running: &[Domain]) {
@@ -1282,11 +1416,34 @@ fn usb(t: &mut Table, usb: Option<&Usb>, running: &[Domain]) {
                 (driver != "pciback").then(|| format!("{p} on {driver}"))
             })
             .collect();
-        if bad.is_empty() {
+        // with sys-usb running and sudo working: do they belong to its domain
+        // (`xl pci-list` is in the NoX sudo rule; the timeout as xenstore may hang)
+        let mut note = String::new();
+        let mut unassigned = Vec::new();
+        if bad.is_empty() && !usb.domain.is_empty() && running.iter().any(|d| d.name == "sys-usb") {
+            match run(
+                "timeout",
+                &["10", "sudo", "-n", "xl", "pci-list", &usb.domain],
+                None,
+            ) {
+                Some(list) => {
+                    unassigned = pci_unassigned(&usb.pci, &parse_pci_list(&list), &usb.domain)
+                }
+                None => note = " (assignment not checked: sudo -n xl pci-list failed)".into(),
+            }
+        }
+        if !unassigned.is_empty() {
+            t.row_more(
+                Stat::Fail,
+                "usb controllers",
+                &unassigned.join(", "),
+                &unassigned,
+            );
+        } else if bad.is_empty() {
             t.row(
                 Stat::Pass,
                 "usb controllers",
-                &format!("{} on pciback (sys-usb)", usb.pci.len()),
+                &format!("{} on pciback (sys-usb){note}", usb.pci.len()),
             );
         } else {
             t.row(
@@ -1329,12 +1486,26 @@ fn usb(t: &mut Table, usb: Option<&Usb>, running: &[Domain]) {
             let assign = parse_assign(&text);
             let problems = usb_problems(&devs, &assign, &usb.devices, &up);
             let attached = assign.iter().filter(|a| a.2 != "-").count();
-            bad_or_pass(
-                t,
-                "usb assignments",
-                &problems,
-                &format!("{attached} attached, all as the registry wants"),
-            );
+            // start times only of the VMs a problem concerns
+            let mut ages = HashMap::new();
+            for vm in problems.iter().filter_map(|p| p.vm.as_ref()) {
+                if let Some(d) = running.iter().find(|d| &d.name == vm) {
+                    if let Some(a) = unit_age(&d.unit) {
+                        ages.insert(vm.clone(), a);
+                    }
+                }
+            }
+            let (stat, detail) = usb_verdict(&problems, &ages);
+            if stat == Stat::Pass {
+                t.row(
+                    stat,
+                    "usb assignments",
+                    &format!("{attached} attached, all as the registry wants"),
+                );
+            } else {
+                let texts: Vec<String> = problems.iter().map(|p| p.text.clone()).collect();
+                t.row_more(stat, "usb assignments", &detail, &texts);
+            }
         }
         Err(_) => t.row(
             Stat::Skip,
@@ -1398,7 +1569,7 @@ fn errors_row(t: &mut Table, check: &str, new: &[String], old: &[String]) {
             Stat::Fail,
             check,
             &format!(
-                "{} new{known}, last: {}",
+                "{} new{known}, last: {}; `nox doctor --mark` once you've seen them",
                 new.len(),
                 cut90(new.last().map(String::as_str).unwrap_or(""))
             ),
@@ -1702,26 +1873,108 @@ mod tests {
         ];
         // chat stopped, nothing assigned: consistent, except the stick in
         // use without an assignment
-        let p = usb_problems(&devs, &[], &reg, &["sys-usb"]);
+        let p = texts(usb_problems(&devs, &[], &reg, &["sys-usb"]));
         assert_eq!(
             p,
             ["Stick (3-5) exported over USB/IP without an assignment"]
         );
         // chat runs: the webcam should be there
-        let p = usb_problems(&devs[..1], &[], &reg, &["chat"]);
+        let p = texts(usb_problems(&devs[..1], &[], &reg, &["chat"]));
         assert_eq!(p, ["webcam (1-3) not on chat (defaultOwner, vm-usb-auto)"]);
         // detached by hand: stays in sys-usb
         let a = parse_assign("1-3 0408:5365 - -\n");
         assert!(usb_problems(&devs[..1], &a, &reg, &["chat"]).is_empty());
         // assigned, but not in use; and on a VM outside allowedOwners
         let a = parse_assign("1-3 0408:5365 chat 1a2b\n1-4 0bda:b00e disp 3c4d\n");
-        let p = usb_problems(&devs[..2], &a, &reg, &["chat"]);
+        let p = texts(usb_problems(&devs[..2], &a, &reg, &["chat"]));
         assert_eq!(
             p,
             [
                 "webcam (1-3) assigned to chat, not in use there (USB/IP link?)",
                 "bt (1-4) on disp, not in its allowedOwners"
             ]
+        );
+    }
+
+    fn texts(p: Vec<UsbProblem>) -> Vec<String> {
+        p.into_iter().map(|p| p.text).collect()
+    }
+
+    fn prob(vm: Option<&str>, text: &str) -> UsbProblem {
+        UsbProblem {
+            vm: vm.map(String::from),
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn pci_list_assignment() {
+        let out = "Vdev Device\n04.0 0000:00:14.0\n05.0 0000:3A:00.3\n";
+        let got = parse_pci_list(out);
+        assert_eq!(got, ["0000:00:14.0", "0000:3a:00.3"]);
+        assert_eq!(parse_pci_list("Vdev Device\n"), Vec::<String>::new());
+        assert_eq!(norm_bdf("00:14.0"), "0000:00:14.0");
+        let want = vec!["0000:00:14.0".to_string(), "3a:00.3".to_string()];
+        assert!(pci_unassigned(&want, &got, "sys-usb-vm").is_empty());
+        // one controller on pciback, but not in the domain
+        let p = pci_unassigned(&want, &got[..1], "sys-usb-vm");
+        assert_eq!(p, ["3a:00.3 on pciback, not assigned to sys-usb-vm"]);
+        assert_eq!(pci_unassigned(&want, &[], "d").len(), 2);
+    }
+
+    #[test]
+    fn error_marker_state() {
+        // no marker, or one of another boot: since boot, nothing skipped
+        assert_eq!(marker_state("", "b1"), ("-b".to_string(), 0));
+        assert_eq!(marker_state("b0\n100\n7\n", "b1"), ("-b".to_string(), 0));
+        // same boot: since the marker's time, its Xen count skipped
+        assert_eq!(
+            marker_state("b1\n100\n7\n", "b1"),
+            ("--since=@100".to_string(), 7)
+        );
+        assert_eq!(marker_state("b1\n", "b1"), ("-b".to_string(), 0));
+    }
+
+    #[test]
+    fn usb_grace_period() {
+        let ages = |l: &[(&str, u64)]| -> HashMap<String, u64> {
+            l.iter().map(|(v, a)| (v.to_string(), *a)).collect()
+        };
+        let not_there = prob(Some("chat"), "webcam (1-3) not on chat (defaultOwner)");
+        // no problems: PASS
+        assert_eq!(usb_verdict(&[], &ages(&[])).0, Stat::Pass);
+        // fresh VM: WARN with the age
+        let (s, d) = usb_verdict(std::slice::from_ref(&not_there), &ages(&[("chat", 12)]));
+        assert_eq!(s, Stat::Warn);
+        assert_eq!(
+            d,
+            "webcam (1-3) not on chat (defaultOwner), chat started 12 s ago"
+        );
+        // old VM, or no start time known: FAIL
+        let (s, d) = usb_verdict(std::slice::from_ref(&not_there), &ages(&[("chat", 60)]));
+        assert_eq!(
+            (s, d.as_str()),
+            (Stat::Fail, "webcam (1-3) not on chat (defaultOwner)")
+        );
+        assert_eq!(
+            usb_verdict(std::slice::from_ref(&not_there), &ages(&[])).0,
+            Stat::Fail
+        );
+        // fresh and old VM mixed: FAIL
+        let mixed = [not_there, prob(Some("work"), "cam (2-1) not on work")];
+        let (s, d) = usb_verdict(&mixed, &ages(&[("chat", 5), ("work", 300)]));
+        assert_eq!(s, Stat::Fail);
+        assert!(d.starts_with("2 problems"), "{d}");
+        // allowedOwners violation on a fresh VM: FAIL
+        let bad = [prob(None, "bt (1-4) on chat, not in its allowedOwners")];
+        assert_eq!(usb_verdict(&bad, &ages(&[("chat", 5)])).0, Stat::Fail);
+        // two fresh VMs: WARN naming both
+        let two = [prob(Some("chat"), "a"), prob(Some("work"), "b")];
+        let (s, d) = usb_verdict(&two, &ages(&[("chat", 5), ("work", 7)]));
+        assert_eq!(s, Stat::Warn);
+        assert!(
+            d.ends_with("chat started 5 s ago, work started 7 s ago"),
+            "{d}"
         );
     }
 

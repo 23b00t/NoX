@@ -1,0 +1,13 @@
+# NoX release key (ssh-keygen allowed-signers format, one per line):
+#   <principal> namespaces="<list>" ssh-ed25519 AAAA…
+# It verifies what the maintainer signs at a release:
+#   - the annotated git tag vX.Y.Z (signature namespace "git"):
+#       git -c gpg.ssh.allowedSignersFile=release/allowed-signers verify-tag vX.Y.Z
+#   - SHA256SUMS of the release ISO (namespace "nox-release"):
+#       ssh-keygen -Y verify -f release/allowed-signers -I nox-release \
+#         -n nox-release -s SHA256SUMS.sig < SHA256SUMS
+# A key inside the repo proves nothing by itself: compare its fingerprint
+# (ssh-keygen -lf nox-release.pub) with the one published outside the repo.
+# See docs/release.md. The maintainer fills in the line below (public key
+# of nox-release, never a private one) and removes the comment mark.
+#nox-release namespaces="git,nox-release" ssh-ed25519 AAAA…
