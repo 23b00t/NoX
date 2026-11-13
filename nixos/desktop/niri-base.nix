@@ -184,16 +184,27 @@
     "Mod+9"."focus-window-in-column" = 9;
     "Mod+0"."focus-window-bottom" = { };
 
-    "Mod+Ctrl+1"."move-column-to-workspace" = 1;
-    "Mod+Ctrl+2"."move-column-to-workspace" = 2;
-    "Mod+Ctrl+3"."move-column-to-workspace" = 3;
-    "Mod+Ctrl+4"."move-column-to-workspace" = 4;
-    "Mod+Ctrl+5"."move-column-to-workspace" = 5;
-    "Mod+Ctrl+6"."move-column-to-workspace" = 6;
-    "Mod+Ctrl+7"."move-column-to-workspace" = 7;
-    "Mod+Ctrl+8"."move-column-to-workspace" = 8;
-    "Mod+Ctrl+9"."move-column-to-workspace" = 9;
-    "Mod+Ctrl+0"."move-column-to-workspace" = 10;
+    "Mod+Shift+1"."move-column-to-workspace" = 1;
+    "Mod+Shift+2"."move-column-to-workspace" = 2;
+    "Mod+Shift+3"."move-column-to-workspace" = 3;
+    "Mod+Shift+4"."move-column-to-workspace" = 4;
+    "Mod+Shift+5"."move-column-to-workspace" = 5;
+    "Mod+Shift+6"."move-column-to-workspace" = 6;
+    "Mod+Shift+7"."move-column-to-workspace" = 7;
+    "Mod+Shift+8"."move-column-to-workspace" = 8;
+    "Mod+Shift+9"."move-column-to-workspace" = 9;
+    "Mod+Shift+0"."move-column-to-workspace" = 10;
+
+    "Mod+Ctrl+1"."focus-workspace" = 1;
+    "Mod+Ctrl+2"."focus-workspace" = 2;
+    "Mod+Ctrl+3"."focus-workspace" = 3;
+    "Mod+Ctrl+4"."focus-workspace" = 4;
+    "Mod+Ctrl+5"."focus-workspace" = 5;
+    "Mod+Ctrl+6"."focus-workspace" = 6;
+    "Mod+Ctrl+7"."focus-workspace" = 7;
+    "Mod+Ctrl+8"."focus-workspace" = 8;
+    "Mod+Ctrl+9"."focus-workspace" = 9;
+    "Mod+Ctrl+0"."focus-workspace" = 10;
 
     "Mod+BracketLeft"."consume-or-expel-window-left" = { };
     "Mod+BracketRight"."consume-or-expel-window-right" = { };
