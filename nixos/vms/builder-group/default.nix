@@ -19,7 +19,6 @@ let
   stateDir = "/var/lib/builder";
   reg = lib.findFirst (vm: vm.name == builderName) vmRegistry.byName.${builderName} vmRegistry.vms;
   index = lib.toInt (lib.last (lib.splitString "." reg.ip));
-  hex = lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString index));
   sysKeyFile = vmRegistry.builderKeys + "/signing-key-${vmRegistry.host or ""}.pub";
   sysKey =
     if vmRegistry.host or null != null && builtins.pathExists sysKeyFile then
@@ -111,7 +110,6 @@ in
     net-config = {
       enable = true;
       inherit index;
-      mac = "00:00:00:00:00:${hex}";
     };
     common-config = {
       enable = true;

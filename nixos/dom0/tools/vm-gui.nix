@@ -64,7 +64,7 @@ let
   vmCases = lib.concatMapStrings (
     vm:
     "  ${vm.name}${
-        lib.optionalString (vm.short != null && vm.short != vm.name) "|${vm.short}"
+        lib.optionalString ((vm.short or null) != null && vm.short != vm.name) "|${vm.short}"
       }) VM=${vm.name} ;;\n"
   ) (vmRegistry.vms ++ vmRegistry.imageDomains);
 
@@ -295,7 +295,7 @@ let
   pullCases = lib.concatMapStrings (
     vm:
     "  ${vm.name}${
-        lib.optionalString (vm.short != null && vm.short != vm.name) "|${vm.short}"
+        lib.optionalString ((vm.short or null) != null && vm.short != vm.name) "|${vm.short}"
       }) VM=${vm.name} ;;\n"
   ) vmRegistry.vms;
 

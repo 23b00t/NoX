@@ -9,7 +9,7 @@ _nox_vms() {
 _nox() {
   local cur=${COMP_WORDS[COMP_CWORD]} cmd=${COMP_WORDS[1]-} words="" i n=0
   if [ "$COMP_CWORD" -eq 1 ]; then
-    words="list ls start stop restart disp backup pull run exec ssh clip copy printers update usb input lab doctor rollback gc xen nix root help --help --version"
+    words="list ls start stop restart disp backup pull run exec ssh clip copy printers update rebuild usb input lab doctor rollback gc xen nix root help --help --version"
     mapfile -t COMPREPLY < <(compgen -W "$words" -- "$cur")
     return
   fi
@@ -68,6 +68,7 @@ _nox() {
       ;;
     pull) [ "$n" -eq 0 ] && words="$(_nox_vms)" ;;
     update) words="--all --switch --machine --branch" ;;
+    rebuild) words="--all --switch --iso --machine --branch" ;;
     rollback)
       if [ "$n" -eq 0 ]; then words="$(_nox_vms)"
       elif [ "${COMP_WORDS[COMP_CWORD - 1]}" = --gen ]; then words="mark"

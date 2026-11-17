@@ -287,8 +287,12 @@ enum Cmd {
         builders: Builders,
     },
     /// Rebuild dom0 from the builder VM as the branch is (no new inputs);
-    /// --iso: the installer ISO instead, from the builder straight to a VM
+    /// --all: then the Whonix domains too; --iso: the installer ISO instead,
+    /// from the builder straight to a VM
     Rebuild {
+        /// Also update the image domains (Whonix, apt over Tor), no new inputs
+        #[arg(long, conflicts_with = "iso")]
+        all: bool,
         /// Activate right away instead of on the next boot
         #[arg(long)]
         switch: bool,
@@ -381,7 +385,12 @@ enum Cmd {
     /// Filter untrusted terminal output (stdin -> stdout): only text and the
     /// sequences that draw pass (dom0-update, builder output)
     #[command(hide = true)]
-    TermFilter,
+    TermFilter {
+        /// Also drop the lines the builders print for their step timing
+        /// (`builder-build: timing …`, `builder-images: timing …`)
+        #[arg(long)]
+        drop_timing: bool,
+    },
 }
 
 /// `nox backup --help`: what a target is and the generations
@@ -664,6 +673,16 @@ enum Input {
     },
 }
 
+/// The script of `nox update` / `nox rebuild`: with --all the full update
+/// (update-all takes dom0-update's arguments and passes them on)
+fn build_program(all: bool) -> &'static str {
+    if all {
+        "update-all"
+    } else {
+        "dom0-update"
+    }
+}
+
 /// dom0-update's arguments for `nox update` / `nox rebuild`
 fn build_args(
     switch: bool,
@@ -937,9 +956,10 @@ fn main() -> ExitCode {
             let mut a: Vec<OsString> = vec!["--bump".into()];
             a.extend(build_args(switch, None, machine, branch));
             a.extend(builders.args());
-            exec(if all { "update-all" } else { "dom0-update" }, a)
+            exec(build_program(all), a)
         }
         Cmd::Rebuild {
+            all,
             switch,
             iso,
             machine,
@@ -951,7 +971,7 @@ fn main() -> ExitCode {
             }
             let mut a = build_args(switch, iso, machine, branch);
             a.extend(builders.args());
-            exec("dom0-update", a)
+            exec(build_program(all), a)
         }
         Cmd::Mic { action } => mic(action),
         Cmd::Usb { action } => match action {
@@ -1016,7 +1036,7 @@ fn main() -> ExitCode {
         Cmd::Xen(p) => pick("xen", p),
         Cmd::Nix(p) => pick("nix", p),
         Cmd::Root(p) => pick("root", p),
-        Cmd::TermFilter => term_filter::main(),
+        Cmd::TermFilter { drop_timing } => term_filter::main(drop_timing),
     }
 }
 
@@ -1143,6 +1163,16 @@ mod tests {
     }
 
     #[test]
+    fn term_filter_drop_timing() {
+        let parse = |a: &[&str]| match Cli::try_parse_from(a).unwrap().command {
+            Some(Cmd::TermFilter { drop_timing }) => drop_timing,
+            _ => panic!("not term-filter"),
+        };
+        assert!(!parse(&["nox", "term-filter"]));
+        assert!(parse(&["nox", "term-filter", "--drop-timing"]));
+    }
+
+    #[test]
     fn rebuild_iso() {
         let cli =
             Cli::try_parse_from(["nox", "rebuild", "--iso", "disp", "--branch", "b"]).unwrap();
@@ -1162,6 +1192,31 @@ mod tests {
         );
         assert!(Cli::try_parse_from(["nox", "rebuild", "--iso", "disp", "--switch"]).is_err());
         assert!(Cli::try_parse_from(["nox", "update", "--iso", "disp"]).is_err());
+    }
+
+    #[test]
+    fn rebuild_all() {
+        let cli =
+            Cli::try_parse_from(["nox", "rebuild", "--all", "--switch", "--branch", "b"]).unwrap();
+        let Some(Cmd::Rebuild {
+            all,
+            switch,
+            iso,
+            machine,
+            branch,
+            ..
+        }) = cli.command
+        else {
+            panic!("not rebuild")
+        };
+        // update-all without --bump: dom0 as the branch is, then the images
+        assert_eq!(build_program(all), "update-all");
+        assert_eq!(
+            build_args(switch, iso, machine, branch),
+            ["--switch", "--branch", "b"]
+        );
+        assert_eq!(build_program(false), "dom0-update");
+        assert!(Cli::try_parse_from(["nox", "rebuild", "--all", "--iso", "disp"]).is_err());
     }
 
     #[test]

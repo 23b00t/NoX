@@ -140,6 +140,16 @@ let
       globalExtraSSH = [ ];
       # Store group -> the builder VM that builds its image (nox.storeGroups.<g>.builder)
       storeGroupBuilders = lib.mapAttrs (_: g: g.builder) (noxFor extra host).storeGroups;
+      # Rule inputs (rules.nix) that need more than this machine's domains:
+      # every defined domain name (also the disabled ones and those the
+      # minimal installation leaves out) and the infrastructure VMs
+      # (nox.infra, group builders)
+      definedNames = map (d: d.name) (domains.vms ++ domains.images);
+      infraNames =
+        let
+          nox = noxFor extra host;
+        in
+        lib.attrNames nox.infra ++ map (n: "builder-${n}") (lib.attrNames nox.builders);
       hardware = mkHardware host;
       hostProfile = machines.${host}.profile or { };
       # nox.theme: the same on every machine (VMs share store images), so

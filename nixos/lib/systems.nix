@@ -20,8 +20,9 @@
 # `packages` holds the VMs' runners (packages.<system>.<vm>) and NoX's
 # installer-iso, so the builder builds it from the config (dom0-update --iso).
 # `checks` are eval-only, per machine: `noxInstall-<host>` (the minimal
-# installation evaluates to a system) and `registry-<host>` (the rules of
-# registry/rules.nix, without evaluating the system).
+# installation evaluates to a system; `noxInstallWhonix-<host>`: the same with
+# the Whonix gateway kept, only where the registry has it) and `registry-<host>`
+# (the rules of registry/rules.nix, without evaluating the system).
 { self }:
 {
   inputs,
@@ -133,6 +134,19 @@ let
       "noxInstall-${host}" = evalCheck "noxInstall-${host}" (
         builtins.unsafeDiscardStringContext (machine.noxInstall { }).config.system.build.toplevel.drvPath
       );
+    }
+    # a machine with the Whonix gateway in its registry (xmg): also the minimal
+    # installation that keeps it (what nox-install offers)
+    //
+      lib.optionalAttrs
+        (builtins.elem "whonix-gateway" (map (d: d.name) (registry.forHost host).imageDomains))
+        {
+          "noxInstallWhonix-${host}" = evalCheck "noxInstallWhonix-${host}" (
+            builtins.unsafeDiscardStringContext
+              (machine.noxInstall { keep = [ "whonix-gateway" ]; }).config.system.build.toplevel.drvPath
+          );
+        }
+    // {
       "registry-${host}" =
         if failed == [ ] then
           evalCheck "registry-${host}" "ok"

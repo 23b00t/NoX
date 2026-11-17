@@ -22,7 +22,7 @@ in
 {
   programs.nox.registry.domains = map (vm: {
     inherit (vm) name;
-    short = if vm.short != null && vm.short != vm.name then vm.short else null;
+    short = if (vm.short or null) != null && vm.short != vm.name then vm.short else null;
     unit = if isImage vm then "xen-image@${vm.name}" else "microvm@${vm.name}";
     user = vm.user or "user";
     image = isImage vm;

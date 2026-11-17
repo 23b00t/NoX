@@ -43,9 +43,7 @@ let
   # runs. kali's lab vif: 00:00:00:00:03:<last octet of its IP as hex>
   kali = lib.findFirst (d: d.name == "kali") null vmRegistry.imageDomains;
   lab = kali != null;
-  kaliLabMac = "00:00:00:00:03:${
-    lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString (lib.toInt (octet kali))))
-  }";
+  kaliLabMac = (import ../../registry/macs.nix { inherit lib; }).lab (lib.toInt (octet kali));
   clientBridges = [
     "vm-fw"
     "vm-whx-ext"
@@ -66,7 +64,6 @@ in
     net-config = {
       enable = true;
       index = 33;
-      mac = "00:00:00:00:00:21";
     };
 
     common-config = {

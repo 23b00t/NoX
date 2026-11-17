@@ -10,6 +10,13 @@
 //! and the other C0 controls. A state machine across read boundaries,
 //! unbuffered: each read is written out right away (nom redraws without a
 //! newline).
+//!
+//! With --drop-timing it also drops the lines the builders print for their
+//! step timing (`builder-build: timing …`, `builder-images: timing …`;
+//! dom0-update, without nox.dev.buildTiming).
+//! Only a line that starts with such a prefix is held back, and only while
+//! the bytes so far are still the beginning of one; everything else passes
+//! at once.
 
 use std::io::{self, Read, Write};
 use std::process::ExitCode;
@@ -171,10 +178,68 @@ impl Filter {
     }
 }
 
-pub fn main() -> ExitCode {
+/// Prefixes of the lines `LineDrop` removes (up to the next \n)
+const DROP: [&[u8]; 2] = [b"builder-build: timing ", b"builder-images: timing "];
+
+/// Drops whole lines that start with one of `DROP`. A line starts after \n
+/// or \r (nom redraws). The bytes of a line are held back only while they
+/// are still the beginning of a `DROP` prefix.
+pub struct LineDrop {
+    held: Vec<u8>,
+    bol: bool,
+    dropping: bool,
+}
+
+impl LineDrop {
+    pub fn new() -> Self {
+        LineDrop {
+            held: Vec::new(),
+            bol: true,
+            dropping: false,
+        }
+    }
+
+    pub fn feed(&mut self, input: &[u8], out: &mut Vec<u8>) {
+        for &b in input {
+            if self.dropping {
+                if b == b'\n' {
+                    self.dropping = false;
+                    self.bol = true;
+                }
+                continue;
+            }
+            if self.bol {
+                self.held.push(b);
+                if DROP.contains(&self.held.as_slice()) {
+                    self.held.clear();
+                    self.dropping = true;
+                    self.bol = false;
+                } else if DROP.iter().any(|p| p.starts_with(&self.held)) {
+                    // could still become a timing line: wait for more
+                } else {
+                    out.extend_from_slice(&self.held);
+                    self.held.clear();
+                    self.bol = b == b'\n' || b == b'\r';
+                }
+            } else {
+                out.push(b);
+                self.bol = b == b'\n' || b == b'\r';
+            }
+        }
+    }
+
+    /// End of input: a held beginning was text
+    pub fn finish(&mut self, out: &mut Vec<u8>) {
+        out.append(&mut self.held);
+    }
+}
+
+pub fn main(drop_timing: bool) -> ExitCode {
     let mut stdin = io::stdin().lock();
     let mut stdout = io::stdout().lock();
     let mut f = Filter::default();
+    let mut drop = drop_timing.then(LineDrop::new);
+    let mut mid = Vec::with_capacity(4096 + CSI_MAX);
     let mut buf = [0u8; 4096];
     let mut out = Vec::with_capacity(buf.len() + CSI_MAX);
     loop {
@@ -185,13 +250,28 @@ pub fn main() -> ExitCode {
             Err(_) => break,
         };
         out.clear();
-        f.feed(&buf[..n], &mut out);
+        match drop.as_mut() {
+            Some(d) => {
+                mid.clear();
+                f.feed(&buf[..n], &mut mid);
+                d.feed(&mid, &mut out);
+            }
+            None => f.feed(&buf[..n], &mut out),
+        }
         if put(&mut stdout, &out).is_err() {
             return ExitCode::FAILURE;
         }
     }
     out.clear();
-    f.finish(&mut out);
+    match drop.as_mut() {
+        Some(d) => {
+            mid.clear();
+            f.finish(&mut mid);
+            d.feed(&mid, &mut out);
+            d.finish(&mut out);
+        }
+        None => f.finish(&mut out),
+    }
     if put(&mut stdout, &out).is_err() {
         return ExitCode::FAILURE;
     }
@@ -315,6 +395,46 @@ mod tests {
         fits.extend(std::iter::repeat_n(b'1', CSI_MAX - 3));
         fits.push(b'm');
         assert_eq!(run(&fits), fits);
+    }
+
+    fn drop_run(chunks: &[&[u8]]) -> Vec<u8> {
+        let mut d = LineDrop::new();
+        let mut out = Vec::new();
+        for c in chunks {
+            d.feed(c, &mut out);
+        }
+        d.finish(&mut out);
+        out
+    }
+
+    #[test]
+    fn timing_lines_are_dropped_the_rest_passes() {
+        let input: &[u8] = b"a\nbuilder-build: timing eval 3 s\nb\r\nbuilder-images: timing x 1 s\n\
+            builder-build: timing mkfs i 0:01 5 MB\nc builder-build: timing y\nbuilder-x\nbuilder-build: timing";
+        let want: &[u8] = b"a\nb\r\nc builder-build: timing y\nbuilder-x\nbuilder-build: timing";
+        assert_eq!(drop_run(&[input]), want);
+        // byte by byte: the same
+        let bytes: Vec<&[u8]> = input.chunks(1).collect();
+        assert_eq!(drop_run(&bytes), want);
+    }
+
+    #[test]
+    fn redraw_without_newline_is_not_held() {
+        let mut d = LineDrop::new();
+        let mut out = Vec::new();
+        d.feed(b"\x1b[1A\x1b[2K building x", &mut out);
+        assert_eq!(out, b"\x1b[1A\x1b[2K building x");
+        // after \r a timing line is one, too
+        out.clear();
+        d.feed(b"\rbuilder-build: timing e 1 s\nz", &mut out);
+        assert_eq!(out, b"\rz");
+        // a short held beginning is text at the end
+        let mut d = LineDrop::new();
+        out.clear();
+        d.feed(b"builder-b", &mut out);
+        assert_eq!(out, b"");
+        d.finish(&mut out);
+        assert_eq!(out, b"builder-b");
     }
 
     #[test]

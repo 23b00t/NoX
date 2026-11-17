@@ -36,9 +36,10 @@ let
       let
         groupBuilder = name != "builder" && regByName.${name}.storeGroup or null == "builders";
         disposable = regByName.${name}.disposable or false;
-        volumes = builtins.filter (v: !(disposable && builtins.elem (baseNameOf v.image) wiped)) (
-          vm.config.config.microvm.volumes or [ ]
-        );
+        # A volume mounted at /tmp is scratch (emptied on boot): no backup
+        volumes = builtins.filter (
+          v: (v.mountPoint or null) != "/tmp" && !(disposable && builtins.elem (baseNameOf v.image) wiped)
+        ) (vm.config.config.microvm.volumes or [ ]);
         # A volume in another VM's folder is that VM's (godot-gpu runs on
         # godot's home.img): backed up there, not twice
         disks =

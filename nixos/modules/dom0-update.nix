@@ -59,6 +59,12 @@ let
   # (clipboard), titles and queries (the terminal's answer would go back to
   # the builder) are dropped (nox-cli src/term_filter.rs)
   termFilter = "${config.programs.nox.package}/bin/nox term-filter";
+  buildTiming = config.nox.dev.buildTiming.enable;
+  # The filter for the builders' own output: without nox.dev.buildTiming it
+  # also drops their timing lines (`builder-build: timing`, `builder-images:
+  # timing`; they stay in the builders' journals), without delaying nom's
+  # redraws
+  builderFilter = termFilter + lib.optionalString (!buildTiming) " --drop-timing";
 
   dom0Update = pkgs.writeShellScriptBin "dom0-update" ''
     set -euo pipefail
@@ -76,10 +82,14 @@ let
     from the builder straight to <vm> (~/Incoming/builder/nox-installer.iso
     there; started if it is off), nothing goes through dom0's store.
     Group builders (nox.builders, the images of their store groups):
-    --parallel <n>: how many run at the same time (their output then goes
-    to ~/.local/state/nox/update-<builder>.log, the terminal gets the
-    timing and error lines); --builder <name>: only this one (repeatable;
-    the update stops before activating if images are still missing).
+    --parallel <n>: how many run at the same time (the terminal then gets
+    only the error and warning lines${lib.optionalString buildTiming " and the timing"}); --builder <name>: only this one
+    (repeatable; the update stops before activating if images are still
+    missing).
+    Every run logs the builders' full output to
+    ~/.local/state/nox/update-<builder>.log (the builder: update-builder.log,
+    an --iso run: update-iso.log);
+    the last 3 runs are kept (.log, .log.1, .log.2).
     --max-jobs <n>, --cores <n>: Nix max-jobs/cores of every builder for
     this run.
     Defaults: --machine ${cfg.machine} --branch ${cfg.branch} --parallel ${toString cfg.parallel}${
@@ -150,6 +160,20 @@ let
       keepalive=$!
     fi
 
+    # The builders' full output of every run (terminal: filtered). One log
+    # per builder, the last 3 runs stay: .log, .log.1, .log.2
+    logs="''${XDG_STATE_HOME:-$HOME/.local/state}/nox"
+    logs_used=0
+    rotate_log() {
+      local f="$logs/update-$1.log"
+      mkdir -p "$logs"
+      rm -f "$f.2"
+      [ ! -e "$f.1" ] || mv "$f.1" "$f.2"
+      [ ! -e "$f" ] || mv "$f" "$f.1"
+      : > "$f"
+      logs_used=1
+    }
+
     # Builder VMs this run started: stopped again when it fails (on success
     # each one is stopped after its step; builder-trust.md 13.6)
     started=()
@@ -162,6 +186,7 @@ let
           sudo systemctl stop "microvm@$vm" || true
         done
       fi
+      [ "$rc" = 0 ] || [ "$logs_used" = 0 ] || echo "dom0-update: logs in $logs/update-*.log" >&2
       # The pending mark of the new system (nox-image gc), when the run
       # ends before it became a generation
       [ -z "''${pending:-}" ] || sudo "$mark" pending -d "$pending" || true
@@ -188,12 +213,17 @@ let
       printf 'dom0-update: unexpected builder output: %q\n' "$1" >&2
       exit 1
     }
-    # stdout of a builder command: its last line; its stderr goes to the
-    # terminal through the filter
+    # stdout of a builder command: its last line; its stderr goes raw into
+    # the builder's log (an --iso run: its own, update-iso.log, so it does
+    # not push the updates' logs out of the rotation) and filtered to the terminal
     from_builder() {
       { ssh ${builderIp} "$@" 2>&1 >&3 3>&- |
-        ${termFilter} >&2 3>&-; } 3>&1 | tail -n 1
+        tee -a "$logs/update-$builder_log.log" 3>&- |
+        ${builderFilter} >&2 3>&-; } 3>&1 | tail -n 1
     }
+    builder_log=builder
+    [ "$action" != iso ] || builder_log=iso
+    rotate_log "$builder_log"
 
     # The builder doesn't autostart: start it and wait for SSH (over vchan).
     # Started here = stopped again afterwards.
@@ -262,6 +292,15 @@ let
           "from_builder builder-build"
       } "''${nixjobs[@]}" --iso "$branch")"
       [[ "$out" =~ ^/nix/store/[0-9a-z]{32}-nox-installer\.iso$ ]] || unexpected "$out"
+      # SHA-256 and size of the ISO file, from the builder (the stream below
+      # is a tar: its hash would mean nothing to the user). One line, checked
+      # strictly, and before the copy (the builder deletes the path only after it)
+      iso_info="$(from_builder "set -- $out/iso/*.iso;" \
+        '[ $# = 1 ] && [ -f "$1" ] && echo "$(sha256sum <"$1" | cut -c1-64) $(stat -c %s "$1")"')" ||
+        { echo "dom0-update: could not hash the ISO ($out/iso/ is not exactly one .iso file)" >&2; exit 1; }
+      [[ "$iso_info" =~ ^[0-9a-f]{64}\ [0-9]+$ ]] || unexpected "$iso_info"
+      iso_sha="''${iso_info% *}"
+      iso_size="''${iso_info#* }"
       # The VM may still be booting: wait until its rpc side answers (a
       # side-effect-free `send list` of a missing path answers "error: …
       # not found"; while booting the relay drops the call without one)
@@ -280,17 +319,19 @@ let
       ssh ${builderIp} nix store delete "$out" >/dev/null 2>&1 ||
         echo "dom0-update: could not delete $out in the builder, its GC takes it" >&2
       echo "dom0-update: ISO in $iso_vm: ~/Incoming/builder/nox-installer.iso" >&2
+      echo "dom0-update: ISO nox-installer.iso: sha256 $iso_sha, $iso_size bytes (built by the builder, handed to $iso_vm; in the VM: sha256sum ~/Incoming/builder/nox-installer.iso; after dd check the stick: head -c $iso_size /dev/sdX | sha256sum)" >&2
     else
       # Runs as the calling user (ssh config/key for ${builderIp}); the nix-daemon
       # verifies the builder signature when the paths are added
       # Duration of each step on stderr and in the journal
       # (journalctl -t dom0-update; nox.dev.buildTiming); the builder's own
-      # steps are in its journal (journalctl -t builder-build)
+      # steps are in its journal (journalctl -t builder-build) and, with
+      # nox.dev.buildTiming, on the terminal; the logs always have them
       t0=$SECONDS
       t_start=$SECONDS
       timing() {
         local now=$SECONDS
-        if ${lib.boolToString config.nox.dev.buildTiming.enable}; then
+        if ${lib.boolToString buildTiming}; then
           echo "dom0-update: timing $1 $((now - t0)) s" >&2
           ${pkgs.util-linux}/bin/logger -t dom0-update "timing $machine $1 $((now - t0)) s" || true
         fi
@@ -451,7 +492,8 @@ let
           2> >(${termFilter} >&2) ||
           echo "dom0-update: could not hand the builder's own builds to $b, it builds them itself" >&2
         { ssh "$b-vm" builder-images "''${nixjobs[@]}" "$machine" "''${pairs[@]}" 2>&1 >&3 3>&- |
-          ${termFilter} >&2 3>&-; } 3>&1 | tail -n 1 >/dev/null
+          tee -a "$logs/update-$b.log" 3>&- |
+          ${builderFilter} >&2 3>&-; } 3>&1 | tail -n 1 >/dev/null
         "$ni" fetch "$out" "$b" "$machine"
         timing "images of $b"
         if [ "$started_b" = 1 ]; then
@@ -461,6 +503,7 @@ let
 
       if [ "$parallel" -le 1 ] || [ "''${#others[@]}" -le 1 ]; then
         for b in "''${others[@]}"; do
+          rotate_log "$b"
           run_builder "$b"
         done
       else
@@ -473,9 +516,7 @@ let
         if [[ $free =~ ^[0-9]+$ ]] && [ "$need" -gt "$free" ]; then
           echo "dom0-update: warning: $parallel builders may grow to $need MB, Xen has $free MB free (ballooning may cover it; --parallel 1 if builds fail)" >&2
         fi
-        logs="''${XDG_STATE_HOME:-$HOME/.local/state}/nox"
         status="$(mktemp -d)"
-        mkdir -p "$logs"
         echo "dom0-update: ''${#others[@]} group builders, $parallel at a time; logs in $logs/update-<builder>.log" >&2
         # Own list of the builder jobs: `jobs` and a bare `wait` would count
         # and wait for the sudo keepalive too (builder-trust.md 13.1)
@@ -489,9 +530,11 @@ let
             [ "$running" -ge "$parallel" ] || break
             wait -n "''${pids[@]}" || true
           done
-          : > "$logs/update-$b.log"
-          # The full (filtered) output to the log; to the terminal only
-          # the lines that say something, without escape sequences
+          rotate_log "$b"
+          # The full output to the log; to the terminal only the lines that
+          # say something, without escape sequences and without the log
+          # lines of single derivations (`name> …`; nix's own messages and
+          # the log tail it prints for a failed build stay)
           (
             set +e
             (set -e; run_builder "$b")
@@ -506,8 +549,8 @@ let
             fi
           ) </dev/null 2> >(tee -a "$logs/update-$b.log" |
             ${pkgs.gnused}/bin/sed -u -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' |
-            grep -a --line-buffered -E '^(dom0-update|nox-image|builder-images: timing)|(^|[[:space:]])(error|warning):' |
-            grep -av --line-buffered -e '┃' -e '┗' |
+            grep -a --line-buffered -E '^(dom0-update|nox-image${lib.optionalString buildTiming "|builder-images: timing"})|(^|[[:space:]])(error|warning):' |
+            grep -av --line-buffered -E -e '┃' -e '┗' -e '^[^[:space:]]+> ' |
             ${pkgs.gnused}/bin/sed -u -e "s/^/[$b] /" >&2) &
           pids+=("$!")
         done
@@ -523,7 +566,7 @@ let
         done
         rm -rf "$status"
         if [ "''${#failed[@]}" -gt 0 ]; then
-          echo "dom0-update: failed: ''${failed[*]} (logs in $logs), not activated" >&2
+          echo "dom0-update: failed: ''${failed[*]}, not activated" >&2
           exit 1
         fi
       fi

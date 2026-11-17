@@ -28,7 +28,6 @@ let
   appPackage = a: lib.getAttrFromPath (lib.splitString "." a.package) pkgs;
   unfree = config.nox.unfree;
   unfreeAllowed = vm.storeGroup == null || groupUnfree;
-  hex = lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString vm.index));
 in
 {
   imports = [
@@ -55,7 +54,6 @@ in
       net-config = {
         enable = true;
         inherit (vm) index;
-        mac = "00:00:00:00:00:${hex}";
       };
       # Off only for VMs that bring their own base (steam: gamescope session)
       common-config.enable = lib.mkDefault true;

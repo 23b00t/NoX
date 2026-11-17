@@ -403,10 +403,11 @@ in
 
   virtualisation.xen = {
     enable = true;
-    # Test phase: guest consoles are logged to /var/log/xen/console/
-    trace = true;
+    # nox.dev.xenTrace: guest consoles are logged to /var/log/xen/console/
+    # (only then) and the boot entries are reported on rebuild
+    trace = config.nox.dev.xenTrace.enable;
     boot = {
-      builderVerbosity = "info"; # report which Xen boot entries were created
+      builderVerbosity = lib.mkIf config.nox.dev.xenTrace.enable "info";
       # PVH is the default; registry hostProfile.dom0Pv = true boots a PV dom0.
       # ucode=scan: Xen loads the CPU microcode from the initrd (boot.initrd.prepend);
       # a PV dom0 cannot (verify_patch "WTF family: 0x0"), so without it the
@@ -416,6 +417,11 @@ in
         "ucode=scan"
       ];
     };
+    # oxenstored from the Xen tree instead of nixpkgs' ocamlPackages.oxenstored
+    # 25.3.0: that one hangs on XS_GET_QUOTA with length 0 (`xl list -l`, guest
+    # reboot with on_reboot=restart) and lacks XSA-483. Back to the nixpkgs
+    # default once it carries 26.1.0 or newer.
+    store.package = config.virtualisation.xen.package;
     dom0Resources = {
       # 4096 is too small to evaluate this flake on dom0 (swap thrashing)
       memory = 8192;

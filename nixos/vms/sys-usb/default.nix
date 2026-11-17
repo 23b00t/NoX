@@ -148,7 +148,6 @@ in
     net-config = {
       enable = true;
       index = 23;
-      mac = "00:00:00:00:00:fc";
       interfaceName = "vm-lan";
     };
 
@@ -303,7 +302,6 @@ in
     dbus
     dosfstools
     exfatprogs
-    exfat
     ntfs3g
     parted
     udisks2

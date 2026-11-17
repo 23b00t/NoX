@@ -15,7 +15,7 @@ let
   vmName = lib.removeSuffix "-vm" (config.networking.hostName or "");
   currentVm = vmRegistry.byName.${vmName} or { };
   octet = lib.toInt (lib.last (lib.splitString "." (currentVm.ip or "0.0.0.0")));
-  mac = "00:00:00:00:03:${lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString octet))}";
+  mac = (import ../../registry/macs.nix { inherit lib; }).lab octet;
 in
 {
   options.services.lab-target = {

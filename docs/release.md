@@ -45,11 +45,12 @@ stick.
    install -m 644 "$(nix build .#options-doc --no-link --print-out-paths)" docs/options.md
    ```
 
-4. Eval checks, per machine (`registry-<host>`, `noxInstall-<host>`, see
+4. Eval checks, per machine (`registry-<host>`, `noxInstall-<host>`,
+   `noxInstallWhonix-<host>` where the registry has the Whonix gateway, see
    `nixos/lib/systems.nix`; `nix flake show` lists the names):
 
    ```sh
-   nix build --no-link ".#checks.x86_64-linux.registry-<host>" ".#checks.x86_64-linux.noxInstall-<host>"
+   nix build --no-link ".#checks.x86_64-linux.registry-<host>" ".#checks.x86_64-linux.noxInstall-<host>" ".#checks.x86_64-linux.noxInstallWhonix-<host>"
    ```
 
    Commit the result (signed, as usual) and push; the release is this commit.

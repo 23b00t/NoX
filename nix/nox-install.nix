@@ -28,7 +28,6 @@
   writeShellApplication,
   coreutils,
   curl,
-  disko,
   e2fsprogs,
   findutils,
   gawk,
@@ -70,7 +69,6 @@ writeShellApplication {
   runtimeInputs = [
     coreutils
     curl
-    disko
     e2fsprogs
     findutils
     gawk
@@ -847,8 +845,16 @@ writeShellApplication {
     fi
     keep=""
     [ "$whonix" = 0 ] || keep='"whonix-gateway"'
+    # Pure evaluation (no --impure) on the commit of step 5, the one the signature
+    # check covered: a locked flake reference. The dry-run commits nothing, there
+    # the working tree stands in (a path reference is pure too)
+    if [ "$dry_run" = 1 ]; then
+      ref="$dir"
+    else
+      ref="git+file://$dir?rev=$(git -C "$dir" rev-parse HEAD)"
+    fi
     # The minimal installation (nox.install); `nox update` builds the rest
-    minimal="(builtins.getFlake \"git+file://$dir\").nixosConfigurations.\"$host\".noxInstall { keep = [ $keep ]; }"
+    minimal="(builtins.getFlake \"$ref\").nixosConfigurations.\"$host\".noxInstall { keep = [ $keep ]; }"
 
     step "6/9 Disk (erases it)"
     if [ ! -e "$device" ]; then
@@ -862,20 +868,30 @@ writeShellApplication {
       echo "That is not $name (Ctrl-C aborts)."
     done
     echo "disko: GPT, ESP 1 GB, LUKS2 + ext4 (asks the LUKS passphrase)"
-    run disko --mode destroy,format,mount --yes-wipe-all-disks --flake "$dir#$host"
+    # The script the disko CLI runs for this mode (same attribute), built from the
+    # pure reference instead of the CLI's `nix-build --impure`
+    if [ "$dry_run" = 1 ]; then
+      script="<disko script of $host>"
+    else
+      until script="$(nix build --no-link --print-out-paths \
+        "$ref#nixosConfigurations.\"$host\".config.system.build.destroyFormatMount")"; do
+        yes_no "Building the disk script failed. Try again?" || exit 1
+      done
+    fi
+    run "$script/bin/disko-destroy-format-mount" --yes-wipe-all-disks
 
     domains="dom0, sys-net, sys-usb, sys-firewall, the builders"
     [ "$whonix" = 0 ] || domains="$domains, the Whonix-Gateway"
     step "7/9 Install the minimal system ($domains; takes a while)"
     if [ "$dry_run" = 1 ]; then
-      echo "dry-run: nix build --store /mnt --impure --expr '($minimal).config.system.build.toplevel'"
+      echo "dry-run: nix build --store /mnt --expr '($minimal).config.system.build.toplevel'"
       echo "dry-run: nixos-install --system <that> --no-root-passwd --no-channel-copy"
       system=/nix/store/dry-run
     else
       # Built into the new disk's store, as nixos-install --flake does (the
       # live system's store is RAM)
       until system="$(nix build --no-link --print-out-paths --store /mnt \
-        --extra-substituters 'auto?trusted=1' --impure \
+        --extra-substituters 'auto?trusted=1' \
         --expr "($minimal).config.system.build.toplevel")"; do
         yes_no "Build failed. Try again?" || exit 1
       done
@@ -888,7 +904,7 @@ writeShellApplication {
     if [ -n "$builders" ]; then
       blist=""
       for b in $builders; do blist="$blist \"$b\""; done
-      sizes="$(nix eval --raw --impure --expr "let c = ($minimal).config; size = b: (builtins.head (builtins.filter (v: v.image == \"builder.img\") (builtins.getAttr b c.microvm.vms).config.config.microvm.volumes)).size; in builtins.concatStringsSep \" \" (map (b: b + \"=\" + toString (size b)) [ $blist ])")"
+      sizes="$(nix eval --raw "$ref#nixosConfigurations.\"$host\".noxInstall" --apply "f: let c = (f { keep = [ $keep ]; }).config; size = b: (builtins.head (builtins.filter (v: v.image == \"builder.img\") (builtins.getAttr b c.microvm.vms).config.config.microvm.volumes)).size; in builtins.concatStringsSep \" \" (map (b: b + \"=\" + toString (size b)) [ $blist ])")"
       for bs in $sizes; do
         b="''${bs%%=*}"
         mb="''${bs#*=}"

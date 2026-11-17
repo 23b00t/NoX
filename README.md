@@ -59,6 +59,10 @@ nox = {
   # `nox update` (new inputs) needs the SSH URL and the bump key: its
   # /var/lib/builder/bump-key.pub as a deploy key with write access and as
   # `builder-<machine> namespaces="git" <key>` in vms/builder/bump-signers;
+  # vms/builder/input-signers (`<input> namespaces="git" <key>`, a line per
+  # own flake input such as nox or your forks): a bump locks a new revision
+  # of a listed input only if a key listed for that input signed it (else
+  # no bump; without the file nothing is checked, with a warning);
   # it also needs `builderKeys = ./vms/builder;` in mkSystems (flake.nix),
   # that directory with at least `allowed-signers` (the keys whose signed
   # commits it builds). nox-install makes the builders' keys and writes
@@ -201,7 +205,12 @@ Build it one of two ways:
   deletes the ISO once the VM has it (if the copy fails it stays in the
   builder's store until its GC, so another `--iso` doesn't build it again);
   the build inputs are left to the builder's GC. The builder's copy rule is
-  `outgoing = "ask"`; dom0's own call needs no question.
+  `outgoing = "ask"`; dom0's own call needs no question. Use a fresh
+  `disp` as the target. dom0 prints the ISO's SHA-256 and size (the builder
+  computes them from the file before the copy); after `dd` compare the
+  stick with `head -c <size> /dev/sdX | sha256sum` (and the file in the VM
+  with `sha256sum`). That protects against a change in the target VM after
+  the handover, not against a compromised builder or dom0.
 - **On a plain NixOS (or any Nix) machine:**
   `nix build github:23b00t/NoX#installer-iso`, the ISO is in
   `result/iso/`.
@@ -341,9 +350,10 @@ wprs). Every commit (also with lazygit) writes `~/outbox/config.bundle`.
 With `nox.builder.source = "local"` `nox update` takes it from there (nox
 pull's rpc, the config VM is started if it is off) and hands it to the
 builder on stdin (`builder-build --bundle`); the builder checks the
-signature as for a fetched repo. A flake.lock bump comes back the same way:
-dom0 copies the builder's `bump.bundle` into the config VM, where
-`nox-config` fast-forwards the branch.
+signature as for a fetched repo. A flake.lock bump (after the same
+`input-signers` check) comes back the same way: dom0 copies the builder's
+`bump.bundle` into the config VM, where `nox-config` fast-forwards the
+branch.
 
 `nox-install --dry-run` runs steps 1-5 (without commit and push) and
 prints the commands of 6-9; `--config URL`, `--branch B` and `--host H`
@@ -429,16 +439,16 @@ output and exit code through. The built-in tools read their data from
 | `nox start\|stop\|restart [vm…] [--running] [--stale] [--group g]` | built in (src/manage.rs); a (re)started VM gets its tray apps and session windows again |
 | `nox start\|restart --fresh <vm…>` | disposable VMs (registry `disposable`) with their volume images set aside (`*.pre-fresh`) |
 | `nox disp [--from <vm>] [cmd…]` | `vm-disp`: start the ad-hoc disposable `disp` (with `--from`: the VM's own disposable `disp-<vm>`, registry `hasDisposable`), open `cmd` (default foot) in it; a disposable that is down starts only if Xen has its boot memory free |
-| `nox backup [--level n] <target…>\|--all`, `restore [--from gen] <target…>\|--all`, `disks`, `list`, `prune --keep n [-n] [target…]` (whole disks; `--all` = registry `backup` + dom0) | in nox (crates/nox-cli/src/backup.rs; external LUKS disk on `disp-backup`, `nox backup help`) |
+| `nox backup [--level n] <target…>\|--all`, `restore [--from gen] <target…>\|--all`, `disks`, `list`, `prune --keep n [-n] [target…]` (whole disks, volumes mounted at `/tmp` excluded; `--all` = registry `backup` + dom0) | in nox (crates/nox-cli/src/backup.rs; external LUKS disk on `disp-backup`, `nox backup help`) |
 | `nox run <vm> <program> [args]` | built in (src/run.rs): GUI over wprs; a stopped VM is started first |
 | `nox exec <vm> <cmd> [args]` | built in (src/run.rs): a terminal window in the VM runs the command and stays open; the builder: SSH in this terminal |
 | `nox ssh builder [ssh args]` | `ssh builder …` (only the builder has sshd; the other VMs: `nox exec`) |
 | `nox clip copy\|paste` | `vm-clip copy\|paste` |
 | `nox copy [-m] [-n] [--max b] [<from-vm>] <to-vm> <paths…>` | `nox-copy …` (lands in `~/Incoming/<source>` in the target, merging into folders already there; never overwrites) |
 | `nox printers [--menu]` | `nox-printers`: IPP printers in the local network (sys-print scans what sys-net names); `--menu`: rofi, the chosen address to the clipboard |
-| `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update --bump …` (`--all`: `update-all --bump …`): the builder updates the flake inputs, commits flake.lock signed with its bump key and pushes it, then builds (nothing new: builds anyway) |
-| `nox rebuild [--switch] [--machine m] [--branch b]` | `dom0-update …`: build the branch as it is |
-| `nox rebuild --iso <vm> [--branch b]` | `dom0-update --iso <vm> …` (installer ISO from the builder straight to the VM, see "Installer") |
+| `nox update [--all] [--switch] [--machine m] [--branch b]` | `dom0-update --bump …` (`--all`: `update-all --bump …`): the builder updates the flake inputs, commits flake.lock signed with its bump key and pushes it, then builds (nothing new: builds anyway). Every run logs the builders' full output to `~/.local/state/nox/update-<builder>.log` (the sys builder: `update-builder.log`; the last 3 runs stay as `.log`, `.log.1`, `.log.2`); the terminal shows it filtered (with `--parallel` only error and warning lines, without the log lines of single derivations), and the builders' timing lines only with `nox.dev.buildTiming` (their journals keep them) |
+| `nox rebuild [--all] [--switch] [--machine m] [--branch b]` | `dom0-update …`: build the branch as it is; `--all`: `update-all` without `--bump` (then the Whonix domains and kali, no new inputs; not with `--iso`) |
+| `nox rebuild --iso <vm> [--branch b]` | `dom0-update --iso <vm> …` (installer ISO from the builder straight to the VM, see "Installer"; log `~/.local/state/nox/update-iso.log`) |
 | `nox mic on\|off\|status` | dom0's microphone for the VMs with the registry field `microphone` (nox-pulse-mic, dom0/vm-audio.nix): on until `off` or the next boot, `off` ends running recordings; waybar shows "VM" in red while on |
 | `nox usb list\|attach\|detach\|allow-input …` | `vm-usb …` |
 | `nox input to <vm> [--bt]`, `nox input back [vm]` | `input-to …`, `input-back …` |
@@ -486,6 +496,15 @@ off the machine: `sudo cryptsetup luksHeaderBackup
 /dev/disk/by-partlabel/disk-main-root --header-backup-file <file on a stick>`.
 Store it safely: with an old passphrase it still opens the disk after a
 passphrase change.
+
+A bump (`nox update`) checks only the inputs listed in the config's
+`vms/builder/input-signers`, your own (NoX, your forks), and of each only
+the new tip (the locked revision; upstream commits under a fork's tip are
+not yours to sign). Third-party inputs (nixpkgs, nixos-hardware, community
+flakes such as zen-browser-flake) count as their upstream delivers them on
+GitHub: a compromised upstream reaches the next bump. Nix fetches a GitHub
+input as GitHub's archive of the locked revision, so GitHub itself is
+trusted to deliver the content of the commit that was checked.
 
 [xen-support]: https://xenbits.xen.org/docs/unstable/SUPPORT.html
 [lanza-xen]: https://github.com/nix-community/lanzaboote/pull/387

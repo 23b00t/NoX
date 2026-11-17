@@ -14,7 +14,7 @@ let
 
   # Last octet of the VM's admin IP, also used on the USB/IP link
   indexOf = name: lib.toInt (lib.last (lib.splitString "." vmRegistry.byName.${name}.ip));
-  hex = i: lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString i));
+  macs = import ../registry/macs.nix { inherit lib; };
 in
 rec {
   domain = "sys-usb-vm";
@@ -74,5 +74,5 @@ rec {
   ) devices;
 
   addressOf = name: "10.2.0.${toString (indexOf name)}";
-  macOf = name: "00:00:00:00:02:${hex (indexOf name)}";
+  macOf = name: macs.usbip (indexOf name);
 }

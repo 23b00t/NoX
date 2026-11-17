@@ -21,6 +21,11 @@ let
   # per machine; without the file no bump commit is built
   bumpSigners = vmRegistry.builderKeys + "/bump-signers";
   hasBumpSigners = builtins.pathExists bumpSigners;
+  # The keys the new revisions of the config's own inputs must be signed
+  # with on a bump, principal = flake input name; inputs it doesn't list
+  # (nixpkgs …) are not checked, without the file none is
+  inputSigners = vmRegistry.builderKeys + "/input-signers";
+  hasInputSigners = builtins.pathExists inputSigners;
 
   # builder-build [--bump] <machine> [branch]: fetch, build, sign; prints the
   # toplevel. --bump first updates the flake inputs and pushes flake.lock as
@@ -82,6 +87,9 @@ let
         echo "builder-build: vms/builder/bump-signers is missing, a bump commit would not be built (README \"Builder\")" >&2
         exit 1
       ''}
+      ${lib.optionalString (!hasInputSigners) ''
+        echo "builder-build: warning: vms/builder/input-signers is missing, the new revisions of the inputs are not checked (README \"A config\")" >&2
+      ''}
     fi
 
     # SSH URLs (a private config): the builder's own read-only deploy key
@@ -119,7 +127,10 @@ let
           ''
       }
     fi
-    ${pkgs.git}/bin/git -C "$repo" checkout --quiet --detach FETCH_HEAD >&2
+    # --force: every run starts at exactly the fetched commit (the one the
+    # signature check below covers); a flake.lock left in the working tree by
+    # a killed bump would otherwise be built along (nix uses the working tree)
+    ${pkgs.git}/bin/git -C "$repo" checkout --quiet --force --detach FETCH_HEAD >&2
     echo "builder-build: $machine from $branch @ $(${pkgs.git}/bin/git -C "$repo" rev-parse --short HEAD)" >&2
 
     # Only commits signed by an allowed key get built: a compromised GitHub
@@ -162,12 +173,86 @@ let
     # nox update: new inputs as a commit of their own, pushed before the
     # build so that GitHub has what dom0 runs; signed and pushed with the
     # bump key. Nothing new: build anyway
+    ${lib.optionalString hasInputSigners ''
+      # A changed input that input-signers lists must have its new rev signed
+      # by a key listed for that very input: a commit pushed through a
+      # compromised GitHub account doesn't get locked. Each input is checked
+      # against only its own lines of the file, so a key listed for one
+      # input doesn't vouch for another. The rev is fetched by its hash,
+      # which git checks against the content, so the source doesn't matter
+      input_signed() {
+        local d rc=1
+        d="$(mktemp -d)"
+        ${pkgs.gawk}/bin/awk -v i="$1" '!/^[[:space:]]*(#|$)/ {
+          n = split($1, p, ",")
+          for (k = 1; k <= n; k++) if (p[k] == i) { sub(/^[[:space:]]*[^[:space:]]+/, i); print; next }
+        }' ${inputSigners} >"$d/signers"
+        if ${pkgs.git}/bin/git init --quiet --bare "$d/repo" &&
+          ${pkgs.git}/bin/git -C "$d/repo" fetch --quiet --depth=1 "$2" "$3" >&2 &&
+          ${pkgs.git}/bin/git -C "$d/repo" \
+            -c gpg.ssh.program=${pkgs.openssh}/bin/ssh-keygen \
+            -c gpg.ssh.allowedSignersFile="$d/signers" \
+            verify-commit "$3" 2>/dev/null; then
+          rc=0
+        fi
+        rm -rf "$d"
+        return "$rc"
+      }
+      # Every input input-signers names, old and new lock compared: type,
+      # owner, repo and rev of its node (root.inputs maps the name to it)
+      check_inputs() {
+        local old i o n t owner name rev bad=0 inputs
+        # shellcheck disable=SC2016 # jq's variables
+        local q='(.nodes.root.inputs[$i] // null) as $n
+          | if $n == null then "missing"
+            elif ($n | type) != "string" then "follows"
+            else (.nodes[$n].locked // {}) | "\(.type // "-") \(.owner // "-") \(.repo // "-") \(.rev // "-")" end'
+        old="$(${pkgs.git}/bin/git -C "$repo" show HEAD:flake.lock 2>/dev/null || echo '{}')"
+        mapfile -t inputs < <(${pkgs.gawk}/bin/awk '!/^[[:space:]]*(#|$)/ { n = split($1, p, ","); for (k = 1; k <= n; k++) print p[k] }' ${inputSigners} | sort -u)
+        for i in "''${inputs[@]}"; do
+          n="$(${pkgs.jq}/bin/jq -r --arg i "$i" "$q" "$repo/flake.lock")" || n=
+          case "$n" in
+            "")
+              echo "builder-build: cannot read \"$i\" from the new flake.lock, no bump" >&2
+              bad=1; continue ;;
+            missing)
+              echo "builder-build: input-signers lists \"$i\", which is not an input of flake.nix, no bump" >&2
+              bad=1; continue ;;
+            follows)
+              echo "builder-build: input \"$i\" follows another input, input-signers checks only inputs locked on their own, no bump" >&2
+              bad=1; continue ;;
+          esac
+          o="$(${pkgs.jq}/bin/jq -r --arg i "$i" "$q" <<<"$old")"
+          [ "$o" != "$n" ] || continue
+          read -r t owner name rev <<<"$n"
+          if [ "$t" != github ]; then
+            echo "builder-build: input \"$i\" is of type $t, input-signers checks only github inputs, no bump" >&2
+            bad=1
+          elif ! [[ $rev =~ ^[0-9a-f]{40}$ ]] ||
+            ! input_signed "$i" "https://github.com/$owner/$name" "$rev"; then
+            echo "builder-build: $i $rev is not signed by a key for \"$i\" in vms/builder/input-signers, no bump" >&2
+            bad=1
+          else
+            echo "builder-build: $i ''${rev:0:12} is signed by a key for \"$i\" (input-signers)" >&2
+          fi
+        done
+        return "$bad"
+      }
+    ''}
     rm -f "${stateDir}/bump.bundle"
     if [ "$bump" = 1 ]; then
       (cd "$repo" && ${config.nix.package}/bin/nix flake update) >&2
       if ${pkgs.git}/bin/git -C "$repo" diff --quiet flake.lock; then
         echo "builder-build: inputs already up to date" >&2
       else
+        ${lib.optionalString hasInputSigners ''
+          if ! check_inputs; then
+            # The rejected lock must not stay in the checkout: a later
+            # build would take it (nix uses the working tree)
+            ${pkgs.git}/bin/git -C "$repo" checkout --quiet HEAD -- flake.lock
+            exit 1
+          fi
+        ''}
         ${pkgs.git}/bin/git -C "$repo" \
           -c user.name=builder-${vmRegistry.host or "vm"} \
           -c user.email=builder@nox \
@@ -346,7 +431,6 @@ in
     net-config = {
       enable = true;
       index = 25;
-      mac = "00:00:00:00:00:19";
       # internet via the sys-net uplink (registry `nat = true`)
     };
 

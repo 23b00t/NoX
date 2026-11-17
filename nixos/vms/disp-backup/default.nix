@@ -258,7 +258,6 @@ in
     net-config = {
       enable = true;
       index = 32;
-      mac = "00:00:00:00:00:20";
     };
 
     common-config = {

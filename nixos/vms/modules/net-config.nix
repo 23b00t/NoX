@@ -25,7 +25,7 @@ let
   effectiveGateway4 = cfg.gateway4;
   needsOnLinkGatewayRoute = effectiveAddress4 != null && hasSuffix "/32" effectiveAddress4;
 
-  indexHex = fixedWidthString 2 "0" (toLower (toHexString cfg.index));
+  macs = import ../../registry/macs.nix { inherit lib; };
 
   # Backend of the uplink by registry field `uplink` (default sys-firewall). The
   # backends are driver domains serving `bridge`; the VM gets `<net>.<index>`
@@ -76,6 +76,8 @@ in
 
     mac = mkOption {
       type = types.str;
+      default = macs.admin cfg.index;
+      defaultText = literalExpression ''"00:00:00:00:00:<index as hex>"'';
       description = "MAC address for the guest interface.";
     };
 
@@ -131,7 +133,7 @@ in
 
       mac = mkOption {
         type = types.str;
-        default = "00:00:00:00:01:${indexHex}";
+        default = macs.uplink cfg.index;
         defaultText = literalExpression ''"00:00:00:00:01:<index as hex>"'';
         description = "MAC address of the uplink interface.";
       };

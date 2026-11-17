@@ -6,7 +6,8 @@
 # to [boot memory, maxmem]. Growing is immediate, only out of
 # Xen's free memory minus reserveMB, higher registry `memPriority` first.
 # Shrinking waits until the VM wanted less for shrinkDelay seconds.
-# dom0 is never touched.
+# dom0 is never touched. The balancer owns the targets: a VM grown by hand
+# (microvm.nix's `microvm-balloon`) shrinks back after shrinkDelay.
 #
 # Event-driven: a xenstore watch marks a VM dirty when its guest reports, and
 # only dirty VMs are evaluated. VMs with something pending (shrink waiting,

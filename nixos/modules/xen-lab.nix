@@ -16,11 +16,11 @@ let
 
   targets = builtins.filter (vm: vm.labTarget or false) vmRegistry.vms;
   octet = vm: lib.toInt (lib.last (lib.splitString "." vm.ip));
-  mac = vm: "00:00:00:00:03:${lib.fixedWidthString 2 "0" (lib.toLower (lib.toHexString (octet vm)))}";
+  mac = vm: (import ../registry/macs.nix { inherit lib; }).lab (octet vm);
 
   # "name short mac address" per line
   table = lib.concatMapStrings (
-    vm: "${vm.name} ${vm.short} ${mac vm} 10.5.0.${toString (octet vm)}\n"
+    vm: "${vm.name} ${vm.short or vm.name} ${mac vm} 10.5.0.${toString (octet vm)}\n"
   ) targets;
 
   vmLab = pkgs.writeShellScriptBin "vm-lab" ''

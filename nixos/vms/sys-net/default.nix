@@ -50,7 +50,7 @@ in
       interfaceName = "vm-lan";
       address4 = "10.0.0.253/24";
       gateway4 = null;
-      mac = "00:00:00:00:00:11";
+      index = 253;
     };
 
     common-config = {

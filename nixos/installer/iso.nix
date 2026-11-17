@@ -31,6 +31,9 @@
     "nix-command"
     "flakes"
   ];
+  # Evaluation runs no build steps (import from derivation): the installer's
+  # pure evaluation of the clone then only runs code in sandboxed builds
+  nix.settings.allow-import-from-derivation = false;
 
   environment.variables.EDITOR = "nvim";
   environment.systemPackages = [

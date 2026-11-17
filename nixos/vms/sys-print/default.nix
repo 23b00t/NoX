@@ -91,7 +91,6 @@ in
     net-config = {
       enable = true;
       index = 26;
-      mac = "00:00:00:00:00:1a";
     };
 
     common-config = {
