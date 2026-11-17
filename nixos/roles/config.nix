@@ -158,7 +158,10 @@ let
   };
 in
 {
-  imports = [ ../vms/modules/yazi-config.nix ];
+  imports = [
+    ../vms/modules/yazi-config.nix
+    ../vms/modules/lazygit.nix
+  ];
 
   options.nox.configVm.editor = lib.mkOption {
     type = lib.types.enum (lib.attrNames editors);
@@ -170,9 +173,9 @@ in
     environment.systemPackages = [
       noxConfig
       pkgs.git
-      pkgs.lazygit
       editors.${cfg.editor}
     ];
+    services.lazygit.enable = true;
     # over vim from common-config (programs.vim.defaultEditor)
     environment.variables.EDITOR = lib.mkForce editor;
 

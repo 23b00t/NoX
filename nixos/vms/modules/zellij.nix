@@ -8,14 +8,22 @@
 
 # zellij in the VM. NoX brings no config of its own: without `configDir`
 # zellij runs with its defaults; the user's config dir (config.kdl, optional
-# layouts/tabs.swap.kdl and plugins/) comes from the user's config. The tab
-# layout `tabs` defaults to a neutral one (home tab, compact bar). The theme
-# `nox` (themes/nox.kdl) follows the fleet's nox.theme: `theme "nox"` in
-# config.kdl
+# layouts/tabs.swap.kdl and plugins/) comes from the user's config, wasm
+# plugins built with Nix from `plugins`. The tab layout `tabs` defaults to a
+# neutral one (home tab, compact bar). The theme `nox` (themes/nox.kdl)
+# follows the fleet's nox.theme: `theme "nox"` in config.kdl
 let
   cfg = config.services.zellij-env;
   dir = cfg.configDir;
   has = sub: dir != null && builtins.pathExists (dir + "/${sub}");
+
+  # /etc/zellij/plugins: the files of configDir/plugins plus the built
+  # plugins (`plugins`), one link per file
+  pluginFiles =
+    lib.optionalAttrs (has "plugins") (
+      lib.mapAttrs (name: _: dir + "/plugins/${name}") (builtins.readDir (dir + "/plugins"))
+    )
+    // lib.mapAttrs' (name: wasm: lib.nameValuePair "${name}.wasm" wasm) cfg.plugins;
 
   theme = import ../../desktop/theme.nix {
     inherit lib;
@@ -59,6 +67,13 @@ in
       description = "The user's zellij config directory (config.kdl, optional layouts/tabs.swap.kdl and plugins/); null: zellij's defaults.";
     };
 
+    plugins = lib.mkOption {
+      type = lib.types.attrsOf lib.types.path;
+      default = { };
+      example = lib.literalExpression ''{ my-plugin = "''${pkgs.my-plugin}/bin/my-plugin.wasm"; }'';
+      description = "Wasm plugins built with Nix, as /etc/zellij/plugins/<name>.wasm (in config.kdl: \"file:/etc/zellij/plugins/<name>.wasm\").";
+    };
+
     tabsKdlFile = lib.mkOption {
       type = lib.types.nullOr lib.types.path;
       default = ./zellij/layouts/tabs.kdl;
@@ -71,13 +86,15 @@ in
       systemPackages = [ pkgs.zellij ];
       etc = {
         "zellij/config.kdl" = lib.mkIf (dir != null) { source = dir + "/config.kdl"; };
-        "zellij/plugins" = lib.mkIf (has "plugins") { source = dir + "/plugins"; };
         "zellij/layouts/tabs.swap.kdl" = lib.mkIf (has "layouts/tabs.swap.kdl") {
           source = dir + "/layouts/tabs.swap.kdl";
         };
         "zellij/layouts/tabs.kdl" = lib.mkIf (cfg.tabsKdlFile != null) { source = cfg.tabsKdlFile; };
         "zellij/themes/nox.kdl".text = themeKdl;
-      };
+      }
+      // lib.mapAttrs' (
+        name: source: lib.nameValuePair "zellij/plugins/${name}" { inherit source; }
+      ) pluginFiles;
     };
 
     systemd.tmpfiles.rules = [
@@ -89,7 +106,9 @@ in
     ++ lib.optional (
       dir != null
     ) "L+ /home/${cfg.user}/.config/zellij/config.kdl - - - - /etc/zellij/config.kdl"
-    ++ lib.optional (has "plugins") "L+ /home/${cfg.user}/.config/zellij/plugins - - - - /etc/zellij/plugins"
+    ++ lib.optional (
+      pluginFiles != { }
+    ) "L+ /home/${cfg.user}/.config/zellij/plugins - - - - /etc/zellij/plugins"
     ++ lib.optional (has "layouts/tabs.swap.kdl") "L+ /home/${cfg.user}/.config/zellij/layouts/tabs.swap.kdl - - - - /etc/zellij/layouts/tabs.swap.kdl"
     ++ lib.optional (
       cfg.tabsKdlFile != null

@@ -92,8 +92,12 @@ in
 
       ''
       + lib.optionalString withPrompt ''
+        # --print: inline the init script; the default sources a cached
+        # ~/.cache/oh-my-posh/init.<hash>.zsh whose hash ignores the binary's
+        # store path, so after a rebuild of the same version it points to a
+        # garbage-collected oh-my-posh
         if command -v oh-my-posh >/dev/null 2>&1; then
-          eval "$(oh-my-posh init zsh --config ${ohMyPoshThemes}/themes/${cfg.ohMyPoshTheme})"
+          eval "$(oh-my-posh init zsh --print --config ${ohMyPoshThemes}/themes/${cfg.ohMyPoshTheme})"
         fi
 
       ''

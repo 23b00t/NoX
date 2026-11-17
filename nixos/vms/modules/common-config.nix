@@ -260,12 +260,12 @@ in
       };
 
       # No nano: vim is the editor everywhere ($EDITOR, also yazi), the IDE
-      # stack sets nvim (2026-10-14)
+      # stack sets its default editor on top (services.ide.defaultEditor)
       nano.enable = false;
 
       vim = {
         enable = true;
-        defaultEditor = !config.programs.neovim.defaultEditor;
+        defaultEditor = true;
       };
     };
 
@@ -325,10 +325,9 @@ in
           "image/avif"
         ] (_: cfg.browser)
       ))
-      # Text opens in the editor, not in whatever claims it (coding: Helix)
-      (genAttrs [ "text/plain" "text/markdown" ] (
-        _: if config.programs.neovim.defaultEditor then "nvim.desktop" else "vim.desktop"
-      ))
+      # Text opens in the editor, not in whatever claims it; the IDE stack
+      # sets its default editor on top (services.ide.defaultEditor)
+      (genAttrs [ "text/plain" "text/markdown" ] (_: mkDefault "vim.desktop"))
     ];
 
     environment.systemPackages = mkMerge [

@@ -40,7 +40,9 @@ nox = {
       commit.gpgsign = true;
     };
     # your LazyVim config instead of the upstream starter
-    services.ide.lazyvimRepo = "https://github.com/<you>/lazyvim.git";
+    services.ide.nvim.configRepo = "https://github.com/<you>/lazyvim.git";
+    # more editors side by side, e.g. steelix (Helix with Steel plugins)
+    services.ide.steelix.enable = true;
     # zsh (NoX: plain zsh with completion, suggestions, highlighting)
     services.zsh-env = {
       extraAliases.n = "nvim";
