@@ -14,6 +14,24 @@
 # follows the fleet's nox.theme: `theme "nox"` in config.kdl
 let
   cfg = config.services.zellij-env;
+  # `zellij terminal` (the built-in GUI terminal, winit + EGL) dlopens
+  # wayland, xkbcommon, EGL and fontconfig by soname, but nixpkgs' zellij has
+  # none of them in its RUNPATH ("The wayland library could not be loaded").
+  # Added the way nixpkgs does it for alacritty. Drop this once nixpkgs'
+  # zellij ships these libs. `zellij terminal` additionally needs an EGL
+  # driver in the VM, i.e. registry `mesa = true`.
+  zellij = pkgs.zellij-unwrapped.overrideAttrs (old: {
+    postFixup = (old.postFixup or "") + ''
+      patchelf --add-rpath "${
+        lib.makeLibraryPath [
+          pkgs.fontconfig
+          pkgs.libglvnd
+          pkgs.libxkbcommon
+          pkgs.wayland
+        ]
+      }" $out/bin/zellij
+    '';
+  });
   dir = cfg.configDir;
   has = sub: dir != null && builtins.pathExists (dir + "/${sub}");
 
@@ -83,7 +101,7 @@ in
 
   config = lib.mkIf cfg.enable {
     environment = {
-      systemPackages = [ pkgs.zellij ];
+      systemPackages = [ zellij ];
       etc = {
         "zellij/config.kdl" = lib.mkIf (dir != null) { source = dir + "/config.kdl"; };
         "zellij/layouts/tabs.swap.kdl" = lib.mkIf (has "layouts/tabs.swap.kdl") {

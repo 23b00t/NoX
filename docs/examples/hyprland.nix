@@ -43,13 +43,15 @@ in
       focusedOutput = ''
         hyprctl -j monitors | ${jq} -r '.[] | select(.focused) | .name'
       '';
-      # The login terminals as plain windows (no tabs)
+      # The login terminals as plain windows (no tabs; a window is identified by
+      # its launch, not by an app id: a fixed NOX_APP_TOKEN per VM would make
+      # the VM refuse a second terminal)
       openTerminals = ''
         for t in "$@"; do
           if [ "$t" = dom0 ]; then
-            setsid -f foot -a term-dom0 ${lib.escapeShellArgs d.login.dom0Command}
+            setsid -f foot ${lib.escapeShellArgs d.login.dom0Command}
           else
-            setsid -f nox run "$t" foot -a "term-$t" zellij --layout tabs attach -c
+            setsid -f nox run "$t" ${lib.escapeShellArgs d.login.vmTerminal}
           fi
         done
       '';

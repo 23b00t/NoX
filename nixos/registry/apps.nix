@@ -57,6 +57,26 @@ in
       trayArgs = [ "-startintray" ];
     };
 
+    # zellij's own GUI terminal; no package: the zellij module (with the
+    # fixed package) installs it. --standalone: this process is the window
+    # (no hand-off to the desktop app)
+    zellij = app {
+      name = "Zellij";
+      genericName = "Terminal";
+      icon = "utilities-terminal";
+      categories = [
+        "System"
+        "TerminalEmulator"
+      ];
+      binary = "zellij";
+      args = [
+        "--layout"
+        "tabs"
+        "terminal"
+        "--standalone"
+      ];
+    };
+
     # Browsers
     firefox = app {
       package = "firefox";

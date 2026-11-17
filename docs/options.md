@@ -34,6 +34,7 @@ Generated from the option declarations (`nix build .#options-doc`); do not edit.
 | `telegram` | `telegram-desktop` | Telegram |
 | `vesktop` | `vesktop` | Vesktop |
 | `vlc` | `vlc` | VLC |
+| `zellij` | (the VM's module) | Zellij |
 | `zen` | (the VM's module) | Zen |
 
 ## Infrastructure VMs
@@ -828,7 +829,7 @@ list of string
 
 
 
-Terminals as tabs of one column at login, in this order: ` dom0 ` (foot) or a VM (its foot with zellij)\.
+Terminals as tabs of one column at login, in this order: ` dom0 ` (foot) or a VM (its zellij terminal, one per VM; windows are identified by the launch: dom0’s foot by pid, a VM’s by the "\[\<vm>] " app id prefix)\.
 
 
 
@@ -860,11 +861,75 @@ list of string
 
 
 
+### nox\.desktop\.login\.terminalWorkspace
+
+
+
+Workspace (name or index) the login terminals are moved to before they join the tabbed column\. null: they stay where the compositor opens them\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"terminal"
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
+### nox\.desktop\.login\.vmTerminal
+
+
+
+Command run in a VM (` nox run `) for each VM entry of ` terminalTabs `\. Its process must live as long as its window (the VM’s dedup by the fixed app token relies on that)\. The default needs ` mesa = true ` in the VM\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+[
+  "zellij"
+  "--layout"
+  "tabs"
+  "terminal"
+  "--standalone"
+  "-c"
+  "main"
+]
+```
+
+*Declared by:*
+ - [nixos/desktop](../nixos/desktop)
+
+
+
 ### nox\.desktop\.login\.windows
 
 
 
-Further windows at login\.
+Further windows at login\. Each runs with a fixed app token (` nox run `, NOX_APP_TOKEN), so the VM never starts it twice\.
 
 
 
@@ -878,22 +943,6 @@ list of (submodule)
 ```nix
 [ ]
 ```
-
-*Declared by:*
- - [nixos/desktop](../nixos/desktop)
-
-
-
-### nox\.desktop\.login\.windows\.\*\.appId
-
-
-
-Extended regex on the window’s app id without the "\[\<vm>] " prefix: an open window that matches is not started again\.
-
-
-
-*Type:*
-string
 
 *Declared by:*
  - [nixos/desktop](../nixos/desktop)
@@ -944,7 +993,7 @@ string
 
 
 
-niri’s config as Nix attrs (home-manager’s wayland\.windowManager\.niri\.settings format), written to /etc/niri/config\.kdl and validated at build time\.
+niri’s config as Nix attrs (home-manager’s wayland\.windowManager\.niri\.settings format), written to /etc/niri/config\.kdl and validated at build time\. NoX’s binds are defaults per key: a bind with the same key under ` binds ` replaces the whole NoX bind, ` "Mod+Q" = null ` removes it\.
 
 
 
@@ -1776,7 +1825,7 @@ null
 
 
 
-` nox-wm open-terminals <tab>… `: open the login terminals (nox\.desktop\.login\.terminalTabs; ` dom0 ` or a VM name, app ids ` term-dom0 ` and ` [<vm>] term-<vm> `)\. Unset: vm-autostart leaves them out\.
+` nox-wm open-terminals <tab>… `: open the login terminals (nox\.desktop\.login\.terminalTabs; ` dom0 ` or a VM name)\. The compositor identifies each terminal by its launch, not by an app id of the terminal itself: dom0’s by the process, a VM’s by the "\[\<vm>] " app id prefix of that VM’s wprsc\. Unset: vm-autostart leaves them out\.
 
 
 
@@ -1800,7 +1849,7 @@ null
 
 
 
-` nox-wm windows `: print the app id of every open window, one per line\. Unset: vm-autostart starts the login windows without checking for open ones\.
+` nox-wm windows `: print the app id of every open window, one per line\. Unset: nox doctor cannot count a VM’s windows\.
 
 
 
@@ -2569,6 +2618,8 @@ false
 
 ### nox\.infra\.disp\.enable
 
+
+
 NoX’s disp VM (module nixos/vms/disp)\.
 
 
@@ -2590,8 +2641,6 @@ false
 
 
 ### nox\.infra\.disp-backup\.enable
-
-
 
 NoX’s disp-backup VM (module nixos/vms/disp-backup)\.
 
@@ -4587,6 +4636,30 @@ RAM the balancer may grow the VM to, in MB; null: fixed at ` memory `\.
 
 *Type:*
 null or (positive integer, meaning >0)
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+*Declared by:*
+ - [nixos/registry/vms\.nix](../nixos/registry/vms.nix)
+
+
+
+### nox\.vms\.\<name>\.mesa
+
+
+
+Mesa in the VM (` hardware.graphics `): OpenGL/EGL/Vulkan for apps such as ` zellij terminal `; without a GPU it renders in software (llvmpipe)\. ` gpu ` passes the real graphics card through\. Default: false\.
+
+
+
+*Type:*
+null or boolean
 
 
 

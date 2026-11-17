@@ -19,6 +19,12 @@ let
   };
   login = import ./login-on-host.nix { inherit vmRegistry; } config.nox.desktop.login;
   kdl = import ../lib/kdl.nix { inherit lib; };
+  # The merged settings; a bind set to null (`"Mod+Q" = null`) is removed
+  settings =
+    let
+      s = config.nox.desktop.niri.settings;
+    in
+    s // { binds = lib.filterAttrs (_: bind: bind != null) (s.binds or { }); };
   niriConfig = pkgs.writeTextFile {
     name = "niri-config.kdl";
     text = ''
@@ -27,7 +33,7 @@ let
         kdl.toKDL {
           escapeBackslashes = true;
           escapeTabs = true;
-        } config.nox.desktop.niri.settings
+        } settings
       )}
     '';
     checkPhase = ''
@@ -70,112 +76,176 @@ let
     ) trayApps
   );
 
-  # Terminals at login (nox.desktop.login.terminalTabs): dom0's foot and
-  # foot from VMs over wprs, zellij in the VM, as tabs of one column. All
-  # start at once; niri's event stream reports each window as it opens (VMs
-  # may still boot), it goes into the column right away, at its place in
-  # the order of terminalTabs; after 5 min the rest is given up. A VM's foot
-  # could come twice at boot (nox run retried an app start whose answer got
-  # lost): the first window stays, later ones (more zellij
-  # clients of the same session) are closed when they appear. Terminals
-  # that are already open are not started again (vm-autostart)
-  vmZellij = [
-    "zellij"
-    "--layout"
-    "tabs"
-    "attach"
-    "-c"
-  ];
+  # Terminals at login (nox.desktop.login.terminalTabs): dom0's foot and a
+  # zellij terminal per VM over wprs, as tabs of one column. All start at
+  # once; niri's event stream reports each window as it opens (VMs may still
+  # boot), it goes into the column right away, at its place in the order of
+  # terminalTabs; after 5 min the rest is given up.
+  #
+  # Windows are identified by the launch, never by an app id the app chose
+  # (zellij's is fixed): dom0's foot by its pid; a VM's terminal is the next
+  # new window whose app id is "[<vm>]" or starts with "[<vm>] " (the prefix
+  # dom0's wprsc sets, one wprsc per VM, a VM cannot fake it). Dedup is the
+  # VM's: the terminal starts with a fixed token (NOX_APP_TOKEN, nox run
+  # prints the VM's answer "ok: already started" when it lives already, then
+  # no window is awaited). Launches into one VM are not concurrent (one
+  # terminal per VM). The placed windows are recorded per niri instance, so
+  # a second run (vm-autostart after a VM's restart) knows the column.
+
   # terminal-tabs [tab…] (default: all of nox.desktop.login.terminalTabs)
   terminalTabs = pkgs.writeShellScript "terminal-tabs" ''
     set -u
     jq=${pkgs.jq}/bin/jq
     [ $# -gt 0 ] || set -- ${lib.escapeShellArgs login.terminalTabs}
     order=(${lib.escapeShellArgs login.terminalTabs})
-    app_of() { if [ "$1" = dom0 ]; then echo term-dom0; else echo "[$1] term-$1"; fi; }
-    declare -A rank id_of expect
-    for i in "''${!order[@]}"; do rank[$(app_of "''${order[$i]}")]=$i; done
-    col=() # app ids of the column, in tab order
+    declare -A rank id_of expect seen rec token
+    for i in "''${!order[@]}"; do rank[''${order[$i]}]=$i; done
+    ${lib.concatMapStrings (t: "token[${t}]=${login.termToken t}\n") (
+      lib.filter (t: t != "dom0") login.terminalTabs
+    )}
+    col=() # tabs of the column, in tab order
+    dom0_pid=""
+    ws=${lib.escapeShellArg (toString login.terminalWorkspace)}
+    # Window ids are stable for niri's lifetime: the placed windows are
+    # kept per niri instance (its socket name holds niri's pid), so a second
+    # run takes those that are still open as the column
+    state="''${XDG_RUNTIME_DIR:-/tmp}/terminal-tabs.$(basename "''${NIRI_SOCKET:-none}")"
+    dir=$(mktemp -d)
+    trap 'rm -rf "$dir"' EXIT
+    if [ -r "$state" ]; then
+      while read -r rid rtab; do rec[$rid]=$rtab; done <"$state"
+    fi
+    save_col() {
+      for t in "''${col[@]}"; do echo "''${id_of[$t]} $t"; done >"$state"
+    }
 
-    # A new terminal: into the column on its left, then up past the tabs
-    # that come after it in the order (move-window-up needs the focus, it
-    # goes back afterwards)
+    # Runs the command with the window focused (column actions act on the
+    # focused column), the focus goes back afterwards
+    as_focused() {
+      local id=$1 prev
+      shift
+      prev=$(niri msg --json focused-window | $jq -r '.id // empty')
+      niri msg action focus-window --id "$id"
+      "$@"
+      [ -z "$prev" ] || [ "$prev" = "$id" ] || niri msg action focus-window --id "$prev"
+    }
+    style_column() {
+      niri msg action set-column-display tabbed
+      niri msg action set-column-width 100%
+    }
+    move_up() {
+      for _ in $(seq "$1"); do niri msg action move-window-up; done
+    }
+
+    # A new terminal: to the terminal workspace, into the column on its
+    # left (the first one makes the column: tabbed, full width), then up
+    # past the tabs that come after it in the order
     place() {
-      local id=$1 app=$2 k=0 a prev n
-      id_of[$app]=$id
+      local id=$1 tab=$2 k=0 a n
+      id_of[$tab]=$id
+      [ -z "$ws" ] || niri msg action move-window-to-workspace --window-id "$id" --focus false "$ws"
       if [ ''${#col[@]} -eq 0 ]; then
-        col=("$app")
+        as_focused "$id" style_column
+        col=("$tab")
+        save_col
         return
       fi
       niri msg action consume-or-expel-window-left --id "$id"
       for a in "''${col[@]}"; do
-        [ "''${rank[$a]}" -le "''${rank[$app]}" ] || k=$((k + 1))
+        [ "''${rank[$a]}" -le "''${rank[$tab]}" ] || k=$((k + 1))
       done
-      if [ "$k" -gt 0 ]; then
-        prev=$(niri msg --json focused-window | $jq -r '.id // empty')
-        niri msg action focus-window --id "$id"
-        for _ in $(seq "$k"); do niri msg action move-window-up; done
-        [ -z "$prev" ] || [ "$prev" = "$id" ] || niri msg action focus-window --id "$prev"
-      fi
+      [ "$k" -eq 0 ] || as_focused "$id" move_up "$k"
       n=$((''${#col[@]} - k))
-      col=("''${col[@]:0:n}" "$app" "''${col[@]:n}")
+      col=("''${col[@]:0:n}" "$tab" "''${col[@]:n}")
+      save_col
     }
 
-    # "init <id> <app id>" per open window (column order), "ready", then
-    # "open <id> <app id>" per new or changed window
+    # The VM's answer to a terminal start (written by start_vm)
+    check_answers() {
+      local t answer
+      for t in "''${!expect[@]}"; do
+        [ -s "$dir/$t" ] || continue
+        answer=$(cat "$dir/$t")
+        rm -f "$dir/$t"
+        case "$answer" in
+          "ok: started"*) ;; # its window follows
+          *) # lives already, or the start failed: no window to wait for
+            unset "expect[$t]"
+            pending=$((pending - 1))
+            ;;
+        esac
+      done
+    }
+
+    # "init <id> <pid> <app id>" per open window (column order), "ready",
+    # then "open <id> <pid> <app id>" per new or changed window
     coproc events {
       timeout 300 niri msg --json event-stream | $jq --unbuffered -r '
         if .WindowsChanged then
           (.WindowsChanged.windows
             | sort_by(.layout.pos_in_scrolling_layout[1] // 0)
-            | .[] | "init \(.id) \(.app_id // "")"), "ready"
+            | .[] | "init \(.id) \(.pid // 0) \(.app_id // "")"), "ready"
         elif .WindowOpenedOrChanged then
-          .WindowOpenedOrChanged.window | "open \(.id) \(.app_id // "")"
+          .WindowOpenedOrChanged.window | "open \(.id) \(.pid // 0) \(.app_id // "")"
         else empty end'
     }
-    started=0 pending=0 done_at=""
+    prefix_re='^\[([^]]+)\]( |$)'
+    started=0 pending=0
     while :; do
-      read -r -t 1 kind id app <&"''${events[0]}"
-      rc=$?
-      # All there: 5 s more for duplicates, then stop
-      if [ -n "$done_at" ] && [ "$SECONDS" -ge "$done_at" ]; then break; fi
+      rc=0
+      read -r -t 1 kind id pid app <&"''${events[0]}" || rc=$?
+      [ "$started" -eq 0 ] || check_answers
+      # All there
+      if [ "$started" -eq 1 ] && [ "$pending" -le 0 ]; then break; fi
       [ "$rc" -le 128 ] || continue # no event within 1 s
       [ "$rc" -eq 0 ] || break # stream ended: time limit
-      # (an empty app id is no array key)
-      [ -n "$app" ] || [ "$kind" = ready ] || continue
       case "$kind" in
         init)
-          # Already open (a second run): they are the column
-          [ -n "''${rank[$app]+x}" ] && [ -z "''${id_of[$app]+x}" ] || continue
-          id_of[$app]=$id
-          col+=("$app")
+          [ "$started" -eq 0 ] || continue
+          seen[$id]=1
+          # Placed by an earlier run and still open: they are the column
+          tab=''${rec[$id]:-}
+          [ -n "$tab" ] && [ -n "''${rank[$tab]+x}" ] && [ -z "''${id_of[$tab]+x}" ] || continue
+          id_of[$tab]=$id
+          col+=("$tab")
           ;;
         ready)
           [ "$started" -eq 0 ] || continue
           started=1
+          [ "''${#col[@]}" -eq 0 ] || save_col
           for t in "$@"; do
-            a=$(app_of "$t")
-            [ -z "''${id_of[$a]+x}" ] || continue
-            expect[$a]=1
+            [ -n "''${rank[$t]+x}" ] && [ -z "''${id_of[$t]+x}" ] || continue
+            expect[$t]=1
             pending=$((pending + 1))
             if [ "$t" = dom0 ]; then
-              foot -a term-dom0 ${lib.escapeShellArgs login.dom0Command} &
+              foot ${lib.escapeShellArgs login.dom0Command} &
+              dom0_pid=$!
             else
-              nox run "$t" foot -a "term-$t" ${lib.escapeShellArgs vmZellij} &
+              (
+                out=$(NOX_APP_TOKEN="''${token[$t]}" nox run "$t" ${lib.escapeShellArgs login.vmTerminal})
+                printf '%s\n' "$out" >"$dir/$t.tmp"
+                mv "$dir/$t.tmp" "$dir/$t"
+              ) &
             fi
           done
           [ "$pending" -gt 0 ] || break
           ;;
         open)
-          [ -n "''${expect[$app]+x}" ] || continue
-          if [ -n "''${id_of[$app]+x}" ]; then
-            [ "''${id_of[$app]}" = "$id" ] || niri msg action close-window --id "$id"
-            continue
+          # Every window counts once, the first event is its opening
+          [ -z "''${seen[$id]+x}" ] || continue
+          seen[$id]=1
+          [ "$started" -eq 1 ] || continue
+          tab=""
+          if [ -n "$dom0_pid" ] && [ "$pid" = "$dom0_pid" ] && [ -n "''${expect[dom0]+x}" ]; then
+            tab=dom0
+          elif [[ "$app" =~ $prefix_re ]] && [ -n "''${expect[''${BASH_REMATCH[1]}]+x}" ]; then
+            tab=''${BASH_REMATCH[1]}
           fi
-          place "$id" "$app"
-          [ "$app" != term-dom0 ] || niri msg action focus-window --id "$id"
+          [ -n "$tab" ] || continue
+          unset "expect[$tab]"
+          place "$id" "$tab"
+          [ "$tab" != dom0 ] || niri msg action focus-window --id "$id"
           pending=$((pending - 1))
-          [ "$pending" -gt 0 ] || done_at=$((SECONDS + 5))
           ;;
       esac
     done
@@ -384,7 +454,7 @@ let
 
     "Mod+Q" = {
       _props.repeat = false;
-      _props."hotkey-overlay-title" = "Close Window (terminals: press twice)";
+      _props."hotkey-overlay-title" = "Close Window (press twice)";
       spawn = [ "close-guard" ];
     };
 
@@ -434,9 +504,7 @@ let
             "niri msg action ${action}" + lib.optionalString (args != [ ]) " -- ${lib.escapeShellArgs args}";
         };
       # The merged binds: NoX's and the user's (nox.desktop.niri.settings)
-      grouped = lib.groupBy (e: e.command) (
-        lib.mapAttrsToList entry config.nox.desktop.niri.settings.binds
-      );
+      grouped = lib.groupBy (e: e.command) (lib.mapAttrsToList entry settings.binds);
     in
     lib.sortOn (e: lib.toLower e.line) (
       lib.mapAttrsToList (command: es: {
@@ -522,7 +590,9 @@ in
         niri.settings = base.settings // {
           "screenshot-path" = "~/Pictures/Screenshots/Screenshot from %Y-%m-%d %H-%M-%S.png";
 
-          inherit binds;
+          # Defaults per bind: the user rebinds with the same key, or removes
+          # one with `"Mod+Q" = null`
+          binds = lib.mapAttrs (_: lib.mkDefault) binds;
 
           _children = [
             {
@@ -540,26 +610,15 @@ in
             # appended after this list.
           ]
           ++ base.windowRules
-          # The user's login windows (nox.desktop.login): the terminal tabs open as
-          # tabs of one full-width column
+          # The user's login windows (nox.desktop.login): terminalTabs puts the
+          # terminals into one tabbed full-width column itself (no window rule)
           ++ lib.optionals (login.terminalTabs != [ ]) [
-            {
-              "window-rule"._children = [
-                {
-                  match._props."app-id" = "^(${
-                    lib.concatMapStringsSep "|" (
-                      t: if t == "dom0" then "term-dom0" else "\\[${t}\\] term-${t}"
-                    ) login.terminalTabs
-                  })$";
-                }
-                { "default-column-display" = "tabbed"; }
-                { "default-column-width".proportion = 1.0; }
-              ];
-            }
             { "spawn-at-startup"._args = [ "${terminalTabs}" ]; }
           ]
           ++ map (w: {
             "spawn-at-startup"._args = [
+              "env"
+              "NOX_APP_TOKEN=${w.token}"
               "nox"
               "run"
               w.vm

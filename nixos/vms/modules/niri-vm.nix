@@ -27,7 +27,9 @@ let
     # VGA, which niri took as its primary device (no render node: "error
     # doing early import: DeviceMissing" every second, godot-gpu 2026-10-27)
     debug."render-drm-device" = cfg.renderDevice;
-    binds =
+    # NoX's binds are defaults: cfg.binds replaces a whole bind with the same
+    # key, null removes it
+    binds = lib.filterAttrs (_: bind: bind != null) (
       base.binds
       // {
         "Mod+Shift+Slash"."show-hotkey-overlay" = { };
@@ -36,7 +38,9 @@ let
           "close-window" = { };
         };
       }
-      // lib.mapAttrs (_: command: { spawn = command; }) cfg.launch;
+      // lib.mapAttrs (_: command: { spawn = command; }) cfg.launch
+      // cfg.binds
+    );
     _children = map (command: { "spawn-at-startup"._args = command; }) cfg.startup ++ base.windowRules;
   };
 
@@ -98,6 +102,19 @@ in
         "Mod+B" = [ "firefox" ];
       };
       description = "Keys that start a program (niri key → command).";
+    };
+
+    binds = lib.mkOption {
+      type = lib.types.attrsOf (lib.types.nullOr lib.types.raw);
+      default = { };
+      example = {
+        "Mod+C" = {
+          _props.repeat = false;
+          "close-window" = { };
+        };
+        "Mod+Q" = null;
+      };
+      description = "niri binds in nox.desktop.niri.settings.binds format. NoX's binds (base keys, Mod+Q closes the window, launch) are defaults: a bind with the same key replaces the whole default, null removes it.";
     };
 
     renderDevice = lib.mkOption {

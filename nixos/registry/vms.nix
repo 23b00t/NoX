@@ -230,6 +230,11 @@ let
       default = null;
       description = "Passes the machine's GPU (hardware config) through to the VM. Default: false.";
     };
+    mesa = mkOption {
+      type = types.nullOr types.bool;
+      default = null;
+      description = "Mesa in the VM (`hardware.graphics`): OpenGL/EGL/Vulkan for apps such as `zellij terminal`; without a GPU it renders in software (llvmpipe). `gpu` passes the real graphics card through. Default: false.";
+    };
     cpuPool = mkOption {
       type = types.nullOr (types.listOf types.ints.unsigned);
       default = null;

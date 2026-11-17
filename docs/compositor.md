@@ -50,7 +50,7 @@ A build warning lists the open points while `nox.desktop.wm` hooks are unset.
    | Hook | Command | Prints / does | Without it |
    | --- | --- | --- | --- |
    | `focusedWindow` | `nox-wm focused-window` | `<id>\t<pid>\t<app id>`, nothing if none | vm-clip refuses, close-guard does nothing |
-   | `windows` | `nox-wm windows` | the app ids of all windows, one per line | vm-autostart starts windows that are already open |
+   | `windows` | `nox-wm windows` | the app ids of all windows, one per line | nox doctor cannot count a VM's windows |
    | `closeWindow` | `nox-wm close-window <id>` | closes the window | close-guard does nothing |
    | `focusedOutput` | `nox-wm focused-output` | the focused output's name | screenrec-full refuses |
    | `openTerminals` | `nox-wm open-terminals <tab>…` | opens the login terminals | vm-autostart leaves them out |
@@ -68,7 +68,7 @@ A build warning lists the open points while `nox.desktop.wm` hooks are unset.
    | --- | --- |
    | `foot` | Mod+T |
    | `pkill rofi \|\| rofi -modi drun,filebrowser,window,run -show drun -theme /etc/xdg/rofi/config.rasi` | Mod+A |
-   | `close-guard` (terminals close on the second press within 3 s) | Mod+Q |
+   | `close-guard` (every window closes on the second call within 3 s; the notification names no key) | Mod+Q |
    | `swaylock -C /etc/xdg/swaylock/config` | Mod+Alt+L |
    | `vm-clip copy` / `vm-clip paste` | Mod+Alt+C / Mod+Alt+V |
    | `rofimoji … \| vm-clip put` (emoji and Nerd Font glyphs) | Mod+Comma / Mod+Period |
@@ -76,13 +76,22 @@ A build warning lists the open points while `nox.desktop.wm` hooks are unset.
    | `screenrec-region` / `screenrec-full` | Mod+R / Mod+Shift+R |
    | `wpctl …` (volume), `brightnessctl -e4 -n2 set 5%±`, `playerctl …` | media keys |
 
+   These are NoX's defaults, not fixed: the user rebinds a key by defining the same bind in `nox.desktop.niri.settings.binds` (the whole bind is replaced), and removes one with `null`, e.g. `"Mod+C" = { _props.repeat = false; spawn = [ "close-guard" ]; }; "Mod+Q" = null;`. The keybinding viewer follows the merged binds.
+
 6. **Autostart.** At session start: `vm-autostart` (the windows of
    `nox.desktop.login`) and `vm-tray <vm>` for each VM with tray apps.
    `nox start|restart` calls both again after a VM's (re)start.
 7. **Keyboard, outputs, workspaces.** `nox.desktop.keyboard` is read by the
    niri module only; pass it to the compositor yourself. Outputs and
    workspaces belong in the own config anyway.
-8. **Login terminals.** Without tabs they open as single windows with the
-   app ids `term-dom0` and `[<vm>] term-<vm>`; window rules place them.
+8. **Login terminals.** Without tabs they open as single windows;
+   identify a window by its launch, not by an app id the app chose (zellij's
+   is fixed): dom0's foot by its pid, a VM's terminal by the `[<vm>] ` prefix
+   of the app id that dom0's wprsc sets (a VM cannot fake it). `nox run`
+   takes a fixed token (`NOX_APP_TOKEN`, 8-32 hex chars) and prints the VM's
+   answer `ok: started …` or `ok: already started`; the VM refuses a second
+   start with the same token, that is the dedup (vm-autostart does this for
+   `nox.desktop.login.windows`). The niri module's `terminal-tabs` is the
+   reference.
 9. **waybar workspaces.** `nox.desktop.waybar.workspaces.module`, e.g.
    `hyprland/workspaces` (null: none).

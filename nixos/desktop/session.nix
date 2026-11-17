@@ -75,19 +75,13 @@ let
     esac
   '';
 
-  # Mod+Q: terminals (foot in dom0 or from a VM, zellij sessions inside)
-  # close only on a second Mod+Q within 3 s, the first one shows a
-  # notification; other windows close right away
+  # Close guard (the compositor config binds it, NoX: Mod+Q): every window
+  # closes only on a second call within 3 s, the first one shows a
+  # notification
   closeGuard = pkgs.writeShellScriptBin "close-guard" ''
     w=$(nox-wm focused-window) || exit 1
     id=$(cut -f1 <<<"$w")
-    app=$(cut -f3- <<<"$w")
     [ -n "$id" ] || exit 0
-    # VM windows carry "[<vm>] " before the app id (wprsc --app-id-prefix)
-    case "''${app#\[*\] }" in
-      foot | footclient | term-*) ;;
-      *) exec nox-wm close-window "$id" ;;
-    esac
     mark="''${XDG_RUNTIME_DIR:-/tmp}/close-guard"
     now=$(date +%s)
     [ ! -r "$mark" ] || read -r last_id last_t <"$mark" || true
@@ -96,7 +90,7 @@ let
       exec nox-wm close-window "$id"
     fi
     echo "$id $now" >"$mark"
-    ${notify} -a close-guard -t 3000 "Close terminal?" "Press Mod+Q again within 3 s"
+    ${notify} -a close-guard -t 3000 "Close window?" "Close it again within 3 s to confirm"
   '';
 in
 {
@@ -171,23 +165,21 @@ in
     '')
 
     # vm-autostart [vm…]: opens the login windows that are missing
-    # (nox.desktop.login: terminal tabs, further windows; open ones from
-    # nox-wm windows). With VM names only theirs (nox start|restart after a
-    # (re)start, next to vm-tray); tray apps have no window to check, that
-    # is vm-tray
+    # (nox.desktop.login: terminal tabs, further windows). A window runs
+    # with a fixed app token: the VM refuses a second start while it lives.
+    # With VM names only theirs (nox start|restart after a (re)start, next
+    # to vm-tray); tray apps have no window to check, that is vm-tray
     (writeShellScriptBin "vm-autostart" ''
       sel=" $* "
       pick() { [ "$sel" = "  " ] || [[ "$sel" == *" $1 "* ]]; }
-      open=$(nox-wm windows 2>/dev/null)
-      has() { grep -qxE "$1" <<<"$open"; }
       terms=()
       for t in ${lib.escapeShellArgs login.terminalTabs}; do
         pick "$t" && terms+=("$t")
       done
       [ ''${#terms[@]} -eq 0 ] || setsid -f nox-wm open-terminals "''${terms[@]}" >/dev/null 2>&1
       ${lib.concatMapStrings (w: ''
-        if pick ${w.vm} && ! has ${lib.escapeShellArg "\\[${w.vm}\\] (${w.appId})"}; then
-          setsid -f nox run ${w.vm} ${lib.escapeShellArgs w.command} >/dev/null 2>&1
+        if pick ${w.vm}; then
+          NOX_APP_TOKEN=${w.token} setsid -f nox run ${w.vm} ${lib.escapeShellArgs w.command} >/dev/null 2>&1
         fi
       '') login.windows}
     '')

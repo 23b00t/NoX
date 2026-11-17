@@ -89,6 +89,9 @@ in
       xen.pool = name;
     };
 
+    # OpenGL/EGL/Vulkan (software renderer without a GPU)
+    hardware.graphics.enable = lib.mkIf (vm.mesa == true) true;
+
     environment.systemPackages = map appPackage enabledApps;
 
     # Names from the attribute paths, not from the packages: nixpkgs.config

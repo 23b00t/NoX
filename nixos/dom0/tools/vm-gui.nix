@@ -159,8 +159,16 @@ let
     # Retry while the VM is still booting (the relay drops the call
     # without an answer); the handler answers "ok: ..." or "error: ...".
     # One token for all tries: a retry after a lost answer doesn't start
-    # the app twice (NoX startApp; older handlers just get one more variable)
-    token="$(${pkgs.coreutils}/bin/od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+    # the app twice (NoX startApp; older handlers just get one more variable).
+    # A caller may choose the token (environment NOX_APP_TOKEN, 8-32 hex
+    # chars): the VM runs the app as the unit nox-app-<token> and refuses a
+    # second start while that unit lives, so a fixed token per login window
+    # is the dedup (desktop/session.nix, desktop/niri.nix). The VM's answer
+    # line goes to stdout: "ok: started <cmd>" or "ok: already started"
+    # (exit status 0 in both cases; errors: exit 1, message on stderr)
+    token="''${NOX_APP_TOKEN:-}"
+    [[ "$token" =~ ^[0-9a-f]{8,32}$ ]] ||
+      token="$(${pkgs.coreutils}/bin/od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
     answer=""
     for _ in $(seq 60); do
       answer="$(printf '%s\0' env "NOX_APP_TOKEN=$token" "$cursor" "$@" | nox-rpc --dom0 app "$VM" 2>/dev/null)" || true
@@ -169,6 +177,7 @@ let
     done
     [[ "$answer" == ok* ]] || fail "start of $1 failed: ''${answer:-no answer}"
     start_wprsc
+    echo "$answer"
   '';
 
   # Clipboard between domains (Qubes model): each VM keeps its own clipboard

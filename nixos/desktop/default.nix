@@ -91,10 +91,10 @@ in
         )
         {
           focusedWindow = "`nox-wm focused-window`: print the focused window as `<id>\t<pid>\t<app id>` (empty fields allowed), nothing if none. Unset: vm-clip refuses, close-guard does nothing.";
-          windows = "`nox-wm windows`: print the app id of every open window, one per line. Unset: vm-autostart starts the login windows without checking for open ones.";
+          windows = "`nox-wm windows`: print the app id of every open window, one per line. Unset: nox doctor cannot count a VM's windows.";
           closeWindow = "`nox-wm close-window <id>`: close the window with that id (from focused-window).";
           focusedOutput = "`nox-wm focused-output`: print the name of the focused output (screenrec-full).";
-          openTerminals = "`nox-wm open-terminals <tab>…`: open the login terminals (nox.desktop.login.terminalTabs; `dom0` or a VM name, app ids `term-dom0` and `[<vm>] term-<vm>`). Unset: vm-autostart leaves them out.";
+          openTerminals = "`nox-wm open-terminals <tab>…`: open the login terminals (nox.desktop.login.terminalTabs; `dom0` or a VM name). The compositor identifies each terminal by its launch, not by an app id of the terminal itself: dom0's by the process, a VM's by the \"[<vm>] \" app id prefix of that VM's wprsc. Unset: vm-autostart leaves them out.";
           castTargets = "`nox-wm cast-targets`: print what can be shared with a VM (registry `screenShare`), one per line as `window\t<id>\t<label>` or `output\t<name>\t<label>`. Unset: VMs get no screen.";
           cast = "`nox-wm cast window <id>|output <name>`: cast it as a PipeWire stream, print the node id, keep the cast until stdin closes (niri: nox-mutter-cast).";
         };
@@ -110,7 +110,26 @@ in
           "nvim"
           "coding"
         ];
-        description = "Terminals as tabs of one column at login, in this order: `dom0` (foot) or a VM (its foot with zellij).";
+        description = "Terminals as tabs of one column at login, in this order: `dom0` (foot) or a VM (its zellij terminal, one per VM; windows are identified by the launch: dom0's foot by pid, a VM's by the \"[<vm>] \" app id prefix).";
+      };
+      terminalWorkspace = lib.mkOption {
+        type = lib.types.nullOr lib.types.str;
+        default = null;
+        example = "terminal";
+        description = "Workspace (name or index) the login terminals are moved to before they join the tabbed column. null: they stay where the compositor opens them.";
+      };
+      vmTerminal = lib.mkOption {
+        type = lib.types.listOf lib.types.str;
+        default = [
+          "zellij"
+          "--layout"
+          "tabs"
+          "terminal"
+          "--standalone"
+          "-c"
+          "main"
+        ];
+        description = "Command run in a VM (`nox run`) for each VM entry of `terminalTabs`. Its process must live as long as its window (the VM's dedup by the fixed app token relies on that). The default needs `mesa = true` in the VM.";
       };
       dom0Command = lib.mkOption {
         type = lib.types.listOf lib.types.str;
@@ -134,15 +153,11 @@ in
                 type = lib.types.listOf lib.types.str;
                 description = "Command in the VM (nox run).";
               };
-              appId = lib.mkOption {
-                type = lib.types.str;
-                description = "Extended regex on the window's app id without the \"[<vm>] \" prefix: an open window that matches is not started again.";
-              };
             };
           }
         );
         default = [ ];
-        description = "Further windows at login.";
+        description = "Further windows at login. Each runs with a fixed app token (`nox run`, NOX_APP_TOKEN), so the VM never starts it twice.";
       };
     };
     theme = lib.mkOption {
@@ -243,7 +258,7 @@ in
     niri.settings = lib.mkOption {
       type = lib.types.attrsOf kdlValue;
       default = { };
-      description = "niri's config as Nix attrs (home-manager's wayland.windowManager.niri.settings format), written to /etc/niri/config.kdl and validated at build time.";
+      description = "niri's config as Nix attrs (home-manager's wayland.windowManager.niri.settings format), written to /etc/niri/config.kdl and validated at build time. NoX's binds are defaults per key: a bind with the same key under `binds` replaces the whole NoX bind, `\"Mod+Q\" = null` removes it.";
     };
     swaync = {
       enable = lib.mkEnableOption "swaync notifications";
@@ -302,7 +317,7 @@ in
             unset = lib.attrNames (lib.filterAttrs (_: v: v == null) cfg.wm);
           in
           lib.optional (unset != [ ])
-            "nox.desktop.compositor is null and nox.desktop.wm.{${lib.concatStringsSep "," unset}} unset: vm-clip refuses without focusedWindow, close-guard and screenrec-full do nothing, vm-autostart skips its checks and the login terminals, VMs get no screen to share (docs/compositor.md)."
+            "nox.desktop.compositor is null and nox.desktop.wm.{${lib.concatStringsSep "," unset}} unset: vm-clip refuses without focusedWindow, close-guard and screenrec-full do nothing, vm-autostart leaves out the login terminals, VMs get no screen to share (docs/compositor.md)."
           ++ lib.optional (
             cfg.niri.settings != { }
           ) "nox.desktop.niri.settings is set, but nox.desktop.compositor is null: ignored."
