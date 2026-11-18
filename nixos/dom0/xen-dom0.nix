@@ -759,8 +759,8 @@ in
               out=/run/xen-stats
               write() { printf '%s\n' "$2" > "$out/$1.tmp" && mv "$out/$1.tmp" "$out/$1"; }
               ncpu=$(xl info | awk '/^nr_cpus/ { print $3 }')
-              # CPU every 5 s, memory every 30 s (waybar intervals in
-              # home/desktop/waybar.nix). Few processes per round: every fork
+              # CPU every 5 s, memory every 30 s (waybar reads both every
+              # 5 s, desktop/waybar.nix). Few processes per round: every fork
               # costs page-table hypercalls in a PV dom0 (2026-10-21: 3 s with
               # two awk per domain took ~5 % of a core)
               prev="" prev_t="" tick=0
@@ -775,24 +775,19 @@ in
                   write cpu "{\"text\":\"$cpu%\",\"tooltip\":\"CPU of all domains ($ncpu CPUs)\",\"percentage\":$cpu}"
                 fi
                 if [ $((tick % 6)) -eq 0 ]; then
-                  # Per domain: memory it has now / its maximum (ballooning). Xen
-                  # only sees what a guest was given, not what it uses inside
-                  maxes=""
-                  while read -r name id _; do
-                    [ "$name" = Name ] && continue
-                    maxes+="$id $(xenstore-read "/local/domain/$id/memory/static-max" 2>/dev/null || echo 0)"$'\n'
-                  done <<<"$list"
-                  mem=$({ printf '%s\n' "$maxes" | sed 's/^/max /'; printf '%s\n' "$list" | sed 's/^/dom /'; xl info; } |
-                    awk '$1 == "max" { m[$2] = $3; next }
-                      $1 == "dom" { if ($2 == "Name") next; n[++k] = $2; id[k] = $3; c[k] = $4; next }
+                  # Per domain: the memory it has now (ballooning). Xen only
+                  # sees what a guest was given, not what it uses inside. No
+                  # ceiling: Xen's static-max of a hotplug VM stays at its
+                  # boot size until it first grows (xen-memory.nix)
+                  mem=$({ printf '%s\n' "$list" | sed 's/^/dom /'; xl info; } |
+                    awk '$1 == "dom" { if ($2 == "Name") next; n[++k] = $2; c[k] = $4; next }
                       /^total_memory/ { t = $3 } /^free_memory/ { f = $3 }
                       END {
                         for (i = 1; i <= k; i++) {
                           nm = n[i]; sub(/-vm$/, "", nm); if (nm == "Domain-0") nm = "dom0"
-                          if (m[id[i]] > 0) d = d sprintf("\\n%s %.1f/%.1f GB", nm, c[i] / 1024, m[id[i]] / 1048576)
-                          else d = d sprintf("\\n%s %.1f GB", nm, c[i] / 1024)
+                          d = d sprintf("\\n%s %.1f GB", nm, c[i] / 1024)
                         }
-                        printf "{\"text\":\"%.1fG\",\"tooltip\":\"Given to domains: %.1f of %.1f GB (now/max)%s\",\"percentage\":%d}",
+                        printf "{\"text\":\"%.1fG\",\"tooltip\":\"Given to domains: %.1f of %.1f GB%s\",\"percentage\":%d}",
                           (t - f) / 1024, (t - f) / 1024, t / 1024, d, (t - f) * 100 / t }')
                   write mem "$mem"
                 fi

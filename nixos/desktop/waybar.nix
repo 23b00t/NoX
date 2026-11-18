@@ -297,7 +297,7 @@ in
             "format": " {}",
             "return-type": "json",
             "exec": "cat /run/xen-stats/mem",
-            "interval": 30
+            "interval": 5
           },
 
           "custom/xen-cpu": {
