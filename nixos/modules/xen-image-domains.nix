@@ -117,6 +117,11 @@ let
           default = false;
           description = "GUI apps over wprs (wprsd as user service, socket over the relay; `vm-gui` starts apps over rpc `app`) with dom0's pulse.";
         };
+        wprsSharedMemory = lib.mkOption {
+          type = lib.types.bool;
+          default = true;
+          description = "wprs pixel buffers through Xen grant-shared memory (relay `grants` rule, `xen_gntalloc.limit` in the guest) instead of the compressed stream; needs `wprs` and xen_gntalloc in the guest's kernel.";
+        };
         foot = lib.mkOption {
           type = lib.types.bool;
           default = false;
@@ -171,6 +176,7 @@ let
           }
           // lib.optionalAttrs d.wprs { wprs = "/run/user/1000/wprs.sock"; };
       };
+      wprsGrants = d.wprs && d.wprsSharedMemory;
       relayConfig = pkgs.writeText "nox-relay.conf" (
         lib.concatStrings (
           lib.mapAttrsToList (
@@ -180,6 +186,9 @@ let
             + "\n"
           ) relayRulesGuest.listen
           ++ lib.mapAttrsToList (service: path: "serve ${service} ${path}\n") relayRulesGuest.serve
+          # wprsd (user 1000) gets pages granted read-only to dom0 here, never
+          # /dev/xen/gntalloc itself (as in vms/modules/vchan-relay.nix)
+          ++ lib.optional wprsGrants "grants /run/wprs-grants.sock owner=1000:1000\n"
         )
       );
 
@@ -354,10 +363,12 @@ let
           ln -s ${pkgs.wprs}/bin/xwayland-xdg-shell ${pkgs.xwayland}/bin/Xwayland \
             ${wprsClipboard.helper}/bin/vm-clip-helper $out/bin/
           # The wprsd unit lives in the image (rootTree), the arguments here:
-          # no selection sync with dom0 (explicit copy/paste via vm-clip)
+          # no selection sync with dom0 (explicit copy/paste via vm-clip),
+          # wl-copy/wl-paste through wlr-data-control
           ln -s ${pkgs.writeShellScript "wprsd" ''
             # Frame pacing as in the NixOS VMs (vms/modules/wprs.nix)
-            exec ${pkgs.wprs}/bin/wprsd --framerate 120 --selection-sync false "$@"
+            exec ${pkgs.wprs}/bin/wprsd --framerate 120 --selection-sync false --data-control true \
+              ${lib.optionalString wprsGrants "--xen-grant-socket /run/wprs-grants.sock"} "$@"
           ''} $out/bin/wprsd
         ''}
       '';
@@ -457,6 +468,14 @@ let
           StandardError=journal
         ''} $s/nox-rpc-in@.service
         printf '%s\n' ${lib.escapeShellArgs modules} > $out/etc/modules-load.d/nox.conf
+        ${lib.optionalString wprsGrants ''
+          # gntalloc's limit is 1024 pages (4 MB, not even one 1080p buffer);
+          # half of the guest's grant table as in the NixOS VMs. modprobe reads
+          # this when systemd-modules-load loads the module from nox.conf above;
+          # both files are in the guest's root (xen-image-setup) before that
+          mkdir -p $out/etc/modprobe.d
+          echo "options xen_gntalloc limit=16384" > $out/etc/modprobe.d/nox-gntalloc.conf
+        ''}
         ${lib.optionalString d.driverDomain ''
           # One queue per vif: with several, part of the connections of
           # multi-queue clients stalled (Workstation, 2026-10-11)
@@ -826,6 +845,12 @@ in
             owner = "1000:100";
           };
         };
+      # wprsc maps this guest's pixel buffers through it (vm-gui passes it
+      # when the socket exists)
+      grants = lib.mkIf (d.wprs && d.wprsSharedMemory) {
+        path = "/run/nox-relay/${name}-grants.sock";
+        owner = "1000:100";
+      };
     }) cfg.domains;
 
     # vifs come back after a backend restart

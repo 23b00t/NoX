@@ -37,9 +37,10 @@ in
       # Frame callbacks come from a wprsd timer (1/framerate - 2 ms after each
       # commit, default 60): Firefox got ~50 fps and dropped a third of a
       # 60 fps video; with 120 about 10-20 % (2026-10-18, README Known issues)
-      # No clipboard sync with dom0, explicit copy/paste via vm-clip
+      # No clipboard sync with dom0, explicit copy/paste via vm-clip;
+      # wl-copy/wl-paste in the VM through wlr-data-control
       ExecStart =
-        "/run/current-system/sw/bin/wprsd --framerate 120 --selection-sync false"
+        "/run/current-system/sw/bin/wprsd --framerate 120 --selection-sync false --data-control true"
         + lib.optionalString grants " --xen-grant-socket /run/wprs-grants.sock";
     };
     wantedBy = [ "default.target" ];
