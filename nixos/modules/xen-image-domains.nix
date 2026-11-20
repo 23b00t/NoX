@@ -399,6 +399,7 @@ let
         "bridge"
       ];
       wants = [
+        "nox-modules.service"
         "nox-relay.service"
         "nox-rpc-in.socket"
       ]
@@ -408,7 +409,7 @@ let
       # Installed into the guest's root by `xen-image-setup` (only static
       # entry points into /nix/store/nox, nothing that changes with the store disk)
       rootTree = pkgs.runCommand "nox-root-${name}" { } ''
-        mkdir -p $out/nix/store $out/etc/systemd/system/multi-user.target.wants $out/etc/modules-load.d
+        mkdir -p $out/nix/store $out/etc/systemd/system/multi-user.target.wants
         s=$out/etc/systemd/system
         cp ${unit ''
           [Unit]
@@ -434,11 +435,27 @@ let
           mkdir -p $s/sysmaint-boot.target.wants
           ln -s ../nox.target $s/sysmaint-boot.target.wants/nox.target
         ''}
+        # Not through modules-load.d: initramfs generators (dracut hostonly)
+        # copy that into the initramfs, which then loads the modules before
+        # the root is there, without the options below (modprobe.d), until the
+        # next initramfs rebuild. Loaded from the root, modprobe always reads
+        # the modprobe.d that xen-image-setup installed.
+        cp ${unit ''
+          [Unit]
+          Description=Kernel modules for dom0 integration
+          DefaultDependencies=no
+          Before=sysinit.target
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/sbin/modprobe -a ${lib.escapeShellArgs modules}
+        ''} $s/nox-modules.service
         cp ${unit ''
           [Unit]
           Description=nox-relay (guest side)
           Requires=nix-store.mount
-          After=nix-store.mount systemd-modules-load.service
+          After=nix-store.mount nox-modules.service
           StartLimitIntervalSec=0
 
           [Service]
@@ -467,12 +484,10 @@ let
           StandardOutput=socket
           StandardError=journal
         ''} $s/nox-rpc-in@.service
-        printf '%s\n' ${lib.escapeShellArgs modules} > $out/etc/modules-load.d/nox.conf
         ${lib.optionalString wprsGrants ''
           # gntalloc's limit is 1024 pages (4 MB, not even one 1080p buffer);
           # half of the guest's grant table as in the NixOS VMs. modprobe reads
-          # this when systemd-modules-load loads the module from nox.conf above;
-          # both files are in the guest's root (xen-image-setup) before that
+          # this when nox-modules.service loads the module
           mkdir -p $out/etc/modprobe.d
           echo "options xen_gntalloc limit=16384" > $out/etc/modprobe.d/nox-gntalloc.conf
         ''}
@@ -486,7 +501,7 @@ let
             Description=Mount /proc/xen files
             ConditionPathExists=/proc/xen
             ConditionPathExists=!/proc/xen/capabilities
-            After=systemd-modules-load.service
+            After=nox-modules.service
 
             [Mount]
             What=xenfs
@@ -519,7 +534,7 @@ let
             [Unit]
             Description=Bridge ${d.internalBridge} for the vifs this domain serves
             DefaultDependencies=no
-            After=systemd-modules-load.service
+            After=nox-modules.service
             Before=network-pre.target networking.service
             Wants=network-pre.target
 
@@ -738,9 +753,11 @@ let
     trap 'rm -f "$cmds"' EXIT
     cd "$tree"
     {
-      # Units of earlier store disks (sshd over vchan, gone with the SSH removal)
-      for old in sshd-vchan.socket sshd-vchan@.service nox-sshd-setup.service; do
-        exists "/etc/systemd/system/$old" && echo "rm /etc/systemd/system/$old"
+      # Files of earlier setups: sshd over vchan (gone with the SSH removal),
+      # modules-load.d (now nox-modules.service, see rootTree)
+      for old in /etc/systemd/system/{sshd-vchan.socket,sshd-vchan@.service,nox-sshd-setup.service} \
+        /etc/modules-load.d/nox.conf; do
+        exists "$old" && echo "rm $old"
       done
       true
     } >"$cmds"
