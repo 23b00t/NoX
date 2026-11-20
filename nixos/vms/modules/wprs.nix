@@ -39,9 +39,14 @@ in
       # 60 fps video; with 120 about 10-20 % (2026-10-18, README Known issues)
       # No clipboard sync with dom0, explicit copy/paste via vm-clip;
       # wl-copy/wl-paste in the VM through wlr-data-control
+      # No X11 over wprs with the NVIDIA driver (steam): wprsd's Xwayland
+      # died in libnvidia-egl-gbm at GLX init (no GBM under wprs, SIGSEGV),
+      # and xwayland-xdg-shell then spun a core at 100 % (smithay 0.7
+      # takes the dead displayfd for "not ready yet", 2026-11-20)
       ExecStart =
         "/run/current-system/sw/bin/wprsd --framerate 120 --selection-sync false --data-control true"
-        + lib.optionalString grants " --xen-grant-socket /run/wprs-grants.sock";
+        + lib.optionalString grants " --xen-grant-socket /run/wprs-grants.sock"
+        + lib.optionalString (lib.elem "nvidia" config.services.xserver.videoDrivers) " --enable-xwayland false";
     };
     wantedBy = [ "default.target" ];
   };

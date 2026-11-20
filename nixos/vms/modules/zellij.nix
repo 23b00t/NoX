@@ -48,24 +48,187 @@ let
     inherit (vmRegistry) theme;
   };
   term = theme.foot.colors-dark;
-  # zellij's legacy theme format: green is its active frame and tab, orange
-  # its key hints; they take the desktop's accents, the rest the terminal
-  # colors
+  # zellij's palette roles: green is its active frame and tab, orange its key
+  # hints; they take the desktop's accents, the rest the terminal colors.
+  # termFg/termBg: the terminal's (foot's) default colors
+  p = {
+    fg = theme.raw.fg;
+    bg = theme.raw.border;
+    black = term.regular0;
+    red = term.regular1;
+    green = theme.raw.accent;
+    yellow = term.regular3;
+    blue = term.regular4;
+    magenta = term.regular5;
+    cyan = term.regular6;
+    white = term.regular7;
+    orange = theme.raw.accentStrong;
+    termFg = term.foreground;
+    termBg = term.background;
+  };
+  # A role's color; "unset": palette index 0, what zellij puts in the roles a
+  # legacy theme has no key for (gold, silver, purple, pink, brown, gray)
+  c = role: if role == "unset" then "0" else ''"#${p.${role}}"'';
+  # The theme in zellij's current format, built from the roles the way zellij
+  # converts a legacy theme (zellij-utils `From<Palette> for Styling`, dark
+  # hue), so the UI looks as with the former legacy theme. One difference:
+  # `zellij terminal` takes its default foreground/background from
+  # `text_unselected`, which therefore gets termFg/termBg; the legacy format
+  # cannot set that (it puts white on black there). `terminal_colors` are
+  # the window's 16 ANSI colors (xterm's otherwise), foot's palette.
+  # [ base background emphasis_0..3 ]; background null: zellij's default
+  styles = {
+    text_unselected = [
+      "termFg"
+      "termBg"
+      "orange"
+      "cyan"
+      "green"
+      "magenta"
+    ];
+    text_selected = [
+      "white"
+      "bg"
+      "orange"
+      "cyan"
+      "green"
+      "magenta"
+    ];
+    ribbon_unselected = [
+      "black"
+      "fg"
+      "red"
+      "white"
+      "blue"
+      "magenta"
+    ];
+    ribbon_selected = [
+      "black"
+      "green"
+      "red"
+      "orange"
+      "magenta"
+      "blue"
+    ];
+    exit_code_success = [
+      "green"
+      null
+      "cyan"
+      "black"
+      "magenta"
+      "blue"
+    ];
+    exit_code_error = [
+      "red"
+      null
+      "yellow"
+      "unset"
+      "unset"
+      "unset"
+    ];
+    frame_selected = [
+      "green"
+      null
+      "orange"
+      "cyan"
+      "magenta"
+      "unset"
+    ];
+    frame_highlight = [
+      "orange"
+      null
+      "magenta"
+      "unset"
+      "orange"
+      "orange"
+    ];
+    table_title = [
+      "green"
+      "unset"
+      "orange"
+      "cyan"
+      "green"
+      "magenta"
+    ];
+    table_cell_unselected = [
+      "white"
+      "black"
+      "orange"
+      "cyan"
+      "green"
+      "magenta"
+    ];
+    table_cell_selected = [
+      "white"
+      "bg"
+      "orange"
+      "cyan"
+      "green"
+      "magenta"
+    ];
+    list_unselected = [
+      "white"
+      "black"
+      "orange"
+      "cyan"
+      "green"
+      "magenta"
+    ];
+    list_selected = [
+      "white"
+      "bg"
+      "orange"
+      "cyan"
+      "green"
+      "magenta"
+    ];
+  };
+  players = [
+    "magenta"
+    "blue"
+    "unset"
+    "yellow"
+    "cyan"
+    "unset"
+    "red"
+    "unset"
+    "unset"
+    "unset"
+  ];
+  ansiNames = [
+    "black"
+    "red"
+    "green"
+    "yellow"
+    "blue"
+    "magenta"
+    "cyan"
+    "white"
+  ];
+  styleKdl =
+    name: roles:
+    let
+      at = builtins.elemAt roles;
+    in
+    "${name} {\n  base ${c (at 0)}\n"
+    + lib.optionalString (at 1 != null) "  background ${c (at 1)}\n"
+    + lib.concatImapStrings (i: r: "  emphasis_${toString (i - 1)} ${c r}\n") (lib.drop 2 roles)
+    + "}\n";
   themeKdl = ''
     themes {
-        nox {
-            fg "#${theme.raw.fg}"
-            bg "#${theme.raw.border}"
-            black "#${term.regular0}"
-            red "#${term.regular1}"
-            green "#${theme.raw.accent}"
-            yellow "#${term.regular3}"
-            blue "#${term.regular4}"
-            magenta "#${term.regular5}"
-            cyan "#${term.regular6}"
-            white "#${term.regular7}"
-            orange "#${theme.raw.accentStrong}"
-        }
+    nox {
+    ${lib.concatStrings (lib.mapAttrsToList styleKdl styles)}multiplayer_user_colors {
+    ${lib.concatImapStrings (i: r: "  player_${toString i} ${c r}\n") players}}
+    terminal_colors {
+    ${
+      lib.concatImapStrings (
+        i: n:
+        "  ${n} \"#${term."regular${toString (i - 1)}"}\"\n  bright_${n} \"#${
+            term."bright${toString (i - 1)}"
+          }\"\n"
+      ) ansiNames
+    }}
+    }
     }
   '';
 in

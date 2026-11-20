@@ -461,6 +461,13 @@ output and exit code through. The built-in tools read their data from
 | `nox rollback <vm> [--gen n\|mark \| --mark \| --unmark \| --reset]` | `vm-rollback …`: runner of an older system generation (or the VM's mark) as its `current`, VM restarted; holds over reboots until another system is activated (update, rebuild) or `--reset`. `--mark`: the VM's current runner as known good, one per VM, survives `nox gc`; `--unmark` drops it again (a rollback to the mark holds until `--reset`). `nox list` (ROLLBACK) and `nox doctor` (WARN) show rolled back VMs. Configuration only; data comes back with `nox backup restore` |
 | `nox gc [--keep n] [-n]` | `vm-gc …` (old system generations, then GC; default keeps 3) |
 
+Which commit runs: `nixos-version --configuration-revision` in dom0 prints the
+config's commit the system was built from (`mkSystems` sets
+`system.configurationRevision`; dom0 only; a build from a dirty tree or with
+`--override-input` has none: "configuration revision is unknown"). The NoX commit is the one in that commit's
+flake.lock: `git show <rev>:flake.lock | jq -r .nodes.nox.locked.rev` in the
+config repo.
+
 `nox help <command>`, `nox <command> --help` and `nox <command>… help` (e.g.
 `nox backup restore help`) describe each one. Bash
 completion knows the VM names from `/etc/nox/registry.json`:

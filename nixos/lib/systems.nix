@@ -62,6 +62,11 @@ let
         modules = [
           self.nixosModules.dom0-base
           self.nixosModules.disk
+          # The config's commit (`nixos-version --configuration-revision`);
+          # dom0 only, in the VMs it would change every system on each commit
+          {
+            system.configurationRevision = inputs.self.rev or inputs.self.dirtyRev or null;
+          }
         ]
         ++ modules
         ++ (machine.modules or [ ]);
