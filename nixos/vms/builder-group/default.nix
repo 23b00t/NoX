@@ -173,6 +173,10 @@ in
   };
   systemd.sockets.nix-daemon.unitConfig.RequiresMountsFor = [ stateDir ];
 
+  # Flake builds, no channels: Lix warned about the missing channels path in
+  # NIX_PATH on every evaluation
+  nix.channel.enable = false;
+
   nix.settings = {
     # nox.builders.<name>.maxJobs/cores; default one job per 8 GB, at least 2
     max-jobs =

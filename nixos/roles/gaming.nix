@@ -13,6 +13,7 @@
   lib,
   pkgs,
   config,
+  vmRegistry,
   ...
 }:
 let
@@ -73,8 +74,253 @@ let
       done
       sleep 0.5
     done
-    exec gamescope ${lib.escapeShellArgs cfg.gamescopeArgs} -- steam ${lib.escapeShellArgs cfg.steamArgs}
+    exec gamescope ${lib.escapeShellArgs cfg.gamescopeArgs} -- nox-gaming-splash steam ${lib.escapeShellArgs cfg.steamArgs}
   '';
+
+  # The fleet's theme (registry nox.theme), the same as dom0's desktop
+  theme = import ../desktop/theme.nix {
+    inherit lib;
+    inherit (vmRegistry) theme;
+  };
+
+  # Steam's start can take minutes (self-update, unpacking) and the session
+  # shows nothing meanwhile: `nox-gaming-splash steam …` runs Steam with its
+  # output in ~/session.log and shows a fullscreen xterm with the phases and
+  # the update progress until Steam's window is there. The screen reads a log
+  # file, not a FIFO: without a reader a FIFO would kill Steam with SIGPIPE.
+  # Without DISPLAY (no gamescope) it just runs the command.
+  splash = pkgs.writeShellApplication {
+    name = "nox-gaming-splash";
+    runtimeInputs = with pkgs; [
+      coreutils
+      gnugrep
+      procps
+      xterm
+      xwininfo
+    ];
+    text = ''
+      export SPLASH_BG=${theme.raw.bgDark} SPLASH_FG=${theme.raw.fg}
+      export SPLASH_ACCENT=${theme.raw.accent} SPLASH_ACCENT2=${theme.raw.accent2}
+      export SPLASH_MUTED=${theme.raw.muted} SPLASH_OK=${theme.raw.ok}
+      export SPLASH_WARN=${theme.raw.warn} SPLASH_URGENT=${theme.raw.urgent}
+
+      # nox-gaming-splash <steam command...>
+      # Runs the command (Steam) with its output in ~/session.log and in a private
+      # log, and shows a fullscreen xterm with progress until Steam's window is up.
+      # Colors come in as SPLASH_* hex values (the fleet theme), without '#'.
+
+      rgb() { printf '\033[38;2;%d;%d;%dm' "0x''${1:0:2}" "0x''${1:2:2}" "0x''${1:4:2}"; }
+
+      # ---------------------------------------------------------------- the screen
+      ui() {
+        local dir=$1 log=$1/steam.log
+        local c_fg c_acc c_acc2 c_mut c_ok c_warn c_err rst=$'\033[0m' bold=$'\033[1m'
+        c_fg=$(rgb "$SPLASH_FG")
+        c_acc=$(rgb "$SPLASH_ACCENT")
+        c_acc2=$(rgb "$SPLASH_ACCENT2")
+        c_mut=$(rgb "$SPLASH_MUTED")
+        c_ok=$(rgb "$SPLASH_OK")
+        c_warn=$(rgb "$SPLASH_WARN")
+        c_err=$(rgb "$SPLASH_URGENT")
+
+        # phase state: 0 = waiting, 1 = running, 2 = done
+        local -a names=("Display" "Network" "Steam update" "Unpacking" "Steam starts")
+        local -a st=(2 0 0 0 0)
+        local pct=-1 kb_done="" kb_total="" last="" lines_seen=0
+        local started=$SECONDS up_since=-1 failed=0 final=""
+        local -a spin=("|" "/" "-" "\\") tail_buf=("" "" "")
+        local i=0 line
+
+        # Steam's lines end in \r or \n, depending on the stage
+        exec 3< <(tail -n +1 -F "$log" 2>/dev/null | stdbuf -o0 tr '\r' '\n')
+
+        advance() { # phase index: everything before is done, this one runs
+          local n=$1 k
+          for ((k = 0; k < n; k++)); do st[k]=2; done
+          ((st[n] == 2)) || st[n]=1
+        }
+
+        parse() {
+          local l=$1 num
+          [[ -n "''${l//[[:space:]]/}" ]] || return 0
+          last=$l
+          lines_seen=$((lines_seen + 1))
+          tail_buf=("''${tail_buf[1]}" "''${tail_buf[2]}" "$l")
+          if [[ $l =~ \[\ *([0-9]+)%\] ]]; then
+            pct=''${BASH_REMATCH[1]}
+          fi
+          if [[ $l =~ \(([0-9][0-9,.\ ]*)\ of\ ([0-9][0-9,.\ ]*)\ ?[Kk][Bb]\) ]]; then
+            num=''${BASH_REMATCH[1]//[^0-9]/}
+            kb_done=$num
+            num=''${BASH_REMATCH[2]//[^0-9]/}
+            kb_total=$num
+          fi
+          case ''${l,,} in
+            *"checking for available"*) advance 1 ;;
+            *"downloading update"* | *"verifying installation"* | *"downloading"*)
+              advance 2
+              ;;
+            *"extracting"* | *"installing"* | *"unpacking"*) advance 3 ;;
+            *"update complete"* | *"verification complete"* | *"launching steam"* | *"running steam"*)
+              advance 4
+              ;;
+          esac
+        }
+
+        # The window: steamwebhelper runs and an X window named Steam exists, or
+        # steamwebhelper has run for 15 s (the window's name is not known for sure)
+        window_up() {
+          pgrep -x steamwebhelper >/dev/null || return 1
+          if ((up_since < 0)); then up_since=$SECONDS; fi
+          if xwininfo -root -tree 2>/dev/null | grep -E '^ +0x[0-9a-f]+ "(Steam|Steam Big Picture Mode|Steam Deck)[^"]*"' >/dev/null; then
+            return 0
+          fi
+          ((SECONDS - up_since >= 15))
+        }
+
+        bar() { # width pct
+          local w=$1 p=$2 f k out=""
+          f=$((w * p / 100))
+          for ((k = 0; k < w; k++)); do
+            if ((k < f)); then out+="█"; else out+="░"; fi
+          done
+          printf '%s' "$out"
+        }
+
+        local -a logo=(
+          "███╗   ██╗ ██████╗ ██╗  ██╗"
+          "████╗  ██║██╔═══██╗╚██╗██╔╝"
+          "██╔██╗ ██║██║   ██║ ╚███╔╝ "
+          "██║╚██╗██║██║   ██║ ██╔██╗ "
+          "██║ ╚████║╚██████╔╝██╔╝ ██╗"
+          "╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═╝"
+        )
+        local -a pad=(
+          "   ______________   "
+          "  /  _  .  ( )   \\  "
+          " |  (_) +  (_)  _  | "
+          " |_/ \\_______/ \\_|  "
+        )
+
+        local cols margin k mark col elapsed text w spinch out lm
+        printf '\033[?25l\033[2J'
+        trap 'printf "\033[?25h\033[0m"' EXIT
+
+        while :; do
+          # read what Steam printed since the last round (200 ms at most)
+          while IFS= read -r -t 0.2 -u 3 line; do parse "$line"; done || true
+
+          if [[ -e $dir/status ]]; then
+            # drain once more, then stay on the screen
+            while IFS= read -r -t 0.3 -u 3 line; do parse "$line"; done || true
+            failed=1
+            final="Steam ended (exit $(cat "$dir/status"))"
+          elif ((SECONDS - started >= 2)) && window_up; then
+            st=(2 2 2 2 2)
+            final="ok"
+          fi
+          if ((st[4] == 0)) && pgrep -x steamwebhelper >/dev/null; then advance 4; fi
+
+          read -r _ cols < <(stty size 2>/dev/null || echo "40 120")
+          margin=$(((cols - 40) / 2))
+          ((margin < 2)) && margin=2
+          w=$((cols - 2 * margin))
+          ((w > 70)) && w=70
+          ((w < 20)) && w=20
+          elapsed=$((SECONDS - started))
+          spinch=''${spin[i % 4]}
+          i=$((i + 1))
+
+          out=$'\033[H'
+          emit() { out+=$'\033[K'"$1"$'\n'; }
+          sp() { printf '%*s' "$1" ""; }
+          lm=$(sp $(((cols - 28) / 2)))
+          emit ""
+          emit ""
+          for k in 0 1 2 3 4 5; do emit "$lm$bold$c_acc''${logo[k]}$rst"; done
+          emit "$lm$c_acc2//$rst $c_fg''${bold}s t e a m$rst"
+          emit ""
+          lm=$(sp $(((cols - 22) / 2)))
+          for k in 0 1 2 3; do emit "$lm$c_mut''${pad[k]}$rst"; done
+          emit ""
+          lm=$(sp $margin)
+          for k in 0 1 2 3 4; do
+            case ''${st[k]} in
+              2) mark="''${c_ok}✔$rst"; col=$c_fg ;;
+              1) mark="''${c_warn}''${spin[i % 4]}$rst"; col=$bold$c_fg ;;
+              *) mark="''${c_mut}·$rst"; col=$c_mut ;;
+            esac
+            if ((failed && st[k] == 1)); then mark="''${c_err}✘$rst"; fi
+            emit "$lm $mark  $col''${names[k]}$rst"
+          done
+          emit ""
+          if ((pct >= 0)); then
+            text="$pct %"
+            [[ -n $kb_total ]] && text+="   $((kb_done / 1024)) of $((kb_total / 1024)) MB"
+            emit "$lm$c_acc$(bar "$w" "$pct")$rst"
+            emit "$lm$c_fg$text$rst"
+          else
+            emit "$lm$c_mut$(bar "$w" 0)$rst"
+            emit "$lm''${c_mut}waiting for Steam ...$rst"
+          fi
+          emit ""
+          if ((failed)); then
+            emit "$lm$bold$c_err$final$rst"
+            emit "$lm''${c_mut}Last lines of Steam (full log: ~/session.log), Ctrl+C closes this screen:$rst"
+            for k in 0 1 2; do emit "$lm$c_fg''${tail_buf[k]:0:$w}$rst"; done
+          else
+            emit "$lm$c_acc2$spinch$rst  ''${c_fg}''${elapsed} s$rst"
+            emit "$lm$c_mut''${last:0:$w}$rst"
+          fi
+          printf '%s\033[J' "$out"
+
+          if [[ $final == ok ]]; then break; fi
+          if ((failed)); then
+            # stay until a key (the pad's keyboard) or 10 minutes
+            read -r -n1 -t 600 || true
+            break
+          fi
+        done
+      }
+
+      # ------------------------------------------------------------------ wrapper
+      if [[ ''${1:-} == --ui ]]; then
+        ui "$2"
+        exit 0
+      fi
+
+      if (($# == 0)); then
+        echo "usage: nox-gaming-splash <command> [args...]" >&2
+        exit 2
+      fi
+
+      dir=$(mktemp -d "''${XDG_RUNTIME_DIR:-/tmp}/nox-splash.XXXXXX")
+      trap 'rm -rf "$dir"' EXIT
+      : >"$dir/steam.log"
+
+      # Steam: stdout/stderr go to our own stdout (~/session.log) and to the log
+      # the screen reads. A file instead of a FIFO: when the screen is gone, a
+      # FIFO's writer would die of SIGPIPE (and Steam with it).
+      {
+        set +e
+        "$@" 2>&1
+        echo $? >"$dir/status"
+      } | tee -a "$dir/steam.log" &
+      steam=$!
+
+      xpid=""
+      if [[ -n ''${DISPLAY:-} ]]; then
+        xterm -fullscreen -T "nox-gaming-splash" -fa monospace -fs "''${SPLASH_FONT_SIZE:-26}" \
+          -bg "#$SPLASH_BG" -fg "#$SPLASH_FG" -b 0 +sb -xrm 'XTerm*cursorBlink: false' \
+          -e "$0" --ui "$dir" &
+        xpid=$!
+      fi
+
+      wait "$steam" || true
+      if [[ -n $xpid ]]; then wait "$xpid" || true; fi
+      exit "$(cat "$dir/status" 2>/dev/null || echo 1)"
+    '';
+  };
 in
 {
   options.nox.gaming = {
@@ -168,6 +414,9 @@ in
       };
     };
 
+    # The splash screen's xterm needs a font
+    fonts.packages = [ pkgs.dejavu_fonts ];
+
     programs = {
       gamescope.enable = true;
       steam = {
@@ -205,6 +454,7 @@ in
         pciutils
         btop
         padPair
+        splash
       ];
       etc."MangoHud/MangoHud.conf".text = ''
         fps
