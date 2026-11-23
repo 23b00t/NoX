@@ -318,6 +318,39 @@ fn relay_peer(vm: &str) -> Option<String> {
         .map(|a| String::from_utf8_lossy(a).into_owned())
 }
 
+/// The `--config` value of a running nox-relay from its /proc cmdline; None
+/// while the unit's main process is still the bash script waiting for the
+/// guest (argv[0] is not nox-relay)
+pub fn relay_config(cmdline: &[u8]) -> Option<String> {
+    let args: Vec<&[u8]> = cmdline.split(|b| *b == 0).collect();
+    let exe = String::from_utf8_lossy(args.first()?).into_owned();
+    if exe.rsplit('/').next() != Some("nox-relay") {
+        return None;
+    }
+    let i = args.iter().position(|a| *a == b"--config")?;
+    args.get(i + 1)
+        .map(|a| String::from_utf8_lossy(a).into_owned())
+}
+
+/// Whether the relay's loaded config differs from the current generation's
+/// /etc/nox-relay/<vm>.conf. None: nothing to report (relay still waiting,
+/// or no /etc file: a relay from before the config moved to /etc)
+fn relay_config_stale(vm: &str) -> Option<bool> {
+    let pid = output(
+        "systemctl",
+        &[
+            "show",
+            "-p",
+            "MainPID",
+            "--value",
+            &format!("nox-relay-{vm}.service"),
+        ],
+    );
+    let loaded = relay_config(&fs::read(format!("/proc/{pid}/cmdline")).ok()?)?;
+    let current = fs::canonicalize(format!("/etc/nox-relay/{vm}.conf")).ok()?;
+    Some(std::path::Path::new(&loaded) != current)
+}
+
 /// "… (domid N) to die" in the journal of the unit's current invocation
 pub fn domid_from_journal(text: &str) -> Option<String> {
     text.lines().rev().find_map(|l| {
@@ -611,6 +644,26 @@ pub fn run_doctor(verbose: u8, mark: bool) -> ExitCode {
                     peer.as_deref().unwrap_or("none")
                 ),
             ),
+        }
+    }
+
+    // --- relay config: still the one the VM started with after a switch?
+    for d in running.iter().filter(|d| !d.domain.is_empty()) {
+        match relay_config_stale(&d.name) {
+            Some(true) => t.row(
+                Stat::Warn,
+                &format!("relay config {}", d.name),
+                &format!(
+                    "relay config stale (switched since the VM started): nox restart {}",
+                    d.name
+                ),
+            ),
+            Some(false) => t.row(
+                Stat::Pass,
+                &format!("relay config {}", d.name),
+                "current generation",
+            ),
+            None => {}
         }
     }
 
@@ -1790,6 +1843,15 @@ fn wl_copy(text: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relay_config_from_cmdline() {
+        let c = b"/nix/store/x-nox-relay/bin/nox-relay\0--role\0client\0--config\0/nix/store/y-conf\0--ready-file\0/r";
+        assert_eq!(relay_config(c).as_deref(), Some("/nix/store/y-conf"));
+        assert_eq!(relay_config(b"/bin/bash\0/nix/store/s-script\0"), None);
+        assert_eq!(relay_config(b"nox-relay\0--role\0client\0"), None);
+        assert_eq!(relay_config(b""), None);
+    }
 
     #[test]
     fn registry_parses() {

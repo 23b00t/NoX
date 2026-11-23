@@ -161,16 +161,22 @@ in
     })
 
     (lib.mkIf cfg.host.enable {
+      # Read by the relay when it connects (script below)
+      environment.etc = lib.mapAttrs' (
+        name: g: lib.nameValuePair "nox-relay/${name}.conf" { source = configFile name g; }
+      ) cfg.host.guests;
+
       systemd.services = lib.mapAttrs' (
         name: g:
         lib.nameValuePair "nox-relay-${name}" {
           description = "nox-relay to ${g.domain}";
           wantedBy = [ "multi-user.target" ];
           # Not restarted by a rebuild: that cut every wprsc of the guest and
-          # its windows vanished (the apps kept running). The new relay runs
-          # from the guest's next start on (both sides exit when the peer goes
-          # away, Restart=always picks up the new unit), together with the
-          # guest's own new relay
+          # its windows vanished (the apps kept running). A connected relay
+          # keeps its config until the guest restarts (both sides exit when
+          # the peer goes away, Restart=always picks up the new unit); a relay
+          # still waiting for its guest reads the current one from /etc when
+          # it connects
           restartIfChanged = false;
           path = [ cfg.host.xenPackage ];
           # The domain id changes with every guest start: look it up each time
@@ -178,8 +184,12 @@ in
             until domid="$(xl domid ${lib.escapeShellArg g.domain} 2>/dev/null)"; do
               sleep 3
             done
+            # Resolved only now, so a relay that waited across a switch takes
+            # the current generation; the store path in /proc/<pid>/cmdline
+            # shows which config it loaded (nox doctor compares it)
+            conf="$(readlink -f /etc/nox-relay/${name}.conf)"
             exec ${exe} --role client --peer "$domid" \
-              --path "/local/domain/$domid/${g.path}" --config ${configFile name g} \
+              --path "/local/domain/$domid/${g.path}" --config "$conf" \
               --ready-file /run/nox-relay/${name}.ready
           '';
           serviceConfig = {
