@@ -386,6 +386,39 @@ let
           '';
 
       unit = text: pkgs.writeText "unit" text;
+      # Runs in the (Debian) guest: no store paths, only the guest's tools
+      initrdRebuild = pkgs.writeText "initrd-rebuild.sh" ''
+        #!/bin/sh
+        set -eu
+        if command -v dracut >/dev/null; then
+          list=lsinitrd
+        else
+          list=lsinitramfs
+        fi
+        old=
+        t0="$(date +%s)"
+        # Debian's name, not dracut's default (initramfs-<k>.img)
+        for m in /lib/modules/*; do
+          k="''${m##*/}"
+          i="/boot/initrd.img-$k"
+          [ -e "$i" ] || continue
+          if "$list" "$i" | grep -q 'etc/modules-load\.d/nox\.conf'; then
+            echo "$i has the old modules-load.d/nox.conf"
+            old=1
+          fi
+          if [ "$list" = lsinitrd ]; then
+            dracut -f --kver "$k" "$i"
+          else
+            update-initramfs -u -k "$k"
+          fi
+        done
+        rm -f /etc/nox/initrd-rebuild
+        echo "initramfs rebuilt in $(($(date +%s) - t0)) s"
+        if [ -n "$old" ]; then
+          echo "rebooting once to boot the new initramfs"
+          systemctl --no-block reboot
+        fi
+      '';
       modules = [
         "xen-gntdev"
         "xen-gntalloc"
@@ -451,6 +484,28 @@ let
           RemainAfterExit=yes
           ExecStart=/usr/sbin/modprobe -a ${lib.escapeShellArgs modules}
         ''} $s/nox-modules.service
+        # One rebuild of the initramfs after every setup (marker), so an
+        # initramfs built before nox-modules.service (with the old
+        # modules-load.d/nox.conf, modules loaded without their modprobe.d
+        # options) does not survive; reboots once if it found such a one
+        mkdir -p $out/etc/nox
+        touch $out/etc/nox/initrd-rebuild
+        cp ${initrdRebuild} $out/etc/nox/initrd-rebuild.sh
+        chmod 0755 $out/etc/nox/initrd-rebuild.sh
+        cp ${unit ''
+          [Unit]
+          Description=Rebuild the initramfs once after xen-image-setup
+          ConditionPathExists=/etc/nox/initrd-rebuild
+          After=local-fs.target
+
+          [Service]
+          Type=oneshot
+          ExecStart=/etc/nox/initrd-rebuild.sh
+
+          [Install]
+          WantedBy=multi-user.target
+        ''} $s/nox-initrd.service
+        ln -s ../nox-initrd.service $s/multi-user.target.wants/nox-initrd.service
         cp ${unit ''
           [Unit]
           Description=nox-relay (guest side)
