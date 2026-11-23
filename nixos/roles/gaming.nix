@@ -372,6 +372,10 @@ in
     # reboot the VM (as in common-config)
     systemd.ctrlAltDelUnit = "/dev/null";
 
+    # Flake builds, no channels (as in common-config): Lix warned about the
+    # missing channels path in NIX_PATH on every evaluation
+    nix.channel.enable = false;
+
     boot.loader = {
       systemd-boot.enable = lib.mkDefault true;
       efi.canTouchEfiVariables = lib.mkDefault true;

@@ -531,10 +531,6 @@ in
     };
   };
 
-  # Flake builds, no channels: Lix warned about the missing channels path in
-  # NIX_PATH on every evaluation
-  nix.channel.enable = false;
-
   # nix.package (Lix, like dom0) comes from common-config
   nix.settings = {
     # RAM, not CPU, is the limit: the evaluator keeps its heap for the whole

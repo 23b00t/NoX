@@ -158,6 +158,10 @@ in
 
     nix.package = pkgs.lixPackageSets.latest.lix;
 
+    # Flake builds, no channels: Lix warned about the missing channels path in
+    # NIX_PATH on every evaluation
+    nix.channel.enable = false;
+
     # The RAM balancer (dom0 modules/xen-memory.nix) reacts in 2-4 s; zram
     # bridges a faster peak instead of the OOM killer (2026-10-27: magick
     # took 1.1 GB in a VM between two steps). It counts used swap as usage,
