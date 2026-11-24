@@ -184,12 +184,39 @@ let
 
     dom0-update "''${args[@]}"
 
-    # Starts the domain if it is off (the Gateway waits for sys-firewall's uplink)
+    # A domain that ran through a switch keeps its old store disk and with it
+    # the old nox-rpc-in (Gateway: "unknown service apt-upgrade-yes",
+    # 2026-11-24): compare the running xvdb with the current xl.cfg. No
+    # answer from xl counts as current (left as it is)
+    declare -A domain_of=(${
+      lib.concatStrings (lib.mapAttrsToList (n: d: "[${n}]=${lib.escapeShellArg d.domain} ") imageDomains)
+    })
+    store_disk_current() {
+      local running want
+      running="$(sudo timeout 10 ${config.virtualisation.xen.package}/bin/xl list -l "''${domain_of[$1]}" |
+        ${pkgs.jq}/bin/jq -r '.[0].config.disks[] | select(.vdev == "xvdb") | .pdev_path')" || return 0
+      want="$(grep -o '/nix/store/[^"]*squashfs' "/etc/xen/image-domains/$1/xl.cfg")"
+      [ "$running" = "$want" ]
+    }
+
+    # Starts the domain if it is off (the Gateway waits for sys-firewall's
+    # uplink); restarts it onto the current store disk (-y: without asking)
     ensure_running() {
+      local answer=y
       if ! systemctl is-active --quiet "xen-image@$1"; then
         echo "update-all: starting $1" >&2
         sudo systemctl start "xen-image@$1"
         started+=("$1")
+      elif ! store_disk_current "$1"; then
+        if [ "$yes" = 1 ]; then
+          echo "update-all: $1 runs on an older store disk (rpc services), restarting it" >&2
+        else
+          read -r -p "update-all: $1 runs on an older store disk (rpc services), restart it now? [Y/n] " answer
+        fi
+        case "$answer" in
+          n | N) ;;
+          *) sudo systemctl restart "xen-image@$1" ;;
+        esac
       fi
     }
 
