@@ -305,7 +305,9 @@ let
             fi
             ;;
         ''}
-          apt-upgrade)
+          # apt-upgrade-yes: update-all --yes, no questions (debconf takes
+          # the defaults, dpkg keeps changed config files)
+          apt-upgrade | apt-upgrade-yes)
             exec 2>&1
             ${lib.optionalString (d.sysmaintEntry != null) ''
               if [ "$sysmaint" != 1 ]; then
@@ -313,6 +315,11 @@ let
                 exit 1
               fi
             ''}
+            if [ "$service" = apt-upgrade-yes ]; then
+              exec env DEBIAN_FRONTEND=noninteractive apt-get --update -y \
+                -o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold \
+                full-upgrade </dev/null
+            fi
             exec apt-get --update full-upgrade
             ;;
           *)

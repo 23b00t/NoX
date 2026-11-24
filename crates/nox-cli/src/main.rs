@@ -274,6 +274,9 @@ enum Cmd {
         /// Also update the image domains (Whonix, apt over Tor)
         #[arg(long)]
         all: bool,
+        /// With --all: apt without questions, no kernel restart offer
+        #[arg(short = 'y', long, requires = "all")]
+        yes: bool,
         /// Activate right away instead of on the next boot
         #[arg(long)]
         switch: bool,
@@ -293,6 +296,9 @@ enum Cmd {
         /// Also update the image domains (Whonix, apt over Tor), no new inputs
         #[arg(long, conflicts_with = "iso")]
         all: bool,
+        /// With --all: apt without questions, no kernel restart offer
+        #[arg(short = 'y', long, requires = "all")]
+        yes: bool,
         /// Activate right away instead of on the next boot
         #[arg(long)]
         switch: bool,
@@ -683,6 +689,11 @@ fn build_program(all: bool) -> &'static str {
     }
 }
 
+/// update-all's own flag (requires --all, so it never reaches dom0-update)
+fn yes_arg(yes: bool) -> Option<OsString> {
+    yes.then(|| "--yes".into())
+}
+
 /// dom0-update's arguments for `nox update` / `nox rebuild`
 fn build_args(
     switch: bool,
@@ -945,6 +956,7 @@ fn main() -> ExitCode {
         Cmd::Printers { menu } => exec("nox-printers", if menu { vec!["--menu"] } else { vec![] }),
         Cmd::Update {
             all,
+            yes,
             switch,
             machine,
             branch,
@@ -956,10 +968,12 @@ fn main() -> ExitCode {
             let mut a: Vec<OsString> = vec!["--bump".into()];
             a.extend(build_args(switch, None, machine, branch));
             a.extend(builders.args());
+            a.extend(yes_arg(yes));
             exec(build_program(all), a)
         }
         Cmd::Rebuild {
             all,
+            yes,
             switch,
             iso,
             machine,
@@ -971,6 +985,7 @@ fn main() -> ExitCode {
             }
             let mut a = build_args(switch, iso, machine, branch);
             a.extend(builders.args());
+            a.extend(yes_arg(yes));
             exec(build_program(all), a)
         }
         Cmd::Mic { action } => mic(action),
@@ -1234,6 +1249,22 @@ mod tests {
         };
         assert!(all);
         assert_eq!(build_args(switch, None, machine, branch), ["--switch"]);
+    }
+
+    #[test]
+    fn yes_needs_all() {
+        for cmd in ["update", "rebuild"] {
+            let cli = Cli::try_parse_from(["nox", cmd, "--all", "-y"]).unwrap();
+            let yes = match cli.command {
+                Some(Cmd::Update { yes, .. } | Cmd::Rebuild { yes, .. }) => yes,
+                _ => panic!("not {cmd}"),
+            };
+            assert!(yes);
+            assert_eq!(yes_arg(yes), Some("--yes".into()));
+            assert!(Cli::try_parse_from(["nox", cmd, "--all", "--yes"]).is_ok());
+            assert!(Cli::try_parse_from(["nox", cmd, "--yes"]).is_err());
+        }
+        assert_eq!(yes_arg(false), None);
     }
 
     #[test]

@@ -140,11 +140,12 @@ let
 
     usage() {
       cat <<EOF >&2
-    Usage: update-all [--bump] [--switch] [--machine <name>] [--branch <branch>]
+    Usage: update-all [-y|--yes] [--bump] [--switch] [--machine <name>] [--branch <branch>]
 
     Full update: dom0 from the builder (dom0-update with the same arguments;
     --bump: new flake inputs first, --switch activates right away), then the
     Whonix-Gateway and -Workstation (apt over Tor)${lib.optionalString hasKali ", then Kali (apt)"}.
+    -y: apt without questions, no offer to restart a domain with a new kernel.
     Only rebuild dom0: dom0-update.
     EOF
       exit 1
@@ -152,6 +153,16 @@ let
     case "''${1:-}" in
       -h | --help) usage ;;
     esac
+
+    # -y is update-all's own, the rest goes to dom0-update
+    yes=0
+    args=()
+    for a in "$@"; do
+      case "$a" in
+        -y | --yes) yes=1 ;;
+        *) args+=("$a") ;;
+      esac
+    done
 
     # One password prompt for the whole run (dom0-update reuses it)
     if [ -t 0 ]; then
@@ -171,7 +182,7 @@ let
     }
     trap cleanup EXIT
 
-    dom0-update "$@"
+    dom0-update "''${args[@]}"
 
     # Starts the domain if it is off (the Gateway waits for sys-firewall's uplink)
     ensure_running() {
@@ -199,13 +210,18 @@ let
       done
       return 1
     }
-    # apt-get --update full-upgrade as root in the guest, interactive
+    # apt-get --update full-upgrade as root in the guest, interactive (-y:
+    # apt-upgrade-yes, no questions)
     apt_upgrade() {
       if ! wait_rpc "$1"; then
         echo "update-all: $1 does not answer over rpc after 2 min: look at its console (nox xen), or set up its rpc service once: xen-image-setup $1" >&2
         return 1
       fi
-      nox-rpc --dom0 apt-upgrade "$1"
+      if [ "$yes" = 1 ]; then
+        nox-rpc --dom0 apt-upgrade-yes "$1" </dev/null
+      else
+        nox-rpc --dom0 apt-upgrade "$1"
+      fi
     }
 
     # sdwdate syncs only over working Tor; the Workstation's firewall stays
@@ -227,6 +243,10 @@ let
       case " ''${started[*]} " in *" $1 "*) return 0 ;; esac
       read -r newest running < <(timeout 10 nox-rpc --dom0 kernel "$1" </dev/null 2>/dev/null)
       [ -n "$newest" ] && [ "$newest" != "$running" ] || return 0
+      if [ "$yes" = 1 ]; then
+        echo "update-all: new kernel in $1, active after its next restart" >&2
+        return 0
+      fi
       read -r -p "update-all: new kernel in $1, restart it now? [y/N] " answer
       case "$answer" in
         y | Y) sudo systemctl restart "xen-image@$1" ;;
