@@ -1,7 +1,8 @@
 # plymouth theme "nox": the NoX wallpaper (nox-branding, the theme's colors)
-# full screen, the passphrase in a translucent field below the logo (no prompt text), and the
-# boot in short form: the last systemd status lines in a translucent panel at
-# the bottom (older lines fade). Esc shows the full boot messages (plymouth's
+# full screen, the passphrase in a translucent field below the logo ("Enter
+# LUKS password" above it, the bullets centered), and the boot in short form:
+# the last units systemd finished starting as "[  OK  ] <unit>" in a
+# translucent panel at the bottom (older lines fade). Esc shows the full boot messages (plymouth's
 # console view). Script plugin, so no compiled code.
 {
   lib,
@@ -36,6 +37,11 @@ let
   # Font of the text (boot.plymouth.font, desktop/plymouth.nix)
   font = "FiraCode Nerd Font";
 
+  # Boot status panel: lines of 22 px, 14 px padding
+  lines = 8;
+  logW = 1040;
+  logH = 28 + lines * 22;
+
   script = writeText "nox.script" ''
     W = Window.GetWidth();
     H = Window.GetHeight();
@@ -52,7 +58,12 @@ let
     bg.sprite.SetPosition(X + (W - bg.scaled.GetWidth()) / 2, Y + (H - bg.scaled.GetHeight()) / 2, -100);
 
     #------------------------------ boot status (short) ------------------------------
-    LINES = 6;
+    # systemd sends a unit's name when it finished starting (unit.c,
+    # manager_send_unit_plymouth), so each line is an OK like on the console
+    LINES = ${toString lines};
+    LOG_FONT = "${font} 11";
+    log.ok_dx = Image.Text("[  ", 1, 1, 1, 1, LOG_FONT).GetWidth();
+    log.text_dx = Image.Text("[  OK  ] ", 1, 1, 1, 1, LOG_FONT).GetWidth();
     log.panel.image = Image("log.png");
     log.panel.sprite = Sprite(log.panel.image);
     log.x = X + W / 2 - log.panel.image.GetWidth() / 2;
@@ -61,8 +72,12 @@ let
     for (i = 0; i < LINES; i++)
       {
         log.text[i] = "";
+        log.frame[i] = Sprite();
+        log.frame[i].SetPosition(log.x + 20, log.y + 14 + i * 22, 11);
+        log.ok[i] = Sprite();
+        log.ok[i].SetPosition(log.x + 20 + log.ok_dx, log.y + 14 + i * 22, 11);
         log.sprite[i] = Sprite();
-        log.sprite[i].SetPosition(log.x + 20, log.y + 14 + i * 22, 11);
+        log.sprite[i].SetPosition(log.x + 20 + log.text_dx, log.y + 14 + i * 22, 11);
       }
 
     fun log_redraw ()
@@ -71,7 +86,19 @@ let
           {
             # newest line at the bottom, older ones fade
             alpha = 0.35 + 0.65 * (i + 1) / LINES;
-            log.sprite[i].SetImage(Image.Text(log.text[i], ${rgb colors.fg}, alpha, "${font} 11"));
+            if (log.text[i] == "")
+              {
+                frame = "";
+                ok = "";
+              }
+            else
+              {
+                frame = "[      ]";
+                ok = "OK";
+              }
+            log.frame[i].SetImage(Image.Text(frame, ${rgb colors.fg}, alpha, LOG_FONT));
+            log.ok[i].SetImage(Image.Text(ok, ${rgb colors.ok}, alpha, LOG_FONT));
+            log.sprite[i].SetImage(Image.Text(log.text[i], ${rgb colors.fg}, alpha, LOG_FONT));
           }
       }
 
@@ -89,14 +116,18 @@ let
     pw.field.sprite = Sprite(pw.field.image);
     pw.x = X + W / 2 - pw.field.image.GetWidth() / 2;
     # Lower than the logo's wordmark (padding), above the status panel
-    pw.y = Y + H * 0.75;
+    pw.y = Math.Min(Y + H * 0.75, log.y - pw.field.image.GetHeight() - 24);
     pw.field.sprite.SetPosition(pw.x, pw.y, 20);
+    pw.label.image = Image.Text("Enter LUKS password", ${rgb colors.fg}, 1, "${font} 12");
+    pw.label.sprite = Sprite(pw.label.image);
+    pw.label.sprite.SetPosition(X + W / 2 - pw.label.image.GetWidth() / 2,
+      pw.y - pw.label.image.GetHeight() - 10, 20);
     pw.bullet_image = Image("bullet.png");
-    pw.shown = 0;
 
     fun pw_opacity (o)
       {
         pw.field.sprite.SetOpacity(o);
+        pw.label.sprite.SetOpacity(o);
         for (i = 0; pw.bullet[i]; i++)
           pw.bullet[i].SetOpacity(o);
       }
@@ -105,14 +136,14 @@ let
     fun password_callback (prompt, bullets)
       {
         pw_opacity(1);
+        # The bullets centered in the field (16 px each, 20 px apart)
+        bx = pw.x + pw.field.image.GetWidth() / 2 - (bullets * 20 - 4) / 2;
+        by = pw.y + pw.field.image.GetHeight() / 2 - pw.bullet_image.GetHeight() / 2;
         for (i = 0; pw.bullet[i] || i < bullets; i++)
           {
             if (!pw.bullet[i])
-              {
-                pw.bullet[i] = Sprite(pw.bullet_image);
-                pw.bullet[i].SetPosition(pw.x + 18 + i * 20,
-                  pw.y + pw.field.image.GetHeight() / 2 - pw.bullet_image.GetHeight() / 2, 22);
-              }
+              pw.bullet[i] = Sprite(pw.bullet_image);
+            pw.bullet[i].SetPosition(bx + i * 20, by, 22);
             if (i < bullets)
               pw.bullet[i].SetOpacity(1);
             else
@@ -147,14 +178,14 @@ runCommand "nox-plymouth" { nativeBuildInputs = [ resvg ]; } ''
   d=$out/share/plymouth/themes/nox
   mkdir -p $d
   cp ${branding}/share/nox/wallpaper.png $d/background.png
-  resvg ${panel 900 164} $d/log.png
+  resvg ${panel logW logH} $d/log.png
   resvg ${panel 520 52} $d/field.png
   resvg ${bullet} $d/bullet.png
   cp ${script} $d/nox.script
   cat > $d/nox.plymouth <<EOF
   [Plymouth Theme]
   Name=NoX
-  Description=NoX wallpaper, passphrase field and the boot in short form
+  Description=NoX wallpaper, LUKS passphrase field and the boot in short form
   ModuleName=script
 
   [script]
