@@ -65,6 +65,33 @@ let
 in
 {
   config = lib.mkIf config.services.pipewire.enable {
+    # Echo cancellation in dom0 (2026-11-24): with speakers the far end heard
+    # itself. The apps' own WebRTC AEC sits in the VM behind two pulse
+    # tunnels (~2x200 ms, drifting clocks) and loses track of the echo.
+    # Here the reference is the default sink's monitor (monitor.mode: what
+    # really goes to the speakers, every VM and dom0), with a short, fixed
+    # delay to the mic. The cleaned source becomes the default source
+    # (priority.session above the ALSA nodes), so nox-pulse-mic and dom0
+    # apps record from it. The capture stream is passive: the mic only
+    # opens while someone records.
+    services.pipewire.extraConfig.pipewire."60-nox-echo-cancel" = {
+      "context.modules" = [
+        {
+          name = "libpipewire-module-echo-cancel";
+          args = {
+            "library.name" = "aec/libspa-aec-webrtc";
+            "monitor.mode" = true;
+            "capture.props"."node.name" = "nox-echo-cancel-capture";
+            "source.props" = {
+              "node.name" = "nox-echo-cancel-source";
+              "node.description" = "Microphone (echo cancelled)";
+              "priority.session" = 3000;
+            };
+          };
+        }
+      ];
+    };
+
     systemd.user.services = {
       nox-pulse-vm = service "vm" "pulse server for the VMs (playback only)" "block-record-stream" // {
         wantedBy = [ "default.target" ];
