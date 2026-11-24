@@ -198,7 +198,6 @@ in
   boot = {
     kernelModules = [
       "btusb"
-      "btintel"
       "usbip-host"
     ];
     # MSI under a PV dom0 (as sys-net, 2026-10-12); with a PVH dom0 MSI-X
@@ -234,6 +233,43 @@ in
       ExecStart = "${usbip}/bin/usbipd -4";
       Restart = "always";
     };
+  };
+
+  # A Bluetooth controller whose setup failed at boot: the kernel has an
+  # hci device, bluetoothd never gets it ("No default controller
+  # available"). Seen on the xmg: the controller was still busy after the
+  # controller reset of the passthrough ("reading intel version command
+  # failed (-16)"); reloading btusb runs the setup again and it works.
+  # Only that state is checked, nothing about the adapter model.
+  systemd.services.bt-setup-retry = {
+    description = "Reload btusb once if a Bluetooth controller failed its setup";
+    wantedBy = [ "bluetooth.service" ];
+    after = [ "bluetooth.service" ];
+    path = [
+      pkgs.bluez
+      pkgs.kmod
+      pkgs.coreutils
+    ];
+    serviceConfig.Type = "oneshot";
+    script = ''
+      ready() { [ -n "$(bluetoothctl list 2>/dev/null)" ]; }
+      for _ in $(seq 15); do
+        ready && exit 0
+        sleep 1
+      done
+      # No hci device at all: no adapter here (or exported), nothing to do
+      ls /sys/class/bluetooth/hci* >/dev/null 2>&1 || exit 0
+      echo "Bluetooth controller present but not usable, reloading btusb"
+      modprobe -r btusb
+      sleep 2
+      modprobe btusb
+      for _ in $(seq 15); do
+        ready && { echo "Bluetooth controller ready after reload"; exit 0; }
+        sleep 1
+      done
+      echo "Bluetooth controller still not usable after reload" >&2
+      exit 1
+    '';
   };
 
   networking = {
@@ -322,7 +358,6 @@ in
       General = {
         Experimental = true;
         FastConnectable = true;
-        Enable = "Source,Sink,Media,Socket";
       };
       Policy = {
         AutoEnable = true;

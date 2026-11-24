@@ -503,7 +503,10 @@ let
           "Bluetooth is currently managed by $owner-vm"
         ;;
     esac
-    exec nox run "$owner" dbus-run-session -- blueman-manager
+    # The applet is blueman's OBEX agent: without it on the same session bus
+    # incoming files (phone → VM) are not accepted. Both end with the window
+    # (dbus-run-session ends the bus)
+    exec nox run "$owner" dbus-run-session -- sh -c 'blueman-applet & exec blueman-manager'
   '';
 
   # Give the USB controllers back to dom0
