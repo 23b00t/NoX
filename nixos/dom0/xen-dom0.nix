@@ -437,6 +437,12 @@ in
           } with backends ${builtins.toJSON backends}.";
         }
         {
+          # also the uplink that xen-links attaches later (net-config
+          # `uplink.attachLate`): it is in neither list above
+          assertion = lib.all (b: lib.elem b domains) (usbLinks.backendsOf g);
+          message = "${name}: its network goes through an image domain (Tor), so every vif backend must be one; found ${builtins.toJSON (usbLinks.backendsOf g)}.";
+        }
+        {
           assertion = g.microvm.devices == [ ];
           message = "${name}: its network goes through an image domain (Tor); no PCI passthrough there (a NIC would bypass it).";
         }
@@ -645,6 +651,10 @@ in
     ];
     ifupdownHotplug = [ "eth0" ];
     driverDomain = true;
+    # Clients (Workstation, irc) get their vif only once the Whonix firewall
+    # is loaded (oneshot, sysinit.target); without it xl devd stays down and
+    # they stay offline (security review 2026-11-25)
+    backendRequires = [ "whonix-firewall.service" ];
     internalBridge = "eth1";
     # Terminal over wprs (the image has none), no SSH
     wprs = true;
@@ -879,12 +889,16 @@ in
       # VMs whose uplink backend is an image domain (irc: Whonix-Gateway) start
       # it with them; their preStart then waits for its data/backend-ready
       # (vms/modules/net-config.nix). Without it irc hung 3 min and looped.
+      # With `uplink.attachLate` the VM boots in parallel (no After) and
+      # xen-links attaches its vif once the backend is up
       (lib.mapAttrs'
         (
           name: units:
           lib.nameValuePair "microvm@${name}" {
             wants = units;
-            after = units;
+            after = lib.optionals (
+              !(config.microvm.vms.${name}.config.config.services.net-config.uplink.attachLate or false)
+            ) units;
           }
         )
         (
@@ -892,7 +906,7 @@ in
             lib.mapAttrs (
               _: vm:
               let
-                backends = lib.attrValues (vm.config.config.microvm.xen.interfaceBackends or { });
+                backends = usbLinks.backendsOf vm.config.config;
               in
               lib.mapAttrsToList (n: _: "xen-image@${n}.service") (
                 lib.filterAttrs (_: d: lib.elem d.domain backends) imageDomains

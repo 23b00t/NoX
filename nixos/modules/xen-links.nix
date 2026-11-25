@@ -69,8 +69,14 @@ let
       ]
     }
     declare -A notconnected
+    # seconds since the last round; a round right after a waiting one comes
+    # sooner (1 s instead of 5 s): a vif created late (net-config
+    # `attachLate`, sys-firewall at boot) is attached about 1 s after its
+    # backend is up
+    nap=5
 
     while true; do
+      waiting=0
       while read -r dom mac bridge backend <&3; do
         key="$dom/$mac"
         domid="$(xl domid "$dom" 2>/dev/null)" || domid=""
@@ -100,16 +106,19 @@ let
         # Something to fix: the backend must be up (its bridge exists only
         # once its network is configured), otherwise the hotplug script
         # there fails. It writes data/backend-ready once xl devd runs.
-        [ "$(xenstore-read "/local/domain/$bedomid/data/backend-ready" 2>/dev/null)" = 1 ] || continue
+        if [ "$(xenstore-read "/local/domain/$bedomid/data/backend-ready" 2>/dev/null)" != 1 ]; then
+          [ -n "$idx" ] || waiting=1
+          continue
+        fi
 
         if [ -n "$idx" ]; then
           if [ "$state" = 4 ]; then
             notconnected[$key]=0
           else
-            notconnected[$key]=$(( ''${notconnected[$key]:-0} + 1 ))
+            notconnected[$key]=$(( ''${notconnected[$key]:-0} + nap ))
           fi
           if [ "$be" != "$bedomid" ] || [ "$hotplug" = error ] \
-            || [ "''${notconnected[$key]}" -ge ${toString cfg.graceRounds} ]; then
+            || [ "''${notconnected[$key]}" -ge ${toString (cfg.graceRounds * 5)} ]; then
             echo "$dom: detaching stale vif $mac (backend $be, state $state, hotplug $hotplug)"
             timeout 30 xl network-detach "$dom" "$idx" </dev/null || true
             idx=""
@@ -121,7 +130,8 @@ let
           notconnected[$key]=0
         fi
       done 3< ${linkTable}
-      sleep 5
+      if [ "$waiting" = 1 ]; then nap=1; else nap=5; fi
+      sleep "$nap"
     done
   '';
 in

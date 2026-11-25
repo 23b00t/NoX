@@ -102,6 +102,12 @@ let
           default = false;
           description = "Serve vifs for other domains (`xl devd` in the guest).";
         };
+        backendRequires = lib.mkOption {
+          type = lib.types.listOf lib.types.str;
+          default = [ ];
+          example = [ "whonix-firewall.service" ];
+          description = "Units of the guest that must be active before `xl devd` serves vifs and writes data/backend-ready (Requires + After): a missing or failed unit keeps the clients offline.";
+        };
         internalBridge = lib.mkOption {
           type = lib.types.nullOr lib.types.str;
           default = null;
@@ -573,10 +579,10 @@ let
           cp ${unit ''
             [Unit]
             Description=Xen driver domain device daemon
-            Requires=proc-xen.mount nix-store.mount
+            Requires=proc-xen.mount nix-store.mount${lib.concatMapStrings (u: " ${u}") d.backendRequires}
             After=proc-xen.mount nix-store.mount${
               lib.optionalString (d.internalBridge != null) " nox-bridge.service"
-            }
+            }${lib.concatMapStrings (u: " ${u}") d.backendRequires}
 
             [Service]
             Type=forking

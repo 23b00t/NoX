@@ -64,6 +64,11 @@ in
     net-config = {
       enable = true;
       index = 33;
+      # Boots in parallel with sys-net instead of after it (~6 s off every
+      # VM's start at boot, 2026-11-25): xen-links attaches the uplink once
+      # sys-net is up. The rules match interface names (iifname/oifname),
+      # so a late uplink is covered; xen-uplink-state reports it to dom0
+      uplink.attachLate = true;
     };
 
     common-config = {

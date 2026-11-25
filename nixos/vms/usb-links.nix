@@ -48,8 +48,21 @@ rec {
   viaImageDomain =
     guestConfig:
     builtins.any (b: builtins.elem b (map (i: "${i.name}-vm") vmRegistry.imageDomains)) (
-      builtins.attrValues (guestConfig.microvm.xen.interfaceBackends or { })
+      backendsOf guestConfig
     );
+
+  # Backend domains of a guest's vifs: the ones in its domain config, plus its
+  # uplink's even when that vif is attached later by xen-links (net-config
+  # `uplink.attachLate`, not in microvm.xen.interfaceBackends)
+  backendsOf =
+    guestConfig:
+    let
+      uplink = guestConfig.services.net-config.uplink or { };
+    in
+    builtins.attrValues (guestConfig.microvm.xen.interfaceBackends or { })
+    ++ lib.optional (
+      (guestConfig.services.net-config.enable or false) && (uplink.enable or false)
+    ) uplink.backend;
 
   inputDevices = builtins.filter (d: (d.defaultOwner or null) == "host") devices;
 

@@ -24,6 +24,9 @@ let
       null;
   effectiveGateway4 = cfg.gateway4;
   needsOnLinkGatewayRoute = effectiveAddress4 != null && hasSuffix "/32" effectiveAddress4;
+  # The uplink vif is created with the domain (the domain waits for its
+  # backend), unless `attachLate`
+  vifInConfig = cfg.uplink.enable && !cfg.uplink.attachLate;
 
   macs = import ../../registry/macs.nix { inherit lib; };
 
@@ -165,6 +168,12 @@ in
         defaultText = literalExpression ''"vm-uplink" (sys-net), "vm-vpn" (sys-vpn)'';
         description = "Bridge in the backend domain.";
       };
+
+      attachLate = mkOption {
+        type = types.bool;
+        default = false;
+        description = "Create the domain without its uplink vif, so it boots in parallel with the backend instead of waiting for it; dom0's xen-links attaches the vif once the backend is ready. A VM behind an image domain (Tor) is still recognised as one (usb-links.nix `backendsOf`: no USB/IP).";
+      };
     };
   };
 
@@ -197,21 +206,22 @@ in
           type = "tap";
           inherit (cfg) mac;
         }
-        ++ optional cfg.uplink.enable {
+        ++ optional vifInConfig {
           id = "uplink";
           type = "bridge";
           inherit (cfg.uplink) mac bridge;
         };
 
-      xen.interfaceBackends = mkIf cfg.uplink.enable {
+      xen.interfaceBackends = mkIf vifInConfig {
         uplink = cfg.uplink.backend;
       };
 
       # Runs in dom0 before the domain is created: the uplink backend (xl devd
       # in sys-net) must be up, otherwise creating the vif fails. The driver
       # domain writes data/backend-ready once xl devd runs (common-config.nix,
-      # Whonix-Gateway: modules/xen-image-domains.nix).
-      preStart = mkIf cfg.uplink.enable ''
+      # Whonix-Gateway: modules/xen-image-domains.nix). With `attachLate` the
+      # vif is not in the domain config: no wait, xen-links attaches it
+      preStart = mkIf vifInConfig ''
         for _ in $(${hostPkgs.coreutils}/bin/seq 180); do
           be="$(${config.microvm.xen.package}/bin/xl domid ${cfg.uplink.backend} 2>/dev/null)" || be=""
           if [ -n "$be" ] && [ "$(${config.microvm.xen.package}/bin/xenstore-read "/local/domain/$be/data/backend-ready" 2>/dev/null)" = 1 ]; then
