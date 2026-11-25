@@ -14,6 +14,10 @@
       nic = [ ]; # e.g. "r8169"
       wifi = [ ]; # e.g. "iwlwifi"
     };
+    # Only when the machine's only keyboard is on USB (nox-hwcheck sets it):
+    # if sys-usb is not up 120 s after its start, dom0 takes the USB
+    # controllers back (and every USB device)
+    # usbInputFallback = true;
   };
   # Passed-through PCI devices (`lspci -D`): network cards -> sys-net,
   # USB controllers -> sys-usb, GPU (+ audio function) -> VMs with gpu = true

@@ -7,9 +7,11 @@
 #   allowed with `vm-usb allow-input` come back from sys-usb over RPC as raw
 #   events (cat) into a filtering uinput receiver; others raise a notification
 # - USB/IP links: kept connected by modules/xen-links.nix
-# - fallback: if sys-usb is not reachable 120 s after its start, the USB
-#   controllers go back to dom0 (needed on the XMG for keyboard/mouse)
-# - sys-usb-rescue: the same by hand
+# - fallback (host profile `usbInputFallback`, for machines whose only
+#   keyboard is on USB): if sys-usb is not reachable 120 s after its start,
+#   the USB controllers go back to dom0, and with them every USB device.
+#   Off by default: a laptop keeps its keyboard (i8042/I2C) anyway, and a
+#   broken sys-usb image is undone by booting the previous generation
 {
   lib,
   pkgs,
@@ -21,6 +23,7 @@ let
   cfg = config.services.xen-usb;
   links = import ../vms/usb-links.nix { inherit lib vmRegistry; };
   usbPciPaths = vmRegistry.hardware.pci.devicePaths.usb or [ ];
+  inputFallback = vmRegistry.hostProfile.usbInputFallback or false;
   xen = config.virtualisation.xen.package;
   stateDir = "/run/vm-usb";
   noxRpc = "${config.services.nox-rpc.package}/bin/nox-rpc";
@@ -518,21 +521,10 @@ let
       xl pci-assignable-remove -r ${path} || true
     '') usbPciPaths}
   '';
-
-  sysUsbRescue = pkgs.writeShellScriptBin "sys-usb-rescue" ''
-    set -u
-    sudo systemctl stop microvm@sys-usb
-    sudo ${pkgs.writeShellScript "sys-usb-release" ''
-      PATH=${lib.makeBinPath [ xen ]}
-      ${releaseControllers}
-    ''}
-    echo "USB controllers are back in dom0."
-    echo "Start sys-usb again later with: sudo systemctl start microvm@sys-usb"
-  '';
 in
 {
   options.services.xen-usb = {
-    enable = lib.mkEnableOption "dom0 side of sys-usb (input proxy, fallback)";
+    enable = lib.mkEnableOption "dom0 side of sys-usb (vm-usb, input proxy, optional fallback)";
 
     user = lib.mkOption {
       type = lib.types.str;
@@ -543,15 +535,40 @@ in
     fallbackTimeout = lib.mkOption {
       type = lib.types.ints.positive;
       default = 120;
-      description = "Seconds sys-usb gets to become reachable before dom0 takes the USB controllers back.";
+      description = "Seconds sys-usb gets to become reachable before dom0 takes the USB controllers back (host profile `usbInputFallback`).";
     };
   };
 
   config = lib.mkIf cfg.enable {
     hardware.uinput.enable = true;
 
+    # The USB devices belong to sys-usb: dom0 binds no audio, camera,
+    # Bluetooth, network, modem/serial or storage driver to them in the
+    # seconds before the handover. A probe still running when
+    # pci-assignable-add pulls the xHCI hung in a 5 s USB timeout and held
+    # sys-usb back (xmg 2026-11-25: snd-usb-audio on the webcam mic, 5.3 s);
+    # a USB NIC or tethered phone would put dom0 online past sys-net, a
+    # stick would be read by dom0. HID stays for the initrd and the
+    # fallback. Only when the machine gives sys-usb its controllers
+    boot.blacklistedKernelModules = lib.mkIf (usbPciPaths != [ ]) [
+      "snd_usb_audio"
+      "uvcvideo"
+      "btusb"
+      "r8152"
+      "cdc_ether"
+      "cdc_ncm"
+      "cdc_mbim"
+      "rndis_host"
+      "ipheth"
+      "ax88179_178a"
+      "asix"
+      "qmi_wwan"
+      "cdc_acm"
+      "usb_storage"
+      "uas"
+    ];
+
     environment.systemPackages = [
-      sysUsbRescue
       vmUsb
       inputTo
       inputBack
@@ -584,7 +601,8 @@ in
           RestartSec = 5;
         };
       };
-
+    }
+    // lib.optionalAttrs inputFallback {
       sys-usb-fallback = {
         description = "Take the USB controllers back if sys-usb does not come up";
         wantedBy = [ "microvm@sys-usb.service" ];

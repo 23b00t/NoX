@@ -1449,8 +1449,8 @@ fn usb(t: &mut Table, usb: Option<&Usb>, running: &[Domain]) {
         t.row(Stat::Skip, "usb", "no sys-usb on this machine");
         return;
     };
-    // also with sys-usb stopped: after sys-usb-fallback/-rescue the
-    // controllers are back on their USB driver in dom0
+    // also with sys-usb stopped: after sys-usb-fallback (host profile
+    // usbInputFallback) the controllers are back on their USB driver in dom0
     if usb.pci.is_empty() {
         t.row(
             Stat::Skip,
@@ -1502,7 +1502,7 @@ fn usb(t: &mut Table, usb: Option<&Usb>, running: &[Domain]) {
             t.row(
                 Stat::Fail,
                 "usb controllers",
-                &format!("{} in dom0 (sys-usb-fallback or -rescue?)", bad.join(", ")),
+                &format!("{} in dom0 (sys-usb-fallback?)", bad.join(", ")),
             );
         }
     }

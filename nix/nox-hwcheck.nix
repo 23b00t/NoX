@@ -122,6 +122,32 @@ writeShellApplication {
       fi
     }
 
+    # Keyboards that stay in dom0 when sys-usb takes the USB controllers:
+    # built in (i8042, I2C) or on a PS/2 port, not USB (Bluetooth sits on
+    # USB too) and not virtual (uinput, e.g. the input proxy in dom0). A
+    # keyboard has the keys Esc to S (key bits 1-31, as udev's input_id);
+    # mice and hotkey devices do not. One name per line
+    dom0kbds() {
+      gawk '
+        function kbd(k, w) {
+          w = k[length(k)]
+          w = substr("00000000" w, length(w) + 1)
+          return and(strtonum("0x" w), 4294967294) == 4294967294
+        }
+        /^I:/ { name = ""; sysfs = ""; key = "" }
+        /^N: Name=/ { name = substr($0, 10); gsub(/"/, "", name) }
+        /^S: Sysfs=/ { sysfs = substr($0, 10) }
+        /^B: KEY=/ { key = substr($0, 8) }
+        /^$/ {
+          if (key != "" && sysfs !~ /\/usb|\/virtual\//) {
+            split(key, k, " ")
+            if (kbd(k)) print name
+          }
+          key = ""
+        }
+      ' /proc/bus/input/devices 2>/dev/null
+    }
+
     if [ "$mode" = nix ]; then
       slug() { tr '[:upper:]' '[:lower:]' <<<"$*" | sed 's/[^a-z0-9]\+/-/g; s/^-//; s/-$//' | cut -c1-28; }
       nicmods="" wifimods=""
@@ -153,6 +179,11 @@ writeShellApplication {
       echo "      nic = [$nicmods ];"
       echo "      wifi = [$wifimods ];"
       echo "    };"
+      if [ -z "$(dom0kbds)" ]; then
+        echo "    # The only keyboard is on USB: if sys-usb is not up 120 s after its"
+        echo "    # start, dom0 takes the USB controllers back (and every USB device)"
+        echo "    usbInputFallback = true;"
+      fi
       echo "  };"
       echo "  pciDevicePaths = {"
       echo "    nic = ["
@@ -293,10 +324,11 @@ writeShellApplication {
       done
     done
     [ -n "$usbs" ] || warn "no USB controller found"
-    if grep -qE 'Phys=(isa0060|i2c|.*i2c)' /proc/bus/input/devices 2>/dev/null; then
-      ok "internal keyboard/touchpad (i8042/I2C): stays in dom0"
+    kbds="$(dom0kbds | paste -sd, -)"
+    if [ -n "$kbds" ]; then
+      ok "keyboard outside USB ($kbds): stays in dom0"
     else
-      warn "keyboard/mouse only over USB: input reaches dom0 through sys-usb's input proxy (no keyboard if sys-usb fails; sys-usb-rescue)"
+      warn "keyboard only over USB: it reaches dom0 through sys-usb's input proxy; --nix sets usbInputFallback = true (sys-usb not up after 120 s: dom0 takes the USB controllers back)"
     fi
     inv="$(usbinv)"
     if [ -n "$inv" ]; then

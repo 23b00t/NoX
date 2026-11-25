@@ -433,18 +433,10 @@ in
     noto-fonts-color-emoji
   ];
 
-  networking = {
-    networkmanager = {
-      enable = true;
-      unmanaged = [
-        "interface-name:vm*"
-        "interface-name:vnet*"
-      ];
-    };
-    # No modem in dom0 (USB belongs to sys-usb): NetworkManager would bring
-    # ModemManager along, a root daemon probing serial and USB devices
-    modemmanager.enable = false;
-  };
+  # No DHCP in dom0: every network card belongs to sys-net; without this
+  # (NetworkManager used to turn it off) dhcpcd would configure any
+  # interface that shows up, e.g. a USB or Thunderbolt NIC
+  networking.useDHCP = false;
 
   # dom0 runs no 32-bit programs (games and Windows run in VMs);
   # nixos-hardware's common/gpu profiles turn the 32-bit drivers on

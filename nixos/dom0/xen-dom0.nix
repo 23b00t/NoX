@@ -14,12 +14,6 @@ let
     inherit lib;
     inherit (config.nox.desktop) theme;
   };
-  nicPciPaths = vmRegistry.hardware.pci.devicePaths.nic or [ ];
-  # NIC drivers blacklisted in dom0 (registry hostProfile), loaded again by
-  # sys-net-rescue
-  nicDrivers =
-    (vmRegistry.hostProfile.blockedHostDrivers.nic or [ ])
-    ++ (vmRegistry.hostProfile.blockedHostDrivers.wifi or [ ]);
   dom0TestAccess = vmRegistry.hostProfile.dom0TestAccess or null;
   # Kali image domain (from the user's config), updated by update-all
   hasKali = config.services.xen-image-domains.domains ? kali;
@@ -64,23 +58,6 @@ let
         ${pkgs.libnotify}/bin/notify-send -u critical -a nox "VM $1 did not start" "$line" || true
     fi
     systemctl reset-failed "$unit"
-  '';
-
-  # Emergency exit if sys-net does not come up: give the WLAN card back to dom0
-  sysNetRescue = pkgs.writeShellScriptBin "sys-net-rescue" ''
-    set -u
-    sudo systemctl stop microvm@sys-net
-    # A domain left behind (e.g. paused/shut down) would keep the card
-    if sudo xl domid sys-net-vm >/dev/null 2>&1; then
-      sudo xl destroy sys-net-vm || true
-    fi
-    ${lib.concatMapStrings (path: ''
-      sudo xl pci-assignable-remove -r ${path} || true
-    '') nicPciPaths}
-    # Blacklisted for autoloading only; an explicit modprobe works
-    ${lib.concatMapStringsSep "\n" (m: "sudo ${pkgs.kmod}/bin/modprobe ${m}") nicDrivers}
-    echo "WLAN is back in dom0, NetworkManager reconnects as before."
-    echo "Start sys-net again later with: sudo systemctl start microvm@sys-net"
   '';
 
   # Copy rules of a VM (registry `copy`): sys-* VMs take files (e.g. a
@@ -499,7 +476,7 @@ in
     dom0-update.enable = vmRegistry.byName ? builder;
 
     # v2.6: both USB controllers belong to sys-usb; input devices come back via
-    # the input proxy, the webcam goes to chat via USB/IP. `sys-usb-rescue`.
+    # the input proxy, the webcam goes to chat via USB/IP.
     xen-usb = {
       enable = true;
       inherit (config.nox) user;
@@ -685,11 +662,19 @@ in
   # program pages out, 2026-10-18). Swap only when memory is really short
   boot.kernel.sysctl."vm.swappiness" = 1;
 
-  # v2.5: the WLAN card belongs to sys-net (registry `hardware.pci`, driver
-  # blacklisted in dom0). `sys-net-rescue` hands it back in an emergency.
-  environment.systemPackages = [
-    sysNetRescue
-    updateAll
+  environment.systemPackages = [ updateAll ];
+
+  # Drivers dom0 never needs (NoX is Xen only): no network outside sys-net
+  # (Thunderbolt networking), no removable media (SD cards), and what the
+  # nixpkgs Xen module and microvm.nix load for hardware or runners NoX
+  # does not use (NetXen NICs, pvSCSI, vhost/macvtap for QEMU)
+  boot.blacklistedKernelModules = [
+    "thunderbolt_net"
+    "mmc_block"
+    "netxen_nic"
+    "xen_scsiback"
+    "vhost_net"
+    "tap"
   ];
 
   # `nox`: one command over the VM tools (list, run, …), vm-clip, nox-copy, dom0-update,
@@ -744,8 +729,10 @@ in
     };
   };
 
-  # Xen creates vifs as vif<domid>.<n> before renaming them to vm<N>
-  networking.networkmanager.unmanaged = [ "interface-name:vif*" ];
+  # No NetworkManager in dom0: every network card belongs to sys-net, and
+  # systemd-networkd (systemd.network below) configures only the admin
+  # bridge and the VM ports, so any other interface (a USB or Thunderbolt
+  # NIC) stays without an address
 
   systemd = {
     services = lib.mkMerge [
@@ -1023,13 +1010,10 @@ in
         # dom0: default route via sys-net in the test phase (HTTPS/DNS/NTP
         # only, see vms/sys-net); without dom0TestAccess dom0 is offline
         "32-vm-internal" = {
-          # High metric: after `sys-net-rescue` the WLAN route from
-          # NetworkManager (metric 600) wins over the dead sys-net
           routes = lib.mkForce (
             lib.optional (dom0TestAccess != null) {
               Destination = "0.0.0.0/0";
               Gateway = "10.0.0.253";
-              Metric = 2000;
             }
           );
           networkConfig.DNS = lib.mkIf (dom0TestAccess != null) [

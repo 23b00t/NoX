@@ -4,7 +4,8 @@
 # user's vms/registry.nix (NoX modules step 4); used by lib/systems.nix.
 #
 # machines.<host> = {
-#   profile        cpuVendor, dom0Pv, dGpuVendor, blockedHostDrivers, dom0TestAccess
+#   profile        cpuVendor, dom0Pv, dGpuVendor, blockedHostDrivers, dom0TestAccess,
+#                  usbInputFallback
 #   usbDevices     USB inventory: name, vendorId, productId, policy
 #                  (host-allow | vm-reserved), defaultOwner, allowedOwners, …
 #   pciDeviceIds   { nic = [ "vendor:device" … ]; gpu; gpuAudio; } (vfio ids)
