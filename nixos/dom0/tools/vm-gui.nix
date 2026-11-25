@@ -186,8 +186,10 @@ let
   # `paste` hands it to the focused window's domain and empties the store;
   # `put` stores stdin from dom0 itself (emoji/glyph pickers, also into
   # dom0's clipboard).
-  # Rules from the registry (`clipboard`); notifications never show content
-  clipPolicy = vm: vm.clipboard or (if lib.hasPrefix "sys-" vm.name then "deny" else "allow");
+  # Rules from the registry (`clipboard`, default allow); dom0 is `ask`:
+  # copying out of dom0 asks, pasting into it and `put` don't. Notifications
+  # never show content
+  clipPolicy = vm: vm.clipboard or "allow";
   clipCases = lib.concatMapStrings (vm: "    ${vm.name}) echo ${clipPolicy vm} ;;\n") (
     vmRegistry.vms ++ vmRegistry.imageDomains
   );
@@ -231,7 +233,7 @@ let
 
     policy() {
       case "$1" in
-        dom0) echo allow ;;
+        dom0) echo ask ;;
     ${clipCases}
         *) echo deny ;;
       esac

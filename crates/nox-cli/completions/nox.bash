@@ -54,14 +54,14 @@ _nox() {
     backup)
       # home: <vm>… | --all; --full [--level N] <vm>[:disk,…] | dom0 | builder | --all
       if [ "$n" -eq 0 ]; then
-        words="$(_nox_vms) --all --full --level restore disks list prune help"
+        words="$(_nox_vms) --all --full --level restore disks list prune close help"
         [[ " ${COMP_WORDS[*]} " == *" --full "* ]] && words="$words dom0 builder"
       else
         case "${COMP_WORDS[2]}" in
           restore) words="$(_nox_vms) dom0 builder --all --full --from" ;;
           disks) words="$(_nox_vms) --all" ;;
           prune) if [ "$n" -eq 1 ]; then words="home full"; else words="$(_nox_vms) dom0 builder --keep -n"; fi ;;
-          list | help) words="" ;;
+          list | close | help) words="" ;;
           *) words="$(_nox_vms) dom0 builder --all --full --level" ;;
         esac
       fi

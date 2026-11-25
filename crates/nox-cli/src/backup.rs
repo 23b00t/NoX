@@ -8,6 +8,9 @@
 //! disp-backup, one generation per run. A restore checks the checksum while
 //! it streams into a staging copy; the disk is replaced only then. (The
 //! rsync home backup is gone, 2026-10-29: too fragile.)
+//! After a run the disk stays open and disp-backup keeps running; the next
+//! run reuses it (no busid, no passphrase). `nox backup close` unmounts and
+//! stops it.
 //!
 //! Data: /etc/nox/registry.json `backup` (NoX nixos/dom0/tools/vm-backup.nix)
 //! and `domains` (units). Rust orchestrates; tar, zstd, sha256sum and
@@ -44,6 +47,8 @@ pub enum Req {
     },
     Disks(Sel),
     List,
+    /// Unmount and lock the disk, stop disp-backup
+    Close,
     Prune {
         keep: u32,
         dry_run: bool,
@@ -227,7 +232,7 @@ extern "C" {
 }
 
 /// Ctrl+C ends the current step (its tools get the signal too) and then the
-/// run, with the summary and the disk locked; nox itself is not killed
+/// run, with the summary; nox itself is not killed
 fn catch_sigint() {
     const SIGINT: i32 = 2;
     // SAFETY: the handler only stores an atomic
@@ -457,17 +462,24 @@ fn records(r: impl Read) -> impl Iterator<Item = String> {
 
 // ---------- session: disp-backup with the disk open ----------
 
-struct Session {
-    doms: Arc<Doms>,
+struct Session;
+
+/// The `status` answer of disp-backup: is the disk mounted?
+fn status_open(a: &Answer) -> bool {
+    a.ok() && a.text.iter().any(|l| l.trim() == "open")
 }
 
 impl Session {
     fn open(doms: Arc<Doms>) -> Result<Session, String> {
+        // A disp-backup from an earlier run with the disk still open: reuse
+        if doms.running("disp-backup") && status_open(&call("status", None, true)) {
+            warn("using the open backup disk in disp-backup");
+            return Ok(Session);
+        }
         warn("starting disp-backup");
         if !doms.systemctl("start", "disp-backup") {
             return Err("disp-backup does not start".into());
         }
-        let s = Session { doms };
         if !wait_rpc("disp-backup") {
             return Err("disp-backup does not answer".into());
         }
@@ -514,7 +526,7 @@ impl Session {
             let input: Box<dyn Read + Send> = Box::new(io::Cursor::new(format!("{pw}\n")));
             let a = call(open, Some(input), false);
             match a.rc {
-                Some(0) => return Ok(s),
+                Some(0) => return Ok(Session),
                 Some(3) if attempt < 3 => continue,
                 _ => break,
             }
@@ -525,14 +537,8 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        let closed = call("close", None, false).ok();
-        self.doms.systemctl("stop", "disp-backup");
-        if closed {
-            warn("disk locked, disp-backup stopped");
-        } else {
-            // stopping disp-backup takes the disk away anyway, but unclean
-            warn("disp-backup stopped, but the disk was not unmounted cleanly: check it (nox backup list) before relying on the last run");
-        }
+        // also after errors and Ctrl+C: the disk stays open for the next run
+        warn("disp-backup is still running, the backup disk is open. Unmount and stop: nox backup close");
     }
 }
 
@@ -1500,6 +1506,25 @@ pub fn main(req: Req) -> ExitCode {
                 Err(e) => fail(&e),
             }
         }
+        Req::Close => {
+            if !doms.running("disp-backup") {
+                say("nothing open");
+                return ExitCode::SUCCESS;
+            }
+            if let Err(e) = sudo_keepalive() {
+                return fail(&e);
+            }
+            let closed = call("close", None, false).ok();
+            doms.systemctl("stop", "disp-backup");
+            if closed {
+                warn("disk locked, disp-backup stopped");
+                ExitCode::SUCCESS
+            } else {
+                // stopping disp-backup takes the disk away anyway, but unclean
+                warn("disp-backup stopped, but the disk was not unmounted cleanly: check it (nox backup list) before relying on the last run");
+                ExitCode::from(1)
+            }
+        }
         Req::List => run_session(&doms, &format!("{gen}-list"), |_, _| {
             call("list", None, false).ok()
         }),
@@ -1602,8 +1627,7 @@ fn run_session(
     let ok = match Session::open(doms.clone()) {
         Ok(_session) => work(&log, t0),
         Err(e) => {
-            // the session's Drop locks the disk; a failed open still stops
-            // disp-backup
+            // a failed open never leaves disp-backup running
             warn(&e);
             doms.systemctl("stop", "disp-backup");
             false
@@ -1632,6 +1656,18 @@ mod tests {
               ]}"#,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn status_answer() {
+        let a = |rc, t: &str| Answer {
+            rc,
+            text: vec![t.into()],
+            ..Default::default()
+        };
+        assert!(status_open(&a(Some(0), "open")));
+        assert!(!status_open(&a(Some(0), "closed")));
+        assert!(!status_open(&a(None, "open")));
     }
 
     #[test]

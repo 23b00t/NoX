@@ -202,7 +202,7 @@ enum Cmd {
         cmd: Vec<OsString>,
     },
     /// Back up VMs onto the external LUKS backup disk (src/backup.rs): whole
-    /// disks per VM, image domain, dom0's ~/.ssh; restore, list, prune
+    /// disks per VM, image domain, dom0's ~/.ssh; restore, list, prune, close
     #[command(long_about = BACKUP_ABOUT)]
     Backup(Backup),
     /// Copy a file once from a VM's ~/outbox into dom0 (~/Incoming/<vm>/,
@@ -403,7 +403,8 @@ enum Cmd {
 const BACKUP_ABOUT: &str =
     "Back up VMs onto the external LUKS backup disk (README \"Backup\").\n\n\
     Whole disks: a VM's disks, an image domain's image, dom0's ~/.ssh, the builder's key.\n\
-    Every run is a generation named by its start time, e.g. 2026-10-21_201500.";
+    Every run is a generation named by its start time, e.g. 2026-10-21_201500.\n\
+    The disk stays open and disp-backup keeps running after a run (the next run reuses it); `nox backup close` unmounts and stops it.";
 
 /// `nox backup`: the arguments are checked here, the work is src/backup.rs
 /// (README "Backup" explains every case)
@@ -422,7 +423,8 @@ const BACKUP_ABOUT: &str =
       nox backup restore coding             see: nox backup restore help\n  \
       nox backup disks --all                show what a backup would take (backs up nothing)\n  \
       nox backup list                       all generations, free space\n  \
-      nox backup prune --keep 2 -n          see: nox backup prune help"
+      nox backup prune --keep 2 -n          see: nox backup prune help\n  \
+      nox backup close                      unmount the disk, stop disp-backup"
 )]
 struct Backup {
     #[command(subcommand)]
@@ -481,6 +483,10 @@ enum BackupCmd {
     },
     /// All generations on the disk and the free space
     List,
+    /// Unmount and lock the backup disk, stop disp-backup (a run leaves it open)
+    #[command(after_long_help = "Examples:\n  \
+      nox backup close                      after the last backup or restore")]
+    Close,
     /// Delete old generations: all but the newest KEEP per target
     #[command(after_long_help = "Examples:\n  \
       nox backup prune --keep 2 -n          only show what would go\n  \
@@ -541,6 +547,7 @@ fn backup_req(b: Backup) -> backup::Req {
         Some(BackupCmd::Restore { from, sel: s }) => Req::Restore { from, sel: sel(s) },
         Some(BackupCmd::Disks { sel: s }) => Req::Disks(sel(s)),
         Some(BackupCmd::List) => Req::List,
+        Some(BackupCmd::Close) => Req::Close,
         Some(BackupCmd::Prune {
             keep,
             dry_run,
@@ -1470,6 +1477,7 @@ mod tests {
         assert!(backup(&["restore", "--full", "coding"]).is_err());
         assert_eq!(backup(&["disks", "--all"]).unwrap(), Req::Disks(Sel::All));
         assert_eq!(backup(&["list"]).unwrap(), Req::List);
+        assert_eq!(backup(&["close"]).unwrap(), Req::Close);
         assert_eq!(
             backup(&["prune", "--keep", "5", "-n", "chat"]).unwrap(),
             Req::Prune {

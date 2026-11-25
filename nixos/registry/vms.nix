@@ -306,7 +306,7 @@ let
         ]
       );
       default = null;
-      description = "Copy/paste through dom0 (vm-clip): allow, ask (pasting in is free, copying out asks) or deny. Default: deny for sys-* VMs, else allow.";
+      description = "Copy/paste through dom0 (vm-clip): allow, ask (pasting in is free, copying out asks) or deny. Default: allow.";
     };
     copy = mkOption {
       type = types.nullOr copyType;

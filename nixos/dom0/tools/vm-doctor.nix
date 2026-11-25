@@ -22,7 +22,7 @@ let
   unitOf = name: if imageDomains ? ${name} then "xen-image@${name}" else "microvm@${name}";
 
   # Same rule as vm-clip (home/vm-management/vm-gui.nix)
-  clipPolicy = vm: vm.clipboard or (if lib.hasPrefix "sys-" vm.name then "deny" else "allow");
+  clipPolicy = vm: vm.clipboard or "allow";
   listen = h: relayed.${h.name}.listen or { };
   serve = h: relayed.${h.name}.serve or { };
 

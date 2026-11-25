@@ -128,6 +128,9 @@ let
         mkdir -p "$full"
         echo "opened $dev"
         ;;
+      status) # prints open or closed
+        if mountpoint -q ${mnt}; then echo "open"; else echo "closed"; fi
+        ;;
       close)
         sync
         # After Ctrl+C in dom0 a stream here may still write: retry
